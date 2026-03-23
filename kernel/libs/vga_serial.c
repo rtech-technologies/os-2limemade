@@ -59,6 +59,9 @@ void vga_clear(void) {
 }
 
 void vga_write_char(char c, uint8_t color) {
+    /* Rule: Modernize - Serial Mirroring for VGA Visibility */
+    serial_write_char(c);
+
     if (c == '\n') {
         vga_cursor_x = 0;
         vga_cursor_y++;

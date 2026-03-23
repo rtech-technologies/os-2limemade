@@ -8,10 +8,11 @@ def main():
 
     img_path = sys.argv[1]
 
-    # Create a 64MB blank image
+    # Create a 64MB blank image (Sparse-like)
     img_size = 64 * 1024 * 1024
     with open(img_path, "wb") as f:
-        f.write(b'\x00' * img_size)
+        f.seek(img_size - 1)
+        f.write(b'\0')
 
     # Inject 0xDEADBEEF at LBA 0
     with open(img_path, "r+b") as f:

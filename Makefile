@@ -11,9 +11,12 @@ KERNEL_ELF = kernel.elf
 
 ISO_IMAGE = osx2.iso
 
-.PHONY: all menuconfig kernel iso clean
+.PHONY: all menuconfig kernel iso run clean
 
 all: kernel iso
+
+run: iso
+	qemu-system-x86_64 -M q35 -m 512M -serial stdio -cdrom $(ISO_IMAGE)
 
 menuconfig:
 	python3 scripts/menuconfig.py

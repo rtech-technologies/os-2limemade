@@ -14,7 +14,7 @@ void color(uint8_t fg, uint8_t bg) {
 void print_cstr(const char* cstr) {
     for (int i = 0; cstr[i] != '\0'; i++) {
         vga_write_char(cstr[i], current_color);
-        serial_write_char(cstr[i]);
+        /* Serial mirroring is handled in vga_write_char */
     }
 }
 
