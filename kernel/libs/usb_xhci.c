@@ -1,9 +1,11 @@
 #include <kernel/libs/services.h>
+#include <limine.h>
 #include <stdint.h>
 #include <stddef.h>
 
 /* Forward declarations */
 void serial_write_str(const char* s);
+struct limine_module_response* get_modules(void);
 
 typedef struct {
     uint32_t sector_size;
@@ -38,9 +40,28 @@ uint32_t pci_config_read(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset
     return inl(0xCFC);
 }
 
-/* Mock LBA Read for XHCI Disk */
+/* Actual Ramdisk-backed Read for XHCI/USB Simulation */
 int xhci_disk_read(void* priv, uint64_t lba, uint32_t count, void* buffer) {
-    return 0; /* Stub */
+    (void)priv;
+    struct limine_module_response* resp = get_modules();
+    if (!resp || resp->module_count == 0) return -1;
+
+    struct limine_file* ramdisk = resp->modules[0];
+    uint8_t* base = (uint8_t*)ramdisk->address;
+
+    size_t offset = lba * 512;
+    size_t size = count * 512;
+
+    if (offset + size > ramdisk->size) return -1;
+
+    uint8_t* src = base + offset;
+    uint8_t* dst = (uint8_t*)buffer;
+
+    for (size_t i = 0; i < size; i++) {
+        dst[i] = src[i];
+    }
+
+    return 0;
 }
 
 /* USB / XHCI Registry and Scanning */

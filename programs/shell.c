@@ -2,16 +2,11 @@
 
 void shell_main(void) {
     color(10, 0); /* Emerald Green */
-    print("OS boot sucsess\n");
-
-    void* curdir = str_create("/");
-    void* suffix = str_create("OS2>");
+    print("--- [ LIMEMADE OS v0.1 ] ---\n");
 
     while (1) {
-        /* Pythonic: curdir + "OS2>" */
-        void* prompt = str_concat(curdir, suffix);
-        void* cmd_line = input(str_to_cstr(prompt));
-        release(prompt);
+        /* Pythonic: Prints the prompt and returns the ARC-managed string */
+        void* cmd_line = input("os2> ");
 
         if (str_is_empty(cmd_line)) {
             release(cmd_line);
@@ -39,7 +34,4 @@ void shell_main(void) {
         release(cmd_line);
         break; /* Build verification exit */
     }
-
-    release(curdir);
-    release(suffix);
 }

@@ -11,6 +11,7 @@ void release(void* ptr);
 
 /* String API (Pythonic) */
 void* str_create(const char* cstr);
+void* str_concat(void* s1, void* s2);
 bool str_is_empty(void* str);
 bool str_match(void* str, const char* pattern);
 size_t str_len(void* str);
