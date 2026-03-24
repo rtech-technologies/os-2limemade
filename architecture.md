@@ -5,7 +5,7 @@ This guide provides a detailed walkthrough of the **OSx2 OSx2 Limemade Core** ar
 ## 1. Boot & Memory Layout (High-Half)
 The kernel transitions from the bootloader to a 64-bit high-half environment.
 
-- **Linker Script (`boot/linker.ld`):** Sets the kernel base address to `0xffffffff80000000`. It defines three primary program headers: `text` (RX), `rodata` (R), and `data` (RW). Sections are aligned to `0x1000`.
+- **Linker Script (`boot/linker.ld`):** Sets the kernel base address to `0xffffffff80000000`. It defines three primary program headers: `text` (RX), `rodata` (R), and `data` (RW). Segments are explicitly page-aligned (`0x1000`) to prevent permission overlaps during loading.
 - **Limine Requests (`kernel/unice64/limine_reqs.c`):** Contains the metadata structures used by the Limine bootloader to communicate the memory map and the Direct Mapping (HHDM) offset. Use `get_memmap()` and `get_hhdm_offset()` to access these responses.
 - **Modern Flags (`Makefile`):** Kernel compilation uses `-mcmodel=kernel` to ensure 64-bit code correctly references high-half addresses.
 
