@@ -21,12 +21,16 @@ all:
 	$(MAKE) iso
 
 limine-setup:
-	@if [ ! -d "limine" ]; then \
-		echo "Cloning Limine (v7.x-binary)..."; \
-		git clone https://github.com/limine-bootloader/limine.git --branch=v7.x-binary --depth=1; \
+	@mkdir -p limine
+	@if [ ! -d "limine/.git" ]; then \
+		echo "Fetching Limine (v7.x-binary) into pre-existing folder..."; \
+		git clone https://github.com/limine-bootloader/limine.git --branch=v7.x-binary --depth=1 limine_tmp; \
+		mv limine_tmp/* limine/ 2>/dev/null || true; \
+		mv limine_tmp/.* limine/ 2>/dev/null || true; \
+		rm -rf limine_tmp; \
 	fi
 	@if [ ! -f "limine/limine" ]; then \
-		echo "Building Limine tools..."; \
+		echo "Building Limine tools in limine/ folder..."; \
 		$(MAKE) -C limine; \
 	fi
 
@@ -67,4 +71,5 @@ iso: limine-setup kernel
 clean:
 	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) ramdisk.img
 	rm -rf iso_root
-	rm -rf limine
+	@# Keep limine source but clean its binaries
+	@if [ -d "limine" ]; then $(MAKE) -C limine clean || true; fi
