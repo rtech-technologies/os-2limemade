@@ -22,6 +22,7 @@ Execution begins in the **Ritual entry point**.
 Sovereign memory is strictly managed using reference counting.
 
 - **Bump Allocator (`kernel/libs/bump_alloc.c`):** A fast `bump_alloc(size_t size)` function that returns memory from a fixed 16MB `heap`. It aligns all allocations to 8 bytes.
+    - **Sovereign Reset:** If the heap exceeds a 90% threshold, the allocator automatically triggers `bump_reset()`, which unloads all managed objects (effectively clearing userspace memory) while keeping the kernel code intact. This is logged to the serial console.
 - **ARC Manager (`kernel/libs/arc_mem.c`):**
     - `arc_alloc(size_t size)`: Allocates `size` plus an 8-byte `arc_header_t`.
     - `arc_header_t`: Stores the `ref_count`.
