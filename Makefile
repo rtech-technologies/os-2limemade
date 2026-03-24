@@ -1,9 +1,8 @@
 # OSx2 Limemade OS Makefile
 
 CC = gcc
-LD = ld
 CFLAGS = -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include
-LDFLAGS = -T boot/linker.ld -static -nostdlib -z max-page-size=0x1000
+LDFLAGS = -Wl,-T,boot/linker.ld -static -nostdlib -Wl,-z,max-page-size=0x1000
 
 KERNEL_SRC = $(wildcard kernel/unice64/*.c) $(wildcard kernel/libs/*.c) $(wildcard kernel/libs/fatfs/*.c) programs/shell.c
 KERNEL_OBJ = $(KERNEL_SRC:.c=.o)
@@ -41,7 +40,7 @@ menuconfig:
 	python3 scripts/menuconfig.py
 
 kernel: limine-setup $(KERNEL_OBJ)
-	$(LD) $(LDFLAGS) $(KERNEL_OBJ) -o $(KERNEL_ELF)
+	$(CC) $(CFLAGS) $(LDFLAGS) $(KERNEL_OBJ) -o $(KERNEL_ELF)
 	@echo "OSx2 Limemade Kernel Compiled: $(KERNEL_ELF)"
 
 %.o: %.c | limine-setup
@@ -50,7 +49,7 @@ kernel: limine-setup $(KERNEL_OBJ)
 iso: limine-setup kernel
 	@mkdir -p iso_root/boot
 	@cp $(KERNEL_ELF) iso_root/boot/
-	@cp boot/limine.cfg iso_root/boot/
+	@cp boot/limine.cfg iso_root/
 	@python3 scripts/fat_tool.py ramdisk.img
 	@cp ramdisk.img iso_root/boot/
 	@# The Xorriso Ritual for Hybrid Boot (BIOS + UEFI)
