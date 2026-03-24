@@ -15,7 +15,10 @@ LIMINE_BIN = $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin $(LI
 
 .PHONY: all menuconfig kernel iso run clean limine-setup
 
-all: limine-setup kernel iso
+all:
+	$(MAKE) limine-setup
+	$(MAKE) kernel
+	$(MAKE) iso
 
 limine-setup:
 	@if [ ! -d "limine" ]; then \
@@ -33,14 +36,14 @@ run: iso
 menuconfig:
 	python3 scripts/menuconfig.py
 
-kernel: $(KERNEL_OBJ)
+kernel: limine-setup $(KERNEL_OBJ)
 	$(LD) $(LDFLAGS) $(KERNEL_OBJ) -o $(KERNEL_ELF)
 	@echo "Sovereign Kernel Compiled: $(KERNEL_ELF)"
 
-%.o: %.c
+%.o: %.c | limine-setup
 	$(CC) $(CFLAGS) -c $< -o $@
 
-iso: kernel limine-setup
+iso: limine-setup kernel
 	@mkdir -p iso_root
 	@cp $(KERNEL_ELF) iso_root/
 	@cp boot/limine.cfg iso_root/
