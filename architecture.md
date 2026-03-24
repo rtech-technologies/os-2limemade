@@ -38,7 +38,7 @@ Storage is managed through a Virtual Disk abstraction.
 The RSL is the native interface for userspace (`programs/shell.c`).
 
 - **Public Header (`include/rsl.h`):** Defines the `managed_ptr_t` type and the RSL API.
-- **String Management (`kernel/libs/rsl_string.c`):** Implements `str_create()` using `arc_alloc()`. This returns a `managed_ptr_t` with a ref count of 1.
+- **String Management (`kernel/libs/rsl_string.c`):** Implements `str_create()` and `str_concat()` using `arc_alloc()`. This returns a `managed_ptr_t` with a ref count of 1.
 - **Console API (`kernel/libs/console.c`):**
     - `color(fg, bg)`: Sets the global `current_color`.
     - `print_cstr()`: Writes text to both VGA and Serial.
@@ -65,7 +65,7 @@ To verify that the Sovereign OS is functioning correctly:
 1. **Build the Kernel:** Run `make kernel`. This should produce a `kernel.elf` from source with no errors.
 2. **Build the ISO:** Run `make iso`. This should generate a `ramdisk.img` with the `0xDEADBEEF` signature and package it into `osx2.iso`.
 3. **Run in QEMU:** Run `make run`.
-   - **Expected Output:** The system should boot via Limine, mirror "Serial initialized" and "Sovereign OS RSL Shell Initialized" to the terminal, and display the `rsl>` prompt in Emerald Green on the VGA buffer. Interactivity is achieved through the Pythonic `input()` call.
+   - **Expected Output:** The system should boot via Limine, mirror "Serial initialized" and "OS boot success" to the terminal, and display the prompt (e.g., `/OS2> `) in Emerald Green on the VGA buffer. Interactivity is achieved through the Pythonic `input()` call.
 4. **RSL Enforcement:** Open `programs/shell.c`. It must **ONLY** include `<rsl.h>`. Any inclusion of kernel headers (e.g., `services.h`) is a violation of the tiered architecture.
 
 ## 9. Modern Standard: Serial Forensics

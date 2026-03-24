@@ -13,6 +13,7 @@ void release(managed_ptr_t ptr);
 
 /* String API */
 managed_ptr_t str_create(const char* cstr);
+managed_ptr_t str_concat(managed_ptr_t s1, managed_ptr_t s2);
 size_t str_len(managed_ptr_t str);
 const char* str_to_cstr(managed_ptr_t str);
 
