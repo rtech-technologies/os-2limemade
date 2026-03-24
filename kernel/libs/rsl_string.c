@@ -1,6 +1,7 @@
 #include <include/rsl.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 void* arc_alloc(size_t size);
 
@@ -9,7 +10,7 @@ typedef struct {
     char data[];
 } rsl_string_t;
 
-managed_ptr_t str_create(const char* cstr) {
+void* str_create(const char* cstr) {
     if (!cstr) return NULL;
 
     size_t len = 0;
@@ -24,36 +25,31 @@ managed_ptr_t str_create(const char* cstr) {
     }
     r_str->data[len] = '\0';
 
-    return (managed_ptr_t)r_str;
+    return (void*)r_str;
 }
 
-size_t str_len(managed_ptr_t str) {
+bool str_is_empty(void* str) {
+    if (!str) return true;
+    return ((rsl_string_t*)str)->length == 0;
+}
+
+bool str_match(void* str, const char* pattern) {
+    if (!str || !pattern) return false;
+    const char* s = ((rsl_string_t*)str)->data;
+    size_t i = 0;
+    while (s[i] && pattern[i]) {
+        if (s[i] != pattern[i]) return false;
+        i++;
+    }
+    return (s[i] == pattern[i]);
+}
+
+size_t str_len(void* str) {
     if (!str) return 0;
     return ((rsl_string_t*)str)->length;
 }
 
-const char* str_to_cstr(managed_ptr_t str) {
+const char* str_to_cstr(void* str) {
     if (!str) return "";
     return ((rsl_string_t*)str)->data;
-}
-
-managed_ptr_t str_concat(managed_ptr_t s1, managed_ptr_t s2) {
-    if (!s1) return retain(s2), s2;
-    if (!s2) return retain(s1), s1;
-
-    size_t len1 = str_len(s1);
-    size_t len2 = str_len(s2);
-
-    rsl_string_t* r_str = (rsl_string_t*)arc_alloc(sizeof(rsl_string_t) + len1 + len2 + 1);
-    if (!r_str) return NULL;
-
-    r_str->length = len1 + len2;
-    const char* c1 = str_to_cstr(s1);
-    const char* c2 = str_to_cstr(s2);
-
-    for (size_t i = 0; i < len1; i++) r_str->data[i] = c1[i];
-    for (size_t i = 0; i < len2; i++) r_str->data[len1 + i] = c2[i];
-    r_str->data[len1 + len2] = '\0';
-
-    return (managed_ptr_t)r_str;
 }

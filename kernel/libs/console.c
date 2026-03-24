@@ -11,25 +11,22 @@ void color(uint8_t fg, uint8_t bg) {
     current_color = (bg << 4) | (fg & 0x0F);
 }
 
-void print_cstr(const char* cstr) {
-    for (int i = 0; cstr[i] != '\0'; i++) {
-        vga_write_char(cstr[i], current_color);
+void print(const char* s) {
+    if (!s) return;
+    for (int i = 0; s[i] != '\0'; i++) {
+        vga_write_char(s[i], current_color);
     }
 }
 
-void print(managed_ptr_t str) {
-    if (!str) return;
-    print_cstr(str_to_cstr(str));
-}
-
-managed_ptr_t input(managed_ptr_t prompt) {
+void* input(const char* prompt) {
     if (prompt) {
         print(prompt);
     }
 
     static char buffer[128];
     /* FREESTANDING PS/2 SIMULATION */
-    /* Wait for user input (mocked for build verification) */
+    /* In a real scenario, this waits for user input.
+       For now, we return an empty stub for dispatcher logic. */
     buffer[0] = '\0';
 
     return str_create(buffer);

@@ -3,30 +3,28 @@
 
 #include <stdint.h>
 #include <stddef.h>
-
-/* RSL Types */
-typedef void* managed_ptr_t;
+#include <stdbool.h>
 
 /* ARC Memory Management */
-void retain(managed_ptr_t ptr);
-void release(managed_ptr_t ptr);
+void retain(void* ptr);
+void release(void* ptr);
 
-/* String API */
-managed_ptr_t str_create(const char* cstr);
-managed_ptr_t str_concat(managed_ptr_t s1, managed_ptr_t s2);
-size_t str_len(managed_ptr_t str);
-const char* str_to_cstr(managed_ptr_t str);
+/* String API (Pythonic) */
+void* str_create(const char* cstr);
+bool str_is_empty(void* str);
+bool str_match(void* str, const char* pattern);
+size_t str_len(void* str);
+const char* str_to_cstr(void* str);
 
 /* Console API */
 void color(uint8_t fg, uint8_t bg);
-managed_ptr_t input(managed_ptr_t prompt);
-void print(managed_ptr_t str);
-void print_cstr(const char* cstr);
+void* input(const char* prompt);
+void print(const char* s);
 
 /* File System API (RSL Wrappers) */
-void rsl_ls(managed_ptr_t path);
-void rsl_cat(managed_ptr_t path);
-void rsl_write(managed_ptr_t path, managed_ptr_t content);
-void rsl_cd(managed_ptr_t path);
+void rsl_ls(void);
+void rsl_cat(void* path);
+void rsl_write(void* path, void* content);
+void rsl_cd(void* path);
 
 #endif /* RSL_H */

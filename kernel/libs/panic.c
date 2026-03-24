@@ -1,8 +1,7 @@
+#include <include/rsl.h>
 #include <stdint.h>
 #include <stddef.h>
 
-void color(uint8_t fg, uint8_t bg);
-void print_cstr(const char* cstr);
 void serial_write_str(const char* s);
 
 typedef struct {
@@ -15,10 +14,10 @@ void forensic_panic(const char* message, cpu_state_t* state) {
     /* Emerald color: Green on Black (10, 0) */
     color(10, 0);
 
-    print_cstr("\n!!! SOVEREIGN KERNEL PANIC !!!\n");
-    print_cstr("Autopsy Message: ");
-    print_cstr(message);
-    print_cstr("\n\n");
+    print("\n!!! SOVEREIGN KERNEL PANIC !!!\n");
+    print("Autopsy Message: ");
+    print(message);
+    print("\n\n");
 
     serial_write_str("\n!!! PANIC !!!\n");
     serial_write_str(message);
