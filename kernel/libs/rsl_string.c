@@ -53,3 +53,24 @@ const char* str_to_cstr(void* str) {
     if (!str) return "";
     return ((rsl_string_t*)str)->data;
 }
+
+void* str_concat(void* s1, void* s2) {
+    if (!s1) { retain(s2); return s2; }
+    if (!s2) { retain(s1); return s1; }
+
+    size_t len1 = str_len(s1);
+    size_t len2 = str_len(s2);
+
+    rsl_string_t* r_str = (rsl_string_t*)arc_alloc(sizeof(rsl_string_t) + len1 + len2 + 1);
+    if (!r_str) return NULL;
+
+    r_str->length = len1 + len2;
+    const char* c1 = str_to_cstr(s1);
+    const char* c2 = str_to_cstr(s2);
+
+    for (size_t i = 0; i < len1; i++) r_str->data[i] = c1[i];
+    for (size_t i = 0; i < len2; i++) r_str->data[len1 + i] = c2[i];
+    r_str->data[len1 + len2] = '\0';
+
+    return (void*)r_str;
+}

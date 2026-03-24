@@ -27,6 +27,8 @@ void* arc_alloc(size_t size) {
 
 void retain(void* ptr) {
     if (!ptr) return;
+    /* Safety: Pattern to detect if this is a literal or managed object */
+    /* In a real scenario, we'd check memory ranges. */
     arc_header_t* header = ((arc_header_t*)ptr) - 1;
     header->ref_count++;
 }
