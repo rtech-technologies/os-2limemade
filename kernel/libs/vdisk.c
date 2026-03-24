@@ -35,6 +35,10 @@ int vdisk_write(int disk_id, uint64_t lba, uint32_t count, void* buffer) {
     return vdisk_registry[disk_id].write_lba(vdisk_registry[disk_id].private_data, lba, count, buffer);
 }
 
+int get_vdisk_count(void) {
+    return vdisk_count;
+}
+
 void vdisk_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
         serial_write_str("[INIT] /CONNECT registry (VDISK) initialized.\n");

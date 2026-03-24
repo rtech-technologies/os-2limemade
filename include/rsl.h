@@ -23,7 +23,7 @@ void* input(const char* prompt);
 void print(const char* s);
 
 /* File System API (RSL Wrappers) */
-void rsl_ls(void);
+void rsl_ls(void* path);
 void rsl_cat(void* path);
 void rsl_write(void* path, void* content);
 void rsl_cd(void* path);

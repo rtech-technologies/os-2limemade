@@ -1,12 +1,27 @@
 #include <include/rsl.h>
 #include <kernel/libs/fatfs/ff.h>
 
-void rsl_ls(void) {
+int get_vdisk_count(void);
+
+void rsl_ls(void* path) {
+    const char* p = str_to_cstr(path);
+
+    /* Global Root Case: List Disks */
+    if (p[0] == '/' && p[1] == '\0') {
+        int count = get_vdisk_count();
+        for (int i = 0; i < count; i++) {
+            char buf[8];
+            buf[0] = '0' + i; buf[1] = ':'; buf[2] = '/'; buf[3] = '0'; buf[4] = '/'; buf[5] = '\n'; buf[6] = '\0';
+            print(buf);
+        }
+        return;
+    }
+
     DIR dp;
     FILINFO fno;
     FRESULT res;
 
-    res = f_opendir(&dp, "/");
+    res = f_opendir(&dp, p);
     if (res == FR_OK) {
         while (1) {
             res = f_readdir(&dp, &fno);
@@ -15,7 +30,7 @@ void rsl_ls(void) {
             print("\n");
         }
     } else {
-        print("Error: Could not open root directory.\n");
+        print("Error: Could not open directory.\n");
     }
 }
 

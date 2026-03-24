@@ -21,7 +21,7 @@ void shell_main(void) {
         }
 
         if (str_match(cmd_line, "ls")) {
-            rsl_ls();
+            rsl_ls(curdir);
         }
         else if (str_match(cmd_line, "write")) {
             void* filename = input("Enter Filename: ");
