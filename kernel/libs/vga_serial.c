@@ -1,4 +1,5 @@
 #include <kernel/libs/services.h>
+#include <include/config.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -13,26 +14,26 @@ static inline uint8_t inb(uint16_t port) {
     return ret;
 }
 
-/* Serial COM1 (0x3F8) Initialization */
-#define SERIAL_COM1 0x3F8
+/* Serial Port Initialization */
+#define SERIAL_PORT CONFIG_SERIAL_PORT
 
 static void serial_init(void) {
-    outb(SERIAL_COM1 + 1, 0x00);    /* Disable interrupts */
-    outb(SERIAL_COM1 + 3, 0x80);    /* Enable DLAB (set baud rate divisor) */
-    outb(SERIAL_COM1 + 0, 0x03);    /* Set divisor to 3 (38400 baud) */
-    outb(SERIAL_COM1 + 1, 0x00);
-    outb(SERIAL_COM1 + 3, 0x03);    /* 8 bits, no parity, one stop bit */
-    outb(SERIAL_COM1 + 2, 0xC7);    /* Enable FIFO, clear them, with 14-byte threshold */
-    outb(SERIAL_COM1 + 4, 0x0B);    /* IRQs enabled, RTS/DSR set */
+    outb(SERIAL_PORT + 1, 0x00);    /* Disable interrupts */
+    outb(SERIAL_PORT + 3, 0x80);    /* Enable DLAB (set baud rate divisor) */
+    outb(SERIAL_PORT + 0, 0x03);    /* Set divisor to 3 (38400 baud) */
+    outb(SERIAL_PORT + 1, 0x00);
+    outb(SERIAL_PORT + 3, 0x03);    /* 8 bits, no parity, one stop bit */
+    outb(SERIAL_PORT + 2, 0xC7);    /* Enable FIFO, clear them, with 14-byte threshold */
+    outb(SERIAL_PORT + 4, 0x0B);    /* IRQs enabled, RTS/DSR set */
 }
 
 static int is_transmit_empty(void) {
-    return inb(SERIAL_COM1 + 5) & 0x20;
+    return inb(SERIAL_PORT + 5) & 0x20;
 }
 
 void serial_write_char(char c) {
     while (is_transmit_empty() == 0);
-    outb(SERIAL_COM1, c);
+    outb(SERIAL_PORT, c);
 }
 
 void serial_write_str(const char* s) {
@@ -41,12 +42,14 @@ void serial_write_str(const char* s) {
     }
 }
 
+uint64_t get_hhdm_offset(void);
+
 /* VGA Legacy Fallback (0xB8000) */
-#define VGA_ADDR 0xffffffff800b8000ULL /* Mapped into High-Half */
+#define VGA_PHYS 0xB8000
 #define VGA_WIDTH 80
 #define VGA_HEIGHT 25
 
-static uint16_t* vga_buffer = (uint16_t*)VGA_ADDR;
+static uint16_t* vga_buffer = (uint16_t*)0xffffffff800b8000ULL; /* Fallback */
 static int vga_cursor_x = 0;
 static int vga_cursor_y = 0;
 
@@ -92,7 +95,13 @@ void vga_write_char(char c, uint8_t color) {
 void vga_serial_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
         serial_init();
-        serial_write_str("[INIT] Serial and VGA Mirroring initialized.\n");
+
+        uint64_t hhdm = get_hhdm_offset();
+        if (hhdm) {
+            vga_buffer = (uint16_t*)(hhdm + VGA_PHYS);
+        }
+
+        serial_write_str("[INIT] Serial and VGA Mirroring initialized (HHDM mapping applied).\n");
         vga_clear();
     }
 }

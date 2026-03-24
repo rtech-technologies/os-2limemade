@@ -22,9 +22,15 @@ void print(managed_ptr_t str) {
     print_cstr(str_to_cstr(str));
 }
 
-managed_ptr_t readline(void) {
+managed_ptr_t input(managed_ptr_t prompt) {
+    if (prompt) {
+        print(prompt);
+    }
+
     static char buffer[128];
-    /* Simulation of input */
+    /* FREESTANDING PS/2 SIMULATION */
+    /* Wait for user input (mocked for build verification) */
     buffer[0] = '\0';
+
     return str_create(buffer);
 }

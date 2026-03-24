@@ -18,13 +18,14 @@ const char* str_to_cstr(managed_ptr_t str);
 
 /* Console API */
 void color(uint8_t fg, uint8_t bg);
-managed_ptr_t readline(void);
+managed_ptr_t input(managed_ptr_t prompt);
 void print(managed_ptr_t str);
 void print_cstr(const char* cstr);
 
 /* File System API (RSL Wrappers) */
 void rsl_ls(managed_ptr_t path);
 void rsl_cat(managed_ptr_t path);
+void rsl_write(managed_ptr_t path, managed_ptr_t content);
 void rsl_cd(managed_ptr_t path);
 
 #endif /* RSL_H */

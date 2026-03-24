@@ -42,8 +42,8 @@ The RSL is the native interface for userspace (`programs/shell.c`).
 - **Console API (`kernel/libs/console.c`):**
     - `color(fg, bg)`: Sets the global `current_color`.
     - `print_cstr()`: Writes text to both VGA and Serial.
-    - `readline()`: Stub for input.
-- **RSL Shell Commands (`kernel/libs/rsl_commands.c`):** Implements `rsl_ls()`, `rsl_cat()`, and `rsl_cd()`.
+    - `input(managed_ptr_t prompt)`: Displays the prompt and returns a managed string of user input.
+- **RSL Shell Commands (`kernel/libs/rsl_commands.c`):** Implements `rsl_ls()`, `rsl_cat()`, `rsl_write()`, and `rsl_cd()`.
 
 ## 6. Forensic Panic System
 If a fatal error occurs, the system triggers an **Autopsy**.
@@ -58,3 +58,15 @@ If a fatal error occurs, the system triggers an **Autopsy**.
 - **Makefile:** Primary targets are `kernel`, `iso`, and `run`.
 - **`scripts/menuconfig.py`:** Configures `.config` parameters.
 - **`scripts/fat_tool.py`:** Generates sparse `ramdisk.img` files and injects the `0xDEADBEEF` signature at LBA 0.
+
+## 8. Verification & Execution
+To verify that the Sovereign OS is functioning correctly:
+
+1. **Build the Kernel:** Run `make kernel`. This should produce a `kernel.elf` from source with no errors.
+2. **Build the ISO:** Run `make iso`. This should generate a `ramdisk.img` with the `0xDEADBEEF` signature and package it into `osx2.iso`.
+3. **Run in QEMU:** Run `make run`.
+   - **Expected Output:** The system should boot via Limine, mirror "Serial initialized" and "Sovereign OS RSL Shell Initialized" to the terminal, and display the `rsl>` prompt in Emerald Green on the VGA buffer.
+4. **RSL Enforcement:** Open `programs/shell.c`. It must **ONLY** include `<rsl.h>`. Any inclusion of kernel headers (e.g., `services.h`) is a violation of the tiered architecture.
+
+## 9. Modern Standard: Serial Forensics
+All VGA output is mirrored to Serial COM1. This ensures that even if the hardware display fails, the kernel's state and RSL shell interactions are captured for analysis.

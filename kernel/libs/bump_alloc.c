@@ -1,8 +1,9 @@
+#include <include/config.h>
 #include <stdint.h>
 #include <stddef.h>
 
 /* Simplified Bump Allocator for Sovereign Core */
-#define HEAP_SIZE (1024 * 1024 * 16) /* 16MB Default */
+#define HEAP_SIZE CONFIG_HEAP_SIZE
 
 static uint8_t heap[HEAP_SIZE];
 static size_t heap_offset = 0;
