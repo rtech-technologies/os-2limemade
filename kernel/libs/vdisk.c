@@ -20,7 +20,7 @@ void serial_write_str(const char* s);
 void register_vdisk(vdisk_node_t node) {
     if (vdisk_count < MAX_VDISKS) {
         vdisk_registry[vdisk_count++] = node;
-        serial_write_str("[VDISK] Registered new virtual disk.\n");
+        serial_write_str("[VDISK] Registered new Sovereign disk to /CONNECT.\n");
     }
 }
 
@@ -31,6 +31,7 @@ int vdisk_read(int disk_id, uint64_t lba, uint32_t count, void* buffer) {
 
 int vdisk_write(int disk_id, uint64_t lba, uint32_t count, void* buffer) {
     if (disk_id < 0 || disk_id >= vdisk_count) return -1;
+    if (!vdisk_registry[disk_id].write_lba) return -1;
     return vdisk_registry[disk_id].write_lba(vdisk_registry[disk_id].private_data, lba, count, buffer);
 }
 

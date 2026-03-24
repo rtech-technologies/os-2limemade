@@ -23,13 +23,8 @@ void print(managed_ptr_t str);
 void print_cstr(const char* cstr);
 
 /* File System API (RSL Wrappers) */
-typedef struct {
-    uint32_t handle;
-} RSL_FILE;
-
-RSL_FILE* rsl_f_open(managed_ptr_t path, const char* mode);
-void rsl_f_close(RSL_FILE* file);
-size_t rsl_f_read(RSL_FILE* file, void* buffer, size_t count);
-void rsl_f_write(RSL_FILE* file, const void* buffer, size_t count);
+void rsl_ls(managed_ptr_t path);
+void rsl_cat(managed_ptr_t path);
+void rsl_cd(managed_ptr_t path);
 
 #endif /* RSL_H */

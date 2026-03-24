@@ -59,7 +59,7 @@ void vga_clear(void) {
 }
 
 void vga_write_char(char c, uint8_t color) {
-    /* Rule: Modernize - Serial Mirroring for VGA Visibility */
+    /* Mirroring to Serial */
     serial_write_char(c);
 
     if (c == '\n') {
@@ -92,8 +92,7 @@ void vga_write_char(char c, uint8_t color) {
 void vga_serial_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
         serial_init();
-        serial_write_str("[INIT] Serial initialized.\n");
+        serial_write_str("[INIT] Serial and VGA Mirroring initialized.\n");
         vga_clear();
-        serial_write_str("[INIT] VGA cleared.\n");
     }
 }

@@ -14,7 +14,6 @@ void color(uint8_t fg, uint8_t bg) {
 void print_cstr(const char* cstr) {
     for (int i = 0; cstr[i] != '\0'; i++) {
         vga_write_char(cstr[i], current_color);
-        /* Serial mirroring is handled in vga_write_char */
     }
 }
 
@@ -24,15 +23,8 @@ void print(managed_ptr_t str) {
 }
 
 managed_ptr_t readline(void) {
-    /* FREESTANDING PS/2 SIMULATION */
-    /* In a real scenario, this would wait for IRQs from the PS/2 driver.
-       For the Sovereign Core, we'll return a stub or implement a simple busy-wait for port 0x60. */
     static char buffer[128];
-    int idx = 0;
-
-    /* Simulate a prompt return for build verification */
-    buffer[0] = 'h'; buffer[1] = 'e'; buffer[2] = 'l'; buffer[3] = 'l'; buffer[4] = 'o';
-    buffer[5] = '\0';
-
+    /* Simulation of input */
+    buffer[0] = '\0';
     return str_create(buffer);
 }

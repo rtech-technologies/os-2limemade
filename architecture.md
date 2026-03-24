@@ -1,47 +1,60 @@
-# RTECH OSx2: Sovereign Architecture Guide
+# RTECH OSx2: Sovereign Architecture Guide (Hyper-Specific)
 
-This document outlines the tiered architecture of the **OSx2 Sovereign Core**, a 64-bit high-half kernel designed for USB support, managed memory, and RSL (RTECH Standard Library) interaction.
+This guide provides a detailed walkthrough of the **OSx2 Sovereign Core** architecture. You can follow along with the source code in each directory to understand the system's execution flow.
 
-## 1. Memory Map & The High-Half
-The kernel is linked to the high-half at `0xffffffff80000000`. Limine handles the initial boot and provides:
-- **Direct Mapping (HHDM):** Allows the kernel to access physical memory at a fixed offset.
-- **Memory Map:** Used to identify available RAM for the bump allocator.
-- **VGA/Serial Mapping:** VGA (0xB8000) and Serial (0x3F8) are accessed through the high-half mapping for legacy fallback and forensic debugging.
+## 1. Boot & Memory Layout (High-Half)
+The kernel transitions from the bootloader to a 64-bit high-half environment.
 
-## 2. The Ritual: Service Registry & Events
-The kernel follows an event-driven lifecycle. `main.c` is a pure orchestrator that dispatches events to registered services.
+- **Linker Script (`boot/linker.ld`):** Sets the kernel base address to `0xffffffff80000000`. It defines three primary program headers: `text` (RX), `rodata` (R), and `data` (RW). Sections are aligned to `0x1000`.
+- **Limine Requests (`kernel/unice64/limine_reqs.c`):** Contains the metadata structures used by the Limine bootloader to communicate the memory map and the Direct Mapping (HHDM) offset. Use `get_memmap()` and `get_hhdm_offset()` to access these responses.
+- **Modern Flags (`Makefile`):** Kernel compilation uses `-mcmodel=kernel` to ensure 64-bit code correctly references high-half addresses.
 
-### Lifecycle Events:
-- **EVENT_INIT:** Initialize VGA/Serial, ARC Memory, PCI Bus Scanning (USB/XHCI), and VDISK registry.
-- **EVENT_MAIN:** Mount Sovereign FAT32 volumes via `/CONNECT` and launch the **RSL Shell**.
-- **EVENT_CLEANUP:** Prepare for shutdown by flushing FAT buffers and releasing resources.
-- **EVENT_EXIT:** Final CPU halt.
+## 2. The Ritual: Core Orchestration
+Execution begins in the **Ritual entry point**.
 
-## 3. Managed RAM: ARC & Bump Allocator
-Memory management is built on **Automatic Reference Counting (ARC)**.
-- **ARC Header:** Every allocation includes an 8-byte header storing the reference count.
-- **Bump Allocator:** A high-speed, sequential allocator provides the backing store for the managed heap.
-- **Sovereign Rule:** Memory remains allocated (Sovereign) until `EVENT_CLEANUP` or an explicit `release()` call.
+- **Entry Point (`kernel/unice64/main.c`):** The `_start()` function initializes the system by calling `dispatch_event(EVENT_INIT)`. It then enters `EVENT_MAIN` and calls `shell_main()`.
+- **Service Registry (`kernel/libs/services.c`):** Orchestrates the modular hardware drivers.
+    - `register_service(service_func_t init_func)`: Adds a service to the global `services` array (max 16).
+    - `dispatch_event(kernel_event_t event)`: Iterates through all registered services and triggers their event handlers.
+- **Service Handler (`kernel/libs/vga_serial.c`):** Implements `vga_serial_service()`. During `EVENT_INIT`, it initializes the Serial COM1 (0x3F8) and clears the VGA buffer (0xB8000). **Note:** Every VGA write is mirrored to the serial port for remote forensics.
 
-## 4. Storage: /CONNECT & VDISK
-Physical storage (USB, RAM Disk, SATA) is abstracted through the **VDISK Suit**.
-- **/CONNECT Registry:** Tracks all physical storage nodes (LBA count and sector size).
-- **Signature Handshake:** Disks must contain the `0xDEADBEEF` signature at LBA 0 to be recognized.
-- **FatFS Integration:** FatFS is bridged to the VDISK layer, using the signature-checked nodes for file operations.
+## 3. Managed RAM: ARC & Bump Allocation
+Sovereign memory is strictly managed using reference counting.
+
+- **Bump Allocator (`kernel/libs/bump_alloc.c`):** A fast `bump_alloc(size_t size)` function that returns memory from a fixed 16MB `heap`. It aligns all allocations to 8 bytes.
+- **ARC Manager (`kernel/libs/arc_mem.c`):**
+    - `arc_alloc(size_t size)`: Allocates `size` plus an 8-byte `arc_header_t`.
+    - `arc_header_t`: Stores the `ref_count`.
+    - `retain(void* ptr)` / `release(void* ptr)`: Increment and decrement the ref count. Rule #4 ensures memory stays 'Sovereign' until an explicit `EVENT_CLEANUP` or release to 0.
+
+## 4. Storage Architecture: /CONNECT & VDISK
+Storage is managed through a Virtual Disk abstraction.
+
+- **VDISK Bridge (`kernel/libs/vdisk.c`):** The `/CONNECT` registry is an array of `vdisk_node_t` structures. Each node defines `sector_size`, `total_lba`, and function pointers for `read_lba` and `write_lba`.
+- **Signature Check (`kernel/libs/signature_check.c`):** Implements `is_sovereign_disk(int disk_id)`. It reads LBA 0 of a disk and verifies the presence of the `0xDEADBEEF` signature.
+- **PCI XHCI Scanning (`kernel/libs/usb_xhci.c`):** Scans the PCI bus and registers any found XHCI controllers to the VDISK layer.
 
 ## 5. RSL (RTECH Standard Library)
-The RSL is the only allowed interface for user-space programs.
-- **Include Policy:** Programs must only include `<rsl.h>`.
-- **API Highlights:** `readline()`, `color(fg, bg)`, and `rsl_f_open()` provide safe, managed access to kernel services.
+The RSL is the native interface for userspace (`programs/shell.c`).
+
+- **Public Header (`include/rsl.h`):** Defines the `managed_ptr_t` type and the RSL API.
+- **String Management (`kernel/libs/rsl_string.c`):** Implements `str_create()` using `arc_alloc()`. This returns a `managed_ptr_t` with a ref count of 1.
+- **Console API (`kernel/libs/console.c`):**
+    - `color(fg, bg)`: Sets the global `current_color`.
+    - `print_cstr()`: Writes text to both VGA and Serial.
+    - `readline()`: Stub for input.
+- **RSL Shell Commands (`kernel/libs/rsl_commands.c`):** Implements `rsl_ls()`, `rsl_cat()`, and `rsl_cd()`.
 
 ## 6. Forensic Panic System
-When a fatal error occurs (e.g., FAT corruption or USB timeout), the system enters **Autopsy**.
-- **Emerald Display:** Failures are shown in `0xff88` Emerald Green.
-- **Register Capture:** CPU state (RAX-R15) and USB controller registers are dumped to Serial COM1 (0x3f8) for post-mortem analysis.
+If a fatal error occurs, the system triggers an **Autopsy**.
 
-## 7. Build System & Tooling
-The build system is entirely source-based, with NO precompiled binaries allowed.
-- **make menuconfig:** Terminal-based setup for Serial and Heap parameters.
-- **make kernel:** Compiles the high-half ELF with FatFS linked.
-- **make iso:** Packages the kernel, boot configuration, and a signed FAT32 ramdisk.
-- **scripts/fat_tool.py:** Formats disk images and injects the `0xDEADBEEF` signature.
+- **Autopsy (`kernel/libs/panic.c`):** The `forensic_panic()` function:
+    1. Sets the console to Emerald Green (10, 0).
+    2. Prints a diagnostic message and dumps the `cpu_state_t` (RAX-R15).
+    3. Mandatory Step: Scans and dumps USB controller registers (XHCI_USBCMD, XHCI_USBSTS) to Serial COM1.
+    4. Halts the CPU.
+
+## 7. Build System & Tools
+- **Makefile:** Primary targets are `kernel`, `iso`, and `run`.
+- **`scripts/menuconfig.py`:** Configures `.config` parameters.
+- **`scripts/fat_tool.py`:** Generates sparse `ramdisk.img` files and injects the `0xDEADBEEF` signature at LBA 0.

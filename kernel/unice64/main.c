@@ -1,10 +1,10 @@
 #include <kernel/libs/services.h>
-#include <kernel/libs/fatfs/ff.h>
 #include <limine.h>
 #include <stddef.h>
 
 int is_sovereign_disk(int disk_id);
 void serial_write_str(const char* s);
+void shell_main(void);
 
 /* The Ritual: Entry Point */
 void _start(void) {
@@ -14,19 +14,10 @@ void _start(void) {
     /* Start the Shell and Main System Logic */
     serial_write_str("[EVENT] Entering EVENT_MAIN...\n");
 
-    /* Attempt to mount Sovereign Disks */
-    static FATFS fs;
-    if (is_sovereign_disk(0)) {
-        if (f_mount(&fs, "0:", 1) == FR_OK) {
-            serial_write_str("[FS] FatFS mounted Sovereign Disk 0.\n");
-        } else {
-            serial_write_str("[FS] CANNOT FIND DISK autopsy - FatFS mount failed.\n");
-        }
-    } else {
-        serial_write_str("[FS] No Sovereign disk found on ID 0.\n");
-    }
-
     dispatch_event(EVENT_MAIN);
+
+    /* Launch the RSL Shell */
+    shell_main();
 
     /* Cleanup and Shutdown */
     dispatch_event(EVENT_CLEANUP);

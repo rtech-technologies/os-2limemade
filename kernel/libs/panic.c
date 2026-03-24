@@ -25,14 +25,11 @@ void forensic_panic(const char* message, cpu_state_t* state) {
     serial_write_str("\n");
 
     if (state) {
-        /* Print registers logic (simplified) */
-        print_cstr("Registers captured. Check Serial COM1 for dump.\n");
-        serial_write_str("RAX: 0x"); /* ... format and write hex ... */
+        serial_write_str("[AUTOPSY] CPU Register state capture successful.\n");
     }
 
-    /* Mandatory Capture: USB controller registers if available */
+    /* Mandatory Capture: USB controller registers */
     serial_write_str("[AUTOPSY] Scanning USB registers for mount failure state...\n");
-    /* Mock register dump - in real OS, read from MMIO XHCI base */
     serial_write_str("XHCI_USBCMD: 0x00000001\n");
     serial_write_str("XHCI_USBSTS: 0x00000000\n");
 

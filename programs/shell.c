@@ -1,6 +1,6 @@
 #include <include/rsl.h>
 
-void main(void) {
+void shell_main(void) {
     color(10, 0); /* Emerald/Green on Black */
     print_cstr("Sovereign OS RSL Shell Initialized.\n");
 
@@ -12,7 +12,6 @@ void main(void) {
         print_cstr("\n");
         release(input);
 
-        /* Command dispatch logic would go here */
-        break; /* Exit for build verification purposes */
+        break; /* Exit for build verification */
     }
 }
