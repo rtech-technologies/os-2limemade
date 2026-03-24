@@ -15,6 +15,12 @@ static volatile struct limine_hhdm_request hhdm_request = {
     .revision = 0
 };
 
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_module_request module_request = {
+    .id = LIMINE_MODULE_REQUEST,
+    .revision = 0
+};
+
 /* Provide access functions for other kernel parts */
 struct limine_memmap_response* get_memmap(void) {
     return memmap_request.response;
@@ -22,4 +28,8 @@ struct limine_memmap_response* get_memmap(void) {
 
 uint64_t get_hhdm_offset(void) {
     return hhdm_request.response ? hhdm_request.response->offset : 0;
+}
+
+struct limine_module_response* get_modules(void) {
+    return module_request.response;
 }

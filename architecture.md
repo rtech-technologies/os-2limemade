@@ -59,6 +59,9 @@ If a fatal error occurs, the system triggers an **Autopsy**.
 - **Makefile:** Primary targets are `kernel`, `iso`, and `run`.
 - **`scripts/menuconfig.py`:** Configures `.config` parameters.
 - **`scripts/fat_tool.py`:** Generates sparse `ramdisk.img` files and injects the `0xDEADBEEF` signature at LBA 0.
+- **The Xorriso Ritual:** The `make iso` target performs a two-stage boot deployment:
+    1. **Xorriso:** Packages the kernel and configuration into an ISO and marks the boot code location.
+    2. **Bios-Install:** Modifies the first few bytes of the `.iso` file to include the Limine MBR, ensuring SeaBIOS recognizes the disk as a bootable OS device rather than just storage.
 
 ## 8. Verification & Execution
 To verify that the Sovereign OS is functioning correctly:
