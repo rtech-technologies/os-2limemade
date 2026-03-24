@@ -13,9 +13,16 @@ ISO_IMAGE = osx2.iso
 LIMINE_DIR = ./limine
 LIMINE_BIN = $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin $(LIMINE_DIR)/limine-uefi-cd.bin
 
-.PHONY: all menuconfig kernel iso run clean
+.PHONY: all menuconfig kernel iso run clean limine-setup
 
-all: kernel iso
+all: limine-setup kernel iso
+
+limine-setup:
+	@if [ ! -d "limine" ]; then \
+		echo "Cloning Limine (v7.x-binary)..."; \
+		git clone https://github.com/limine-bootloader/limine.git --branch=v7.x-binary --depth=1; \
+		$(MAKE) -C limine; \
+	fi
 
 run: iso
 	qemu-system-x86_64 -M q35 -m 512M -serial stdio -cdrom $(ISO_IMAGE)
@@ -54,3 +61,4 @@ iso: kernel
 clean:
 	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) ramdisk.img
 	rm -rf iso_root
+	rm -rf limine
