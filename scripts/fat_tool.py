@@ -32,7 +32,7 @@ def main():
         print(f"Mock FAT32 BPB injected at LBA 1 of {img_path}")
 
     # In a real scenario, this would use 'mkfs.fat' or manual BPB creation
-    print(f"Sovereign FAT32 Disk Image {img_path} created (Stub).")
+    print(f"OSx2 Limemade FAT32 Disk Image {img_path} created (Stub).")
 
 if __name__ == "__main__":
     main()

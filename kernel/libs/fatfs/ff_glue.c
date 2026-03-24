@@ -16,7 +16,7 @@ DSTATUS disk_initialize(BYTE pdrv) {
 }
 
 DRESULT disk_read(BYTE pdrv, BYTE* buff, DWORD sector, uint32_t count) {
-    /* Sovereign Core: Map FatFS pdrv to VDISK registry.
+    /* OSx2 Limemade Core: Map FatFS pdrv to VDISK registry.
        Apply the +1 offset to skip the LBA 0 signature (Rule #5). */
     if (vdisk_read((int)pdrv, (uint64_t)sector + 1, count, (void*)buff) == 0) {
         return RES_OK;

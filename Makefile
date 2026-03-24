@@ -1,4 +1,4 @@
-# Sovereign OS Makefile
+# OSx2 Limemade OS Makefile
 
 CC = gcc
 LD = ld
@@ -42,7 +42,7 @@ menuconfig:
 
 kernel: limine-setup $(KERNEL_OBJ)
 	$(LD) $(LDFLAGS) $(KERNEL_OBJ) -o $(KERNEL_ELF)
-	@echo "Sovereign Kernel Compiled: $(KERNEL_ELF)"
+	@echo "OSx2 Limemade Kernel Compiled: $(KERNEL_ELF)"
 
 %.o: %.c | limine-setup
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -66,7 +66,7 @@ iso: limine-setup kernel
 		touch $(ISO_IMAGE); \
 		echo "Warning: xorriso not found, created empty $(ISO_IMAGE) for source compliance."; \
 	fi
-	@echo "Sovereign ISO Created: $(ISO_IMAGE)"
+	@echo "OSx2 Limemade ISO Created: $(ISO_IMAGE)"
 
 clean:
 	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) ramdisk.img

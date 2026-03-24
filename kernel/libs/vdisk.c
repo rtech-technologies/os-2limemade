@@ -20,7 +20,7 @@ void serial_write_str(const char* s);
 void register_vdisk(vdisk_node_t node) {
     if (vdisk_count < MAX_VDISKS) {
         vdisk_registry[vdisk_count++] = node;
-        serial_write_str("[VDISK] Registered new Sovereign disk to /CONNECT.\n");
+        serial_write_str("[VDISK] Registered new OSx2 Limemade disk to /CONNECT.\n");
     }
 }
 

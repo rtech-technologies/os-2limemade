@@ -13,10 +13,10 @@ int is_sovereign_disk(int disk_id) {
     }
 
     if (buffer[0] == SOVEREIGN_SIGNATURE) {
-        serial_write_str("[VDISK] Sovereign signature 0xDEADBEEF found!\n");
+        serial_write_str("[VDISK] OSx2 Limemade signature 0xDEADBEEF found!\n");
         return 1;
     }
 
-    serial_write_str("[VDISK] Sovereign signature mismatch.\n");
+    serial_write_str("[VDISK] OSx2 Limemade signature mismatch.\n");
     return 0;
 }

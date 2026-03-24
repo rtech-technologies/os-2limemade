@@ -2,7 +2,7 @@
 
 void shell_main(void) {
     color(10, 0); /* Emerald Green */
-    print("OS boot sucsess\n");
+    print("OSx2 Limemade: OS boot sucsess\n");
 
     void* curdir = str_create("/");
 

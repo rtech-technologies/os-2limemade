@@ -1,6 +1,6 @@
-# RTECH OSx2: Sovereign Architecture Guide (Hyper-Specific)
+# RTECH OSx2: OSx2 Limemade Architecture Guide (Hyper-Specific)
 
-This guide provides a detailed walkthrough of the **OSx2 Sovereign Core** architecture. You can follow along with the source code in each directory to understand the system's execution flow.
+This guide provides a detailed walkthrough of the **OSx2 OSx2 Limemade Core** architecture. You can follow along with the source code in each directory to understand the system's execution flow.
 
 ## 1. Boot & Memory Layout (High-Half)
 The kernel transitions from the bootloader to a 64-bit high-half environment.
@@ -19,14 +19,14 @@ Execution begins in the **Ritual entry point**.
 - **Service Handler (`kernel/libs/vga_serial.c`):** Implements `vga_serial_service()`. During `EVENT_INIT`, it initializes the Serial COM1 (0x3F8) and clears the VGA buffer (0xB8000). **Note:** Every VGA write is mirrored to the serial port for remote forensics.
 
 ## 3. Managed RAM: ARC & Bump Allocation
-Sovereign memory is strictly managed using reference counting.
+OSx2 Limemade memory is strictly managed using reference counting.
 
 - **Bump Allocator (`kernel/libs/bump_alloc.c`):** A fast `bump_alloc(size_t size)` function that returns memory from a fixed 16MB `heap`. It aligns all allocations to 8 bytes.
-    - **Sovereign Reset:** If the heap exceeds a 90% threshold, the allocator automatically triggers `bump_reset()`, which unloads all managed objects (effectively clearing userspace memory) while keeping the kernel code intact. This is logged to the serial console.
+    - **OSx2 Limemade Reset:** If the heap exceeds a 90% threshold, the allocator automatically triggers `bump_reset()`, which unloads all managed objects (effectively clearing userspace memory) while keeping the kernel code intact. This is logged to the serial console.
 - **ARC Manager (`kernel/libs/arc_mem.c`):**
     - `arc_alloc(size_t size)`: Allocates `size` plus an 8-byte `arc_header_t`.
     - `arc_header_t`: Stores the `ref_count`.
-    - `retain(void* ptr)` / `release(void* ptr)`: Increment and decrement the ref count. Rule #4 ensures memory stays 'Sovereign' until an explicit `EVENT_CLEANUP` or release to 0.
+    - `retain(void* ptr)` / `release(void* ptr)`: Increment and decrement the ref count. Rule #4 ensures memory stays 'OSx2 Limemade' until an explicit `EVENT_CLEANUP` or release to 0.
 
 ## 4. Storage Architecture: /CONNECT & VDISK
 Storage is managed through a Virtual Disk abstraction.
@@ -65,7 +65,7 @@ If a fatal error occurs, the system triggers an **Autopsy**.
     3. **Bios-Install:** Modifies the first few bytes of the `.iso` file to include the Limine MBR, ensuring SeaBIOS recognizes the disk as a bootable OS device rather than just storage.
 
 ## 8. Verification & Execution
-To verify that the Sovereign OS is functioning correctly:
+To verify that the OSx2 Limemade OS is functioning correctly:
 
 1. **Build the Kernel:** Run `make kernel`. This should produce a `kernel.elf` from source with no errors.
 2. **Build the ISO:** Run `make iso`. This should generate a `ramdisk.img` with the `0xDEADBEEF` signature and package it into `osx2.iso`.
