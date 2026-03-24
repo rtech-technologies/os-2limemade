@@ -21,6 +21,9 @@ limine-setup:
 	@if [ ! -d "limine" ]; then \
 		echo "Cloning Limine (v7.x-binary)..."; \
 		git clone https://github.com/limine-bootloader/limine.git --branch=v7.x-binary --depth=1; \
+	fi
+	@if [ ! -f "limine/limine" ]; then \
+		echo "Building Limine tools..."; \
 		$(MAKE) -C limine; \
 	fi
 
@@ -37,7 +40,7 @@ kernel: $(KERNEL_OBJ)
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-iso: kernel
+iso: kernel limine-setup
 	@mkdir -p iso_root
 	@cp $(KERNEL_ELF) iso_root/
 	@cp boot/limine.cfg iso_root/
