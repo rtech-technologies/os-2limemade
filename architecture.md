@@ -65,7 +65,7 @@ To verify that the Sovereign OS is functioning correctly:
 1. **Build the Kernel:** Run `make kernel`. This should produce a `kernel.elf` from source with no errors.
 2. **Build the ISO:** Run `make iso`. This should generate a `ramdisk.img` with the `0xDEADBEEF` signature and package it into `osx2.iso`.
 3. **Run in QEMU:** Run `make run`.
-   - **Expected Output:** The system should boot via Limine, mirror "Serial initialized" and "Sovereign OS RSL Shell Initialized" to the terminal, and display the `rsl>` prompt in Emerald Green on the VGA buffer.
+   - **Expected Output:** The system should boot via Limine, mirror "Serial initialized" and "Sovereign OS RSL Shell Initialized" to the terminal, and display the `rsl>` prompt in Emerald Green on the VGA buffer. Interactivity is achieved through the Pythonic `input()` call.
 4. **RSL Enforcement:** Open `programs/shell.c`. It must **ONLY** include `<rsl.h>`. Any inclusion of kernel headers (e.g., `services.h`) is a violation of the tiered architecture.
 
 ## 9. Modern Standard: Serial Forensics
