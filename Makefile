@@ -48,11 +48,11 @@ kernel: limine-setup $(KERNEL_OBJ)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 iso: limine-setup kernel
-	@mkdir -p iso_root
-	@cp $(KERNEL_ELF) iso_root/
-	@cp boot/limine.cfg iso_root/
+	@mkdir -p iso_root/boot
+	@cp $(KERNEL_ELF) iso_root/boot/
+	@cp boot/limine.cfg iso_root/boot/
 	@python3 scripts/fat_tool.py ramdisk.img
-	@cp ramdisk.img iso_root/
+	@cp ramdisk.img iso_root/boot/
 	@# The Xorriso Ritual for Hybrid Boot (BIOS + UEFI)
 	@if command -v xorriso >/dev/null 2>&1; then \
 		cp $(LIMINE_BIN) iso_root/; \
