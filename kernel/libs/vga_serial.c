@@ -212,7 +212,34 @@ void vga_write_char(char c, uint8_t color_attr) {
         cursor_x++;
     }
 
-    if (cursor_y >= 20) cursor_y = 0;
+    /* Vertical Scrolling Logic */
+    struct limine_framebuffer_response* fb_resp = get_framebuffer();
+    if (!fb_resp || fb_resp->framebuffer_count == 0) return;
+    struct limine_framebuffer* fb = fb_resp->framebuffers[0];
+
+    int char_height = 8 * SCALE;
+    int max_rows = fb->height / char_height;
+
+    if (cursor_y >= max_rows) {
+        /* Move all rows up by one char_height */
+        uint32_t* fb_ptr = (uint32_t*)fb->address;
+        size_t row_pixels = fb->pitch / 4;
+        size_t scroll_size = (max_rows - 1) * char_height * row_pixels;
+        size_t offset = char_height * row_pixels;
+
+        for (size_t i = 0; i < scroll_size; i++) {
+            fb_ptr[i] = fb_ptr[i + offset];
+        }
+
+        /* Clear the bottom row */
+        size_t bottom_start = (max_rows - 1) * char_height * row_pixels;
+        size_t bottom_size = char_height * row_pixels;
+        for (size_t i = 0; i < bottom_size; i++) {
+            fb_ptr[bottom_start + i] = 0x000000;
+        }
+
+        cursor_y = max_rows - 1;
+    }
 }
 
 void vga_clear(void) {
