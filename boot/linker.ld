@@ -25,8 +25,9 @@ SECTIONS
     . = ALIGN(0x1000);
 
     .data : {
-        *(.data .data.*)
+        . = ALIGN(8);
         *(.limine_requests)
+        *(.data .data.*)
     } :data
 
     .bss : {

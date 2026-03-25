@@ -24,6 +24,7 @@ void print(const char* s) {
     if (!s) return;
     for (int i = 0; s[i] != '\0'; i++) {
         vga_write_char(s[i], current_color_val);
+        /* Serial mirroring is handled inside vga_write_char */
     }
 }
 

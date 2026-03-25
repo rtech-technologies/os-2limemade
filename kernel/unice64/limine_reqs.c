@@ -4,6 +4,9 @@
 
 /* Limine Requests for Memory Map and HHDM */
 __attribute__((used, section(".limine_requests")))
+static volatile LIMINE_BASE_REVISION(0);
+
+__attribute__((used, section(".limine_requests")))
 static volatile struct limine_memmap_request memmap_request = {
     .id = LIMINE_MEMMAP_REQUEST,
     .revision = 0
