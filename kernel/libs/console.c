@@ -48,8 +48,12 @@ static char scancode_map[128] = {
 char get_char(void) {
     while (1) {
         /* 1. PS/2 Keyboard Polling */
-        if (inb(0x64) & 1) {
+        uint8_t status = inb(0x64);
+        if (status & 1) {
             uint8_t scancode = inb(0x60);
+
+            /* Filter out mouse data (if bit 5 is set) */
+            if (status & 0x20) continue;
 
             /* Break Signal: Escape (scancode 0x01) */
             if (scancode == 0x01) return 27;

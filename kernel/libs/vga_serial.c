@@ -200,8 +200,11 @@ void vga_write_char(char c, uint8_t color_attr) {
     } else if (c == '\b') {
         if (cursor_x > 0) {
             cursor_x--;
-            draw_char(' ', cursor_x, cursor_y, fg, bg);
+        } else if (cursor_y > 0) {
+            cursor_y--;
+            cursor_x = 49;
         }
+        draw_char(' ', cursor_x, cursor_y, fg, bg);
     } else {
         /* Max width for 2x scale: usually around 40-50 chars depending on resolution */
         if (cursor_x >= 50) {
