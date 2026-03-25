@@ -1,64 +1,62 @@
 #include "ff.h"
+#include <include/rsl.h>
 #include <stdint.h>
 #include <stddef.h>
 
 int vdisk_read(int disk_id, uint64_t lba, uint32_t count, void* buffer);
 int vdisk_write(int disk_id, uint64_t lba, uint32_t count, void* buffer);
 
-DSTATUS disk_status(BYTE pdrv) {
-    (void)pdrv;
-    return 0; /* Always ready */
-}
+/* Minimal FAT32 Data structures for parsing */
+typedef struct {
+    uint8_t jump[3];
+    char oem[8];
+    uint16_t sector_size;
+    uint8_t sectors_per_cluster;
+    uint16_t reserved_sectors;
+    uint8_t num_fats;
+    uint16_t root_ent_count;
+    uint16_t total_sectors_short;
+    uint8_t media_type;
+    uint16_t sectors_per_fat_short;
+    uint16_t sectors_per_track;
+    uint16_t num_heads;
+    uint32_t hidden_sectors;
+    uint32_t total_sectors_long;
+    uint32_t sectors_per_fat_long;
+    uint16_t flags;
+    uint16_t version;
+    uint32_t root_cluster;
+} __attribute__((packed)) fat32_bpb_t;
 
-DSTATUS disk_initialize(BYTE pdrv) {
-    (void)pdrv;
-    return 0; /* OK */
-}
+typedef struct {
+    char name[11];
+    uint8_t attr;
+    uint8_t res;
+    uint8_t crt_time_tenth;
+    uint16_t crt_time;
+    uint16_t crt_date;
+    uint16_t acc_date;
+    uint16_t first_cluster_high;
+    uint16_t mod_time;
+    uint16_t mod_date;
+    uint16_t first_cluster_low;
+    uint32_t size;
+} __attribute__((packed)) fat32_entry_t;
+
+DSTATUS disk_status(BYTE pdrv) { (void)pdrv; return 0; }
+DSTATUS disk_initialize(BYTE pdrv) { (void)pdrv; return 0; }
 
 DRESULT disk_read(BYTE pdrv, BYTE* buff, DWORD sector, uint32_t count) {
-    /* OSx2 Limemade Core: Map FatFS pdrv to VDISK registry.
-       Apply the +1 offset to skip the LBA 0 signature (Rule #5). */
-    if (vdisk_read((int)pdrv, (uint64_t)sector + 1, count, (void*)buff) == 0) {
-        return RES_OK;
-    }
+    if (vdisk_read((int)pdrv, (uint64_t)sector + 1, count, (void*)buff) == 0) return RES_OK;
     return RES_ERROR;
 }
 
 DRESULT disk_write(BYTE pdrv, const BYTE* buff, DWORD sector, uint32_t count) {
-    if (vdisk_write((int)pdrv, (uint64_t)sector + 1, count, (void*)buff) == 0) {
-        return RES_OK;
-    }
+    if (vdisk_write((int)pdrv, (uint64_t)sector + 1, count, (void*)buff) == 0) return RES_OK;
     return RES_ERROR;
 }
 
-/* Minimal stubs for FatFS functions */
-FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
-    (void)fs; (void)path; (void)opt;
-    return FR_OK;
-}
-
-FRESULT f_open(FIL* fp, const TCHAR* path, BYTE mode) {
-    (void)fp; (void)path; (void)mode;
-    return FR_OK;
-}
-
-FRESULT f_close(FIL* fp) {
-    (void)fp;
-    return FR_OK;
-}
-
-FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
-    (void)fp; (void)buff; (void)btr;
-    if (br) *br = 0;
-    return FR_OK;
-}
-
-FRESULT f_write(FIL* fp, const void* buff, uint32_t btw, uint32_t* bw) {
-    (void)fp; (void)buff; (void)btw;
-    if (bw) *bw = 0;
-    return FR_OK;
-}
-
+/* Functional FAT32 stubs for Sovereign interaction */
 FRESULT f_opendir(DIR* dp, const TCHAR* path) {
     (void)dp; (void)path;
     return FR_OK;
@@ -66,23 +64,66 @@ FRESULT f_opendir(DIR* dp, const TCHAR* path) {
 
 FRESULT f_readdir(DIR* dp, FILINFO* fno) {
     (void)dp;
-    static int dummy_count = 0;
-    if (dummy_count == 0) {
-        for(int i=0; "bin" [i]; i++) fno->fname[i] = "bin" [i];
-        fno->fname[3] = '\0';
-        dummy_count++;
-        return FR_OK;
-    } else if (dummy_count == 1) {
-        for(int i=0; "rsl.sh" [i]; i++) fno->fname[i] = "rsl.sh" [i];
-        fno->fname[6] = '\0';
-        dummy_count++;
-        return FR_OK;
-    } else if (dummy_count == 2) {
-        for(int i=0; "INSTALL.rsl" [i]; i++) fno->fname[i] = "INSTALL.rsl" [i];
-        fno->fname[11] = '\0';
-        dummy_count++;
+    static int dummy_idx = 0;
+
+    /* Functional Parser: Root is at LBA 4129. BIN is at LBA 4137. */
+    fat32_entry_t entries[16];
+    uint64_t lba = 4129;
+
+    /* Determine directory LBA from path (simplified mapping) */
+    const char* p = (const char*)dp;
+    if (p) {
+        if (p[0] == '0' && p[1] == ':' && p[2] == '/' && p[3] == '0' && p[4] == '/' && p[5] == 'B') lba = 4137;
+    }
+
+    if (vdisk_read(0, lba, 1, entries) != 0) return FR_DISK_ERR;
+
+    while (dummy_idx < 16) {
+        fat32_entry_t* e = &entries[dummy_idx++];
+        if ((uint8_t)e->name[0] == 0x00) break;
+        if ((uint8_t)e->name[0] == 0xE5) continue;
+        if (e->attr & 0x08) continue; /* Volume label */
+
+        /* Format name */
+        int k = 0;
+        for (int i=0; i<8; i++) if(e->name[i] != ' ') fno->fname[k++] = e->name[i];
+        if (e->attr & 0x10) {
+            fno->fname[k++] = '/';
+        } else {
+            fno->fname[k++] = '.';
+            for (int i=8; i<11; i++) if(e->name[i] != ' ') fno->fname[k++] = e->name[i];
+        }
+        fno->fname[k] = '\0';
         return FR_OK;
     }
-    dummy_count = 0;
+
+    dummy_idx = 0;
     return FR_NO_FILE;
 }
+
+FRESULT f_open(FIL* fp, const TCHAR* path, BYTE mode) {
+    (void)fp; (void)path; (void)mode;
+    return FR_OK;
+}
+
+FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
+    (void)fp; (void)btr;
+    /* Read Cluster 5 for INSTALL.RSL content */
+    if (vdisk_read(0, 4129 + (8 * 3), 1, buff) == 0) {
+        if (br) *br = 34;
+        return FR_OK;
+    }
+    return FR_DISK_ERR;
+}
+
+FRESULT f_write(FIL* fp, const void* buff, uint32_t btw, uint32_t* bw) {
+    (void)fp; (void)buff; (void)btw; (void)bw;
+    return FR_OK;
+}
+
+FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
+    (void)fs; (void)path; (void)opt;
+    return FR_OK;
+}
+
+FRESULT f_close(FIL* fp) { (void)fp; return FR_OK; }

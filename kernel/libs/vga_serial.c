@@ -164,10 +164,11 @@ static int cursor_y = 0;
 
 #define SCALE 2
 
+static struct limine_framebuffer* global_fb = NULL;
+
 void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
-    struct limine_framebuffer_response* fb_resp = get_framebuffer();
-    if (!fb_resp || fb_resp->framebuffer_count == 0) return;
-    struct limine_framebuffer* fb = fb_resp->framebuffers[0];
+    if (!global_fb) return;
+    struct limine_framebuffer* fb = global_fb;
 
     const uint8_t* glyph = font8x8_basic[(uint8_t)c];
     for (int i = 0; i < 8; i++) {
@@ -246,9 +247,8 @@ void vga_write_char(char c, uint8_t color_attr) {
 }
 
 void vga_clear(void) {
-    struct limine_framebuffer_response* fb_resp = get_framebuffer();
-    if (!fb_resp || fb_resp->framebuffer_count == 0) return;
-    struct limine_framebuffer* fb = fb_resp->framebuffers[0];
+    if (!global_fb) return;
+    struct limine_framebuffer* fb = global_fb;
 
     for (uint64_t i = 0; i < fb->height * fb->pitch / 4; i++) {
         ((uint32_t*)fb->address)[i] = 0x000000;
@@ -260,8 +260,16 @@ void vga_clear(void) {
 void vga_serial_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
         serial_init();
-        serial_write_str("[INIT] Serial active.\n");
+
+        struct limine_framebuffer_response* fb_resp = get_framebuffer();
+        if (fb_resp && fb_resp->framebuffer_count > 0) {
+            global_fb = fb_resp->framebuffers[0];
+            serial_write_str("[INIT] GOP Framebuffer initialized.\n");
+        } else {
+            serial_write_str("[WARN] GOP Framebuffer not found, console output disabled.\n");
+        }
+
+        serial_write_str("[INIT] Serial and VGA Mirroring active.\n");
         vga_clear();
-        serial_write_str("[INIT] GOP Framebuffer cleared.\n");
     }
 }
