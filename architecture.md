@@ -36,7 +36,9 @@ Storage is managed through a Virtual Disk abstraction.
 
 - **VDISK Bridge (`kernel/libs/vdisk.c`):** The `/CONNECT` registry is an array of `vdisk_node_t` structures. Each node defines `sector_size`, `total_lba`, and function pointers for `read_lba` and `write_lba`. The shell exposes these as `disk_id:/partition_id/` under a virtual global root (`/`).
 - **Signature Check (`kernel/libs/signature_check.c`):** Implements `is_sovereign_disk(int disk_id)`. It reads LBA 0 of a disk and verifies the presence of the `0xDEADBEEF` signature.
-- **PCI XHCI Scanning (`kernel/libs/usb_xhci.c`):** Scans the PCI bus and registers any found XHCI controllers to the VDISK layer.
+- **PCI XHCI Scanning (`kernel/libs/usb_xhci.c`):** Scans the PCI bus and registers any found XHCI controllers to the VDISK layer. In the QEMU environment, the `xhci_disk_read` function is mapped to the Limine ramdisk module memory address for high-speed file operations.
+- **SATA/AHCI & NVMe Drivers:** Specialized services scan the PCI bus for mass storage controllers, registering them as physical nodes in the `/CONNECT` registry.
+- **VFS Layer (`kernel/libs/vfs.c`):** Provides a unified interface for file operations, routing calls from the RSL API to specific driver or filesystem nodes based on the mount path.
 
 ## 5. RSL (RTECH Standard Library)
 The RSL is the native interface for userspace (`programs/shell.c`).

@@ -39,8 +39,23 @@ int get_vdisk_count(void) {
     return vdisk_count;
 }
 
+#include <include/vfs.h>
+void internal_rsl_ls(void* path);
+void internal_rsl_cat(void* path);
+void internal_rsl_write(void* path, void* content);
+void internal_rsl_cd(void* path);
+
 void vdisk_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
         serial_write_str("[INIT] /CONNECT registry (VDISK) initialized.\n");
+        vfs_init();
+        vfs_node_t root_node = {
+            .name = "/",
+            .ls = internal_rsl_ls,
+            .cat = internal_rsl_cat,
+            .write = internal_rsl_write,
+            .cd = internal_rsl_cd
+        };
+        vfs_register_node(root_node);
     }
 }

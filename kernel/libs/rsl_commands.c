@@ -1,9 +1,14 @@
 #include <include/rsl.h>
+#include <include/vfs.h>
 #include <kernel/libs/fatfs/ff.h>
 
 int get_vdisk_count(void);
 
 void rsl_ls(void* path) {
+    vfs_ls(path);
+}
+
+void internal_rsl_ls(void* path) {
     const char* p = str_to_cstr(path);
 
     /* Global Root Case: List Disks */
@@ -44,6 +49,10 @@ void rsl_ls(void* path) {
 }
 
 void rsl_cat(void* path) {
+    vfs_cat(path);
+}
+
+void internal_rsl_cat(void* path) {
     FIL fp;
     FRESULT res;
     char buffer[512];
@@ -62,6 +71,10 @@ void rsl_cat(void* path) {
 }
 
 void rsl_write(void* path, void* content) {
+    vfs_write(path, content);
+}
+
+void internal_rsl_write(void* path, void* content) {
     FIL fp;
     FRESULT res;
     uint32_t bw;
@@ -77,6 +90,10 @@ void rsl_write(void* path, void* content) {
 }
 
 void rsl_cd(void* path) {
+    vfs_cd(path);
+}
+
+void internal_rsl_cd(void* path) {
     print("Changed directory context to: ");
     print(str_to_cstr(path));
     print("\n");

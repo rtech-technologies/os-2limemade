@@ -162,6 +162,8 @@ static uint32_t vga_colors[] = {
 static int cursor_x = 0;
 static int cursor_y = 0;
 
+#define SCALE 2
+
 void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
     struct limine_framebuffer_response* fb_resp = get_framebuffer();
     if (!fb_resp || fb_resp->framebuffer_count == 0) return;
@@ -170,10 +172,16 @@ void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
     const uint8_t* glyph = font8x8_basic[(uint8_t)c];
     for (int i = 0; i < 8; i++) {
         for (int j = 0; j < 8; j++) {
-            /* Standard 8x8 font: MSB is leftmost pixel */
             uint32_t color = (glyph[i] & (1 << (7 - j))) ? fg : bg;
-            uint32_t* pixel = (uint32_t*)(fb->address + (y * 8 + i) * fb->pitch + (x * 8 + j) * 4);
-            *pixel = color;
+            /* 2x scaling: draw 2x2 blocks */
+            for (int sy = 0; sy < SCALE; sy++) {
+                for (int sx = 0; sx < SCALE; sx++) {
+                    uint32_t* pixel = (uint32_t*)(fb->address +
+                        ((y * 8 * SCALE) + (i * SCALE) + sy) * fb->pitch +
+                        ((x * 8 * SCALE) + (j * SCALE) + sx) * 4);
+                    *pixel = color;
+                }
+            }
         }
     }
 }
@@ -195,7 +203,8 @@ void vga_write_char(char c, uint8_t color_attr) {
             draw_char(' ', cursor_x, cursor_y, fg, bg);
         }
     } else {
-        if (cursor_x >= 80) {
+        /* Max width for 2x scale: usually around 40-50 chars depending on resolution */
+        if (cursor_x >= 50) {
             cursor_x = 0;
             cursor_y++;
         }
@@ -203,7 +212,7 @@ void vga_write_char(char c, uint8_t color_attr) {
         cursor_x++;
     }
 
-    if (cursor_y >= 30) cursor_y = 0;
+    if (cursor_y >= 20) cursor_y = 0;
 }
 
 void vga_clear(void) {
