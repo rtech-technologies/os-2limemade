@@ -18,7 +18,12 @@ size_t str_len(void* str);
 const char* str_to_cstr(void* str);
 
 /* Console API */
-void color(uint8_t fg, uint8_t bg);
+typedef enum {
+    BLACK = 0, BLUE, GREEN, CYAN, RED, MAGENTA, BROWN, LIGHT_GRAY,
+    DARK_GRAY, LIGHT_BLUE, LIGHT_GREEN, LIGHT_CYAN, LIGHT_RED, PINK, YELLOW, WHITE
+} color_t;
+
+void set_color(color_t fg, color_t bg);
 void* input(const char* prompt);
 void print(const char* s);
 

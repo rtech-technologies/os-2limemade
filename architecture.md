@@ -41,9 +41,10 @@ The RSL is the native interface for userspace (`programs/shell.c`).
 - **Public Header (`include/rsl.h`):** Defines the Pythonic RSL API using `void*` for managed objects.
 - **String Management (`kernel/libs/rsl_string.c`):** Implements `str_create()`, `str_match()`, and `str_is_empty()`. Managed pointers include an 8-byte ARC header.
 - **Console API (`kernel/libs/console.c`):**
-    - `color(fg, bg)`: Sets the global `current_color`.
+    - `set_color(color_t fg, color_t bg)`: Sets the global console colors using a predefined `color_t` set.
     - `print(const char* s)`: Writes text to both VGA and Serial.
-    - `input(const char* prompt)`: Displays the prompt and returns an ARC-managed `void*` string. This call implements **Unified Input Polling**, checking for input from the PS/2 Keyboard, Serial COM1, and USB controllers simultaneously.
+    - `input(const char* prompt)`: Displays the prompt and returns an ARC-managed `void*` string. This call implements **Unified Input Polling**, checking for input from the PS/2 Keyboard, Serial COM1, and USB controllers.
+    - **Input Break:** Pressing **Escape** during input triggers a break, returning `NULL` to the caller.
 - **RSL Shell Commands (`kernel/libs/rsl_commands.c`):** Implements high-level filesystem operations bridged to FatFS.
 
 ## 6. Forensic Panic System

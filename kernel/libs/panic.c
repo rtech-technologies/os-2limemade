@@ -11,8 +11,8 @@ typedef struct {
 } cpu_state_t;
 
 void forensic_panic(const char* message, cpu_state_t* state) {
-    /* Emerald color: Green on Black (10, 0) */
-    color(10, 0);
+    /* Emerald color: Green on Black (LIGHT_GREEN, BLACK) */
+    set_color(LIGHT_GREEN, BLACK);
 
     print("\n!!! SOVEREIGN KERNEL PANIC !!!\n");
     print("Autopsy Message: ");

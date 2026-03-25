@@ -7,7 +7,7 @@ void serial_write_char(char c);
 char serial_read_char(void);
 int serial_received(void);
 
-static uint8_t current_color = 0x07; /* White on Black */
+static uint8_t current_color_val = 0x07; /* White on Black */
 
 /* I/O Helpers */
 static inline uint8_t inb(uint16_t port) {
@@ -16,14 +16,14 @@ static inline uint8_t inb(uint16_t port) {
     return ret;
 }
 
-void color(uint8_t fg, uint8_t bg) {
-    current_color = (bg << 4) | (fg & 0x0F);
+void set_color(color_t fg, color_t bg) {
+    current_color_val = ((uint8_t)bg << 4) | ((uint8_t)fg & 0x0F);
 }
 
 void print(const char* s) {
     if (!s) return;
     for (int i = 0; s[i] != '\0'; i++) {
-        vga_write_char(s[i], current_color);
+        vga_write_char(s[i], current_color_val);
     }
 }
 
@@ -49,6 +49,10 @@ char get_char(void) {
         /* 1. PS/2 Keyboard Polling */
         if (inb(0x64) & 1) {
             uint8_t scancode = inb(0x60);
+
+            /* Break Signal: Escape (scancode 0x01) */
+            if (scancode == 0x01) return 27;
+
             if (scancode < 128 && scancode_map[scancode]) {
                 return scancode_map[scancode];
             }
@@ -56,11 +60,10 @@ char get_char(void) {
 
         /* 2. Serial COM1 Polling */
         if (serial_received()) {
-            return serial_read_char();
+            char c = serial_read_char();
+            if (c == 27) return 27; /* ESC */
+            return c;
         }
-
-        /* 3. USB Keyboard (Mocked) */
-        /* USB IRQs would place data in a buffer checked here. */
 
         __asm__ volatile ("pause");
     }
@@ -77,20 +80,27 @@ void* input(const char* prompt) {
     while (idx < 127) {
         char c = get_char();
 
+        /* Break logic: ESC */
+        if (c == 27) {
+            vga_write_char('^', current_color_val);
+            vga_write_char('C', current_color_val);
+            vga_write_char('\n', current_color_val);
+            return NULL;
+        }
+
         if (c == '\n' || c == '\r') {
-            vga_write_char('\n', current_color);
+            vga_write_char('\n', current_color_val);
             break;
         } else if (c == '\b') {
             if (idx > 0) {
                 idx--;
-                /* Simple backspace logic: char, space, char */
-                vga_write_char('\b', current_color);
-                vga_write_char(' ', current_color);
-                vga_write_char('\b', current_color);
+                vga_write_char('\b', current_color_val);
+                vga_write_char(' ', current_color_val);
+                vga_write_char('\b', current_color_val);
             }
         } else {
             buffer[idx++] = c;
-            vga_write_char(c, current_color);
+            vga_write_char(c, current_color_val);
         }
     }
 
