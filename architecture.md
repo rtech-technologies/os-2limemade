@@ -16,7 +16,10 @@ Execution begins in the **Ritual entry point**.
 - **Service Registry (`kernel/libs/services.c`):** Orchestrates the modular hardware drivers.
     - `register_service(service_func_t init_func)`: Adds a service to the global `services` array (max 16).
     - `dispatch_event(kernel_event_t event)`: Iterates through all registered services and triggers their event handlers.
-- **Service Handler (`kernel/libs/vga_serial.c`):** Implements `vga_serial_service()`. During `EVENT_INIT`, it initializes the Serial COM1 (0x3F8) and clears the VGA buffer (0xB8000). **Note:** Every VGA write is mirrored to the serial port for remote forensics.
+- **Service Handler (`kernel/libs/vga_serial.c`):** Implements `vga_serial_service()`. During `EVENT_INIT`, it initializes the Serial COM1 (0x3F8) and the **GOP Framebuffer**.
+    - **Font Rendering:** It uses an internal 8x8 font bitmap to draw characters to the screen.
+    - **Forensic Mirroring:** Every VGA write is mirrored to the serial port for remote diagnostics.
+    - **Backspace Support:** Implements logical backspace for interactive shell use.
 
 ## 3. Managed RAM: ARC & Bump Allocation
 OSx2 Limemade memory is strictly managed using reference counting.

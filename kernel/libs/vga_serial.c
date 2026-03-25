@@ -1,5 +1,6 @@
 #include <kernel/libs/services.h>
 #include <include/config.h>
+#include <limine.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -18,13 +19,13 @@ static inline uint8_t inb(uint16_t port) {
 #define SERIAL_PORT CONFIG_SERIAL_PORT
 
 static void serial_init(void) {
-    outb(SERIAL_PORT + 1, 0x00);    /* Disable interrupts */
-    outb(SERIAL_PORT + 3, 0x80);    /* Enable DLAB (set baud rate divisor) */
-    outb(SERIAL_PORT + 0, 0x03);    /* Set divisor to 3 (38400 baud) */
     outb(SERIAL_PORT + 1, 0x00);
-    outb(SERIAL_PORT + 3, 0x03);    /* 8 bits, no parity, one stop bit */
-    outb(SERIAL_PORT + 2, 0xC7);    /* Enable FIFO, clear them, with 14-byte threshold */
-    outb(SERIAL_PORT + 4, 0x0B);    /* IRQs enabled, RTS/DSR set */
+    outb(SERIAL_PORT + 3, 0x80);
+    outb(SERIAL_PORT + 0, 0x03);
+    outb(SERIAL_PORT + 1, 0x00);
+    outb(SERIAL_PORT + 3, 0x03);
+    outb(SERIAL_PORT + 2, 0xC7);
+    outb(SERIAL_PORT + 4, 0x0B);
 }
 
 static int is_transmit_empty(void) {
@@ -52,69 +53,124 @@ void serial_write_str(const char* s) {
 }
 
 uint64_t get_hhdm_offset(void);
+struct limine_framebuffer_response* get_framebuffer(void);
 
-/* VGA Legacy Fallback (0xB8000) */
-#define VGA_PHYS 0xB8000
-#define VGA_WIDTH 80
-#define VGA_HEIGHT 25
+/* Basic 8x8 Font Bitmap (Minimal subset for demo) */
+static uint8_t font8x8_basic[128][8] = {
+    ['A'] = {0x18, 0x3C, 0x66, 0x7E, 0x66, 0x66, 0x66, 0x00},
+    ['B'] = {0x7C, 0x66, 0x66, 0x7C, 0x66, 0x66, 0x7C, 0x00},
+    ['C'] = {0x3C, 0x66, 0x60, 0x60, 0x60, 0x66, 0x3C, 0x00},
+    ['D'] = {0x78, 0x6C, 0x66, 0x66, 0x66, 0x6C, 0x78, 0x00},
+    ['E'] = {0x7E, 0x60, 0x60, 0x78, 0x60, 0x60, 0x7E, 0x00},
+    ['F'] = {0x7E, 0x60, 0x60, 0x78, 0x60, 0x60, 0x60, 0x00},
+    ['G'] = {0x3C, 0x66, 0x60, 0x6E, 0x66, 0x66, 0x3C, 0x00},
+    ['H'] = {0x66, 0x66, 0x66, 0x7E, 0x66, 0x66, 0x66, 0x00},
+    ['I'] = {0x3C, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00},
+    ['J'] = {0x1E, 0x0C, 0x0C, 0x0C, 0x0C, 0x6C, 0x38, 0x00},
+    ['K'] = {0x66, 0x6C, 0x78, 0x70, 0x78, 0x6C, 0x66, 0x00},
+    ['L'] = {0x60, 0x60, 0x60, 0x60, 0x60, 0x60, 0x7E, 0x00},
+    ['M'] = {0x66, 0x7E, 0x7E, 0x66, 0x66, 0x66, 0x66, 0x00},
+    ['N'] = {0x66, 0x76, 0x7E, 0x7E, 0x6E, 0x66, 0x66, 0x00},
+    ['O'] = {0x3C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00},
+    ['P'] = {0x7C, 0x66, 0x66, 0x7C, 0x60, 0x60, 0x60, 0x00},
+    ['Q'] = {0x3C, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x0E, 0x00},
+    ['R'] = {0x7C, 0x66, 0x66, 0x7C, 0x6C, 0x66, 0x66, 0x00},
+    ['S'] = {0x3C, 0x66, 0x30, 0x18, 0x0C, 0x66, 0x3C, 0x00},
+    ['T'] = {0x7E, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00},
+    ['U'] = {0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x00},
+    ['V'] = {0x66, 0x66, 0x66, 0x66, 0x66, 0x3C, 0x18, 0x00},
+    ['W'] = {0x66, 0x66, 0x66, 0x7E, 0x7E, 0x7E, 0x66, 0x00},
+    ['X'] = {0x66, 0x66, 0x3C, 0x18, 0x3C, 0x66, 0x66, 0x00},
+    ['Y'] = {0x66, 0x66, 0x66, 0x3C, 0x18, 0x18, 0x18, 0x00},
+    ['Z'] = {0x7E, 0x06, 0x0C, 0x18, 0x30, 0x60, 0x7E, 0x00},
+    ['0'] = {0x3C, 0x66, 0x6E, 0x7E, 0x76, 0x66, 0x3C, 0x00},
+    ['1'] = {0x18, 0x38, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00},
+    ['2'] = {0x3C, 0x66, 0x06, 0x3C, 0x60, 0x66, 0x7E, 0x00},
+    ['3'] = {0x3C, 0x66, 0x06, 0x1C, 0x06, 0x66, 0x3C, 0x00},
+    ['4'] = {0x06, 0x0E, 0x1E, 0x66, 0x7E, 0x06, 0x06, 0x00},
+    ['5'] = {0x7E, 0x60, 0x7C, 0x06, 0x06, 0x66, 0x3C, 0x00},
+    ['6'] = {0x3C, 0x66, 0x60, 0x7C, 0x66, 0x66, 0x3C, 0x00},
+    ['7'] = {0x7E, 0x06, 0x0C, 0x18, 0x30, 0x30, 0x30, 0x00},
+    ['8'] = {0x3C, 0x66, 0x66, 0x3C, 0x66, 0x66, 0x3C, 0x00},
+    ['9'] = {0x3C, 0x66, 0x66, 0x3E, 0x06, 0x66, 0x3C, 0x00},
+    [':'] = {0x00, 0x18, 0x18, 0x00, 0x18, 0x18, 0x00, 0x00},
+    ['/'] = {0x00, 0x02, 0x04, 0x08, 0x10, 0x20, 0x00, 0x00},
+    ['>'] = {0x18, 0x0C, 0x06, 0x03, 0x06, 0x0C, 0x18, 0x00},
+    [' '] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+    ['-'] = {0x00, 0x00, 0x00, 0x3C, 0x00, 0x00, 0x00, 0x00},
+    ['['] = {0x3C, 0x30, 0x30, 0x30, 0x30, 0x30, 0x3C, 0x00},
+    [']'] = {0x3C, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x3C, 0x00},
+    ['.'] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18, 0x00},
+    ['\n'] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+};
 
-static uint16_t* vga_buffer = (uint16_t*)0xffffffff800b8000ULL; /* Fallback */
-static int vga_cursor_x = 0;
-static int vga_cursor_y = 0;
+static uint32_t vga_colors[] = {
+    0x000000, 0x0000AA, 0x00AA00, 0x00AAAA, 0xAA0000, 0xAA00AA, 0xAA5500, 0xAAAAAA,
+    0x555555, 0x5555FF, 0x55FF55, 0x55FFFF, 0xFF5555, 0xFF55FF, 0xFFFF55, 0xFFFFFF
+};
 
-void vga_clear(void) {
-    for (int y = 0; y < VGA_HEIGHT; y++) {
-        for (int x = 0; x < VGA_WIDTH; x++) {
-            vga_buffer[y * VGA_WIDTH + x] = (uint16_t)' ' | (0x07 << 8);
+static int cursor_x = 0;
+static int cursor_y = 0;
+
+void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
+    struct limine_framebuffer_response* fb_resp = get_framebuffer();
+    if (!fb_resp || fb_resp->framebuffer_count == 0) return;
+    struct limine_framebuffer* fb = fb_resp->framebuffers[0];
+
+    uint8_t* glyph = font8x8_basic[(uint8_t)c];
+    for (int i = 0; i < 8; i++) {
+        for (int j = 0; j < 8; j++) {
+            uint32_t color = (glyph[i] & (1 << j)) ? fg : bg;
+            uint32_t* pixel = (uint32_t*)(fb->address + (y * 8 + i) * fb->pitch + (x * 8 + j) * 4);
+            *pixel = color;
         }
     }
 }
 
-void vga_write_char(char c, uint8_t color) {
-    /* Mirroring to Serial */
+void vga_write_char(char c, uint8_t color_attr) {
     serial_write_char(c);
 
+    uint32_t fg = vga_colors[color_attr & 0x0F];
+    uint32_t bg = vga_colors[(color_attr >> 4) & 0x0F];
+
     if (c == '\n') {
-        vga_cursor_x = 0;
-        vga_cursor_y++;
+        cursor_x = 0;
+        cursor_y++;
+    } else if (c == '\b') {
+        if (cursor_x > 0) {
+            cursor_x--;
+            draw_char(' ', cursor_x, cursor_y, fg, bg);
+        }
     } else {
-        vga_buffer[vga_cursor_y * VGA_WIDTH + vga_cursor_x] = (uint16_t)c | ((uint16_t)color << 8);
-        vga_cursor_x++;
+        draw_char(c, cursor_x, cursor_y, fg, bg);
+        cursor_x++;
+        if (cursor_x >= 80) {
+            cursor_x = 0;
+            cursor_y++;
+        }
     }
 
-    if (vga_cursor_x >= VGA_WIDTH) {
-        vga_cursor_x = 0;
-        vga_cursor_y++;
-    }
+    /* Simple wrap around for y */
+    if (cursor_y >= 30) cursor_y = 0;
+}
 
-    if (vga_cursor_y >= VGA_HEIGHT) {
-        /* Simple scroll */
-        for (int y = 1; y < VGA_HEIGHT; y++) {
-            for (int x = 0; x < VGA_WIDTH; x++) {
-                vga_buffer[(y - 1) * VGA_WIDTH + x] = vga_buffer[y * VGA_WIDTH + x];
-            }
-        }
-        for (int x = 0; x < VGA_WIDTH; x++) {
-            vga_buffer[(VGA_HEIGHT - 1) * VGA_WIDTH + x] = (uint16_t)' ' | (0x07 << 8);
-        }
-        vga_cursor_y = VGA_HEIGHT - 1;
+void vga_clear(void) {
+    struct limine_framebuffer_response* fb_resp = get_framebuffer();
+    if (!fb_resp || fb_resp->framebuffer_count == 0) return;
+    struct limine_framebuffer* fb = fb_resp->framebuffers[0];
+
+    for (uint64_t i = 0; i < fb->height * fb->pitch / 4; i++) {
+        ((uint32_t*)fb->address)[i] = 0x000000;
     }
+    cursor_x = 0;
+    cursor_y = 0;
 }
 
 void vga_serial_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
         serial_init();
-
-        /* Force reload of HHDM to ensure it's captured after Limine initializes */
-        uint64_t hhdm = get_hhdm_offset();
-        if (hhdm) {
-            vga_buffer = (uint16_t*)(hhdm + VGA_PHYS);
-            serial_write_str("[INIT] VGA Buffer mapped via HHDM.\n");
-        } else {
-            serial_write_str("[WARN] HHDM offset not found, using default High-Half address.\n");
-        }
-
-        serial_write_str("[INIT] Serial and VGA Mirroring active.\n");
+        serial_write_str("[INIT] Serial active.\n");
         vga_clear();
+        serial_write_str("[INIT] GOP Framebuffer cleared.\n");
     }
 }
