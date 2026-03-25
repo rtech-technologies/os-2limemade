@@ -11,9 +11,18 @@ void rsl_ls(void* path) {
         int count = get_vdisk_count();
         for (int i = 0; i < count; i++) {
             char buf[8];
-            buf[0] = '0' + i; buf[1] = ':'; buf[2] = '/'; buf[3] = '0'; buf[4] = '/'; buf[5] = '\n'; buf[6] = '\0';
+            buf[0] = '0' + i; buf[1] = ':'; buf[2] = '/'; buf[3] = '\n'; buf[4] = '\0';
             print(buf);
         }
+        return;
+    }
+
+    /* Disk Root Case: List Partitions */
+    /* Check for format "N:/" where N is a digit */
+    if (p[0] >= '0' && p[0] <= '9' && p[1] == ':' && p[2] == '/' && p[3] == '\0') {
+        char buf[8];
+        buf[0] = p[0]; buf[1] = ':'; buf[2] = '/'; buf[3] = '0'; buf[4] = '/'; buf[5] = '\n'; buf[6] = '\0';
+        print(buf);
         return;
     }
 

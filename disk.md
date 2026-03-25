@@ -5,10 +5,16 @@ This document explains how users can navigate the Sovereign storage system using
 ## 1. The Global Root (`/`)
 The top-level of the file system is the **Global Root**. It acts as a virtual directory that contains all registered physical storage devices.
 
-- When you run `ls` at `/`, you will see a list of disks and partitions.
-- Format: `disk_id:/partition_id/` (e.g., `0:/0/`).
+- When you run `ls` at `/`, you will see a list of disks.
+- Format: `disk_id:/` (e.g., `0:/`).
 
-## 2. Disk Labeling
+## 2. Disk Roots and Partitions
+Once you are at a disk root, you can list its partitions.
+
+- **0:/**: Running `ls` here will show available partitions (e.g., `0:/0/`).
+- **0:/0/**: This is a specific partition. Running `ls` here lists files and folders.
+
+## 3. Disk Labeling
 OSx2 Limemade uses numbers to label disks and partitions for simplicity and tiered access.
 
 - **0:/0/**: Disk 0, Partition 0. This is typically the primary boot device or ramdisk.
