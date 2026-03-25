@@ -96,8 +96,6 @@ void* input(const char* prompt) {
             if (idx > 0) {
                 idx--;
                 vga_write_char('\b', current_color_val);
-                vga_write_char(' ', current_color_val);
-                vga_write_char('\b', current_color_val);
             }
         } else {
             buffer[idx++] = c;
