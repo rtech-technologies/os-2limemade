@@ -38,17 +38,17 @@ void shell_main(void) {
         if (cmd_line == NULL) continue;
         if (str_is_empty(cmd_line)) { release(cmd_line); continue; }
 
-        /* Split arguments by spaces */
+        /* Multi-Arg Parser (Treats each space as an argument separator) */
         char* line_buf = (char*)str_to_cstr(cmd_line);
-        char* argv[10];
+        char* argv[16];
         int argc = 0;
         char* p = line_buf;
 
-        while (*p && argc < 10) {
-            while (*p == ' ') *p++ = '\0';
+        while (*p && argc < 16) {
+            while (*p == ' ') *p++ = '\0'; /* Skip leading spaces */
             if (*p == '\0') break;
             argv[argc++] = p;
-            while (*p && *p != ' ') p++;
+            while (*p && *p != ' ') p++; /* Skip non-spaces */
         }
 
         if (argc == 0) { release(cmd_line); continue; }
@@ -56,6 +56,13 @@ void shell_main(void) {
         /* Dispatcher */
         if (cstr_match(argv[0], "ls")) {
             rsl_ls(curdir);
+        }
+        else if (cstr_match(argv[0], "echo")) {
+            for (int i = 1; i < argc; i++) {
+                print(argv[i]);
+                if (i < argc - 1) print(" ");
+            }
+            print("\n");
         }
         else if (cstr_match(argv[0], "cat")) {
             if (argc > 1) {
@@ -118,6 +125,7 @@ void shell_main(void) {
             print("ls          - List disks/partitions/files\n");
             print("cd <path>   - Change directory context\n");
             print("cat <file>  - Read file content\n");
+            print("echo <txt>  - Print text to screen\n");
             print("write <f>   - File creation\n");
             print("color <f> <b>- Change console colors\n");
             print("help        - Show this menu\n");

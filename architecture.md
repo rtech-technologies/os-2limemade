@@ -45,7 +45,7 @@ The RSL is the native interface for userspace (`programs/shell.c`).
     - `print(const char* s)`: Writes text to both VGA and Serial.
     - `input(const char* prompt)`: Displays the prompt and returns an ARC-managed `void*` string. This call implements **Unified Input Polling**, checking for input from the PS/2 Keyboard, Serial COM1, and USB controllers.
     - **Input Break:** Pressing **Escape** during input triggers a break, returning `NULL` to the caller.
-- **RSL Shell Commands (`kernel/libs/rsl_commands.c`):** Implements high-level filesystem operations bridged to FatFS.
+- **RSL Shell Commands (`kernel/libs/rsl_commands.c`):** Implements high-level filesystem operations bridged to FatFS. The shell supports multi-argument parsing (`argc`/`argv`) for commands like `echo`, `cat`, and `color`.
 
 ## 6. Forensic Panic System
 If a fatal error occurs, the system triggers an **Autopsy**.
