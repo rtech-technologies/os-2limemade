@@ -9,6 +9,15 @@ static bool cstr_match(const char* s1, const char* s2) {
     return s1[i] == s2[i];
 }
 
+static bool cstr_starts_with(const char* str, const char* prefix) {
+    int i = 0;
+    while (prefix[i]) {
+        if (str[i] != prefix[i]) return false;
+        i++;
+    }
+    return true;
+}
+
 static color_t name_to_color(const char* name) {
     if (cstr_match(name, "black")) return BLACK;
     if (cstr_match(name, "blue")) return BLUE;
@@ -36,7 +45,7 @@ void shell_main(void) {
         release(prompt);
 
         if (cmd_line == NULL) {
-            continue; /* Break happened */
+            continue; /* Break happened (Escape key) */
         }
 
         if (str_is_empty(cmd_line)) {
@@ -44,10 +53,17 @@ void shell_main(void) {
             continue;
         }
 
-        if (str_match(cmd_line, "ls")) {
+        const char* cmd = str_to_cstr(cmd_line);
+
+        if (cstr_match(cmd, "ls")) {
             rsl_ls(curdir);
         }
-        else if (str_match(cmd_line, "write")) {
+        else if (cstr_starts_with(cmd, "cat ")) {
+            void* path = str_create(cmd + 4);
+            rsl_cat(path);
+            release(path);
+        }
+        else if (cstr_match(cmd, "write")) {
             void* filename = input("Enter Filename: ");
             if (!filename) continue;
 
@@ -58,7 +74,12 @@ void shell_main(void) {
             release(filename);
             release(content);
         }
-        else if (str_match(cmd_line, "color")) {
+        else if (cstr_starts_with(cmd, "cd ")) {
+            release(curdir);
+            curdir = str_create(cmd + 3);
+            rsl_cd(curdir);
+        }
+        else if (cstr_match(cmd, "color")) {
             void* fg_name = input("Enter FG Color: ");
             if (!fg_name) continue;
             void* bg_name = input("Enter BG Color: ");
@@ -69,12 +90,22 @@ void shell_main(void) {
             release(bg_name);
             print("Color Updated.\n");
         }
-        else if (str_match(cmd_line, "exit")) {
+        else if (cstr_match(cmd, "help")) {
+            print("Available Commands:\n");
+            print("ls          - List disks/partitions/files\n");
+            print("cd <path>   - Change directory context (e.g. 0:/0/)\n");
+            print("cat <file>  - Read file content\n");
+            print("write       - Interactive file creation\n");
+            print("color       - Interactive color change\n");
+            print("help        - Show this menu\n");
+            print("exit        - Terminate shell\n");
+        }
+        else if (cstr_match(cmd, "exit")) {
             release(cmd_line);
             break;
         }
         else {
-            print("Unknown Command.\n");
+            print("Unknown Command. Type 'help' for options.\n");
         }
 
         release(cmd_line);

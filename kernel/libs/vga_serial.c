@@ -105,12 +105,16 @@ void vga_serial_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
         serial_init();
 
+        /* Force reload of HHDM to ensure it's captured after Limine initializes */
         uint64_t hhdm = get_hhdm_offset();
         if (hhdm) {
             vga_buffer = (uint16_t*)(hhdm + VGA_PHYS);
+            serial_write_str("[INIT] VGA Buffer mapped via HHDM.\n");
+        } else {
+            serial_write_str("[WARN] HHDM offset not found, using default High-Half address.\n");
         }
 
-        serial_write_str("[INIT] Serial and VGA Mirroring initialized (HHDM mapping applied).\n");
+        serial_write_str("[INIT] Serial and VGA Mirroring active.\n");
         vga_clear();
     }
 }

@@ -26,6 +26,7 @@ SECTIONS
 
     .data : {
         *(.data .data.*)
+        *(.limine_requests)
     } :data
 
     .bss : {
