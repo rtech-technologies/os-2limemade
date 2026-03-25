@@ -36,6 +36,15 @@ void serial_write_char(char c) {
     outb(SERIAL_PORT, c);
 }
 
+int serial_received(void) {
+    return inb(SERIAL_PORT + 5) & 1;
+}
+
+char serial_read_char(void) {
+    while (serial_received() == 0);
+    return inb(SERIAL_PORT);
+}
+
 void serial_write_str(const char* s) {
     for (int i = 0; s[i] != '\0'; i++) {
         serial_write_char(s[i]);
