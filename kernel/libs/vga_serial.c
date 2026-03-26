@@ -190,6 +190,11 @@ void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
 void vga_write_char(char c, uint8_t color_attr) {
     serial_write_char(c);
 
+    if (!global_fb) return;
+    struct limine_framebuffer* fb = global_fb;
+    int char_width = 8 * SCALE;
+    int max_cols = fb->width / char_width;
+
     uint32_t fg = vga_colors[color_attr & 0x0F];
     uint32_t bg = vga_colors[(color_attr >> 4) & 0x0F];
 
@@ -203,12 +208,12 @@ void vga_write_char(char c, uint8_t color_attr) {
             cursor_x--;
         } else if (cursor_y > 0) {
             cursor_y--;
-            cursor_x = 49;
+            cursor_x = max_cols - 1;
         }
         draw_char(' ', cursor_x, cursor_y, fg, bg);
     } else {
-        /* Max width for 2x scale: usually around 40-50 chars depending on resolution */
-        if (cursor_x >= 50) {
+        /* Dynamic line wrapping based on framebuffer width */
+        if (cursor_x >= max_cols) {
             cursor_x = 0;
             cursor_y++;
         }
@@ -219,7 +224,6 @@ void vga_write_char(char c, uint8_t color_attr) {
     /* Vertical Scrolling Logic */
     struct limine_framebuffer_response* fb_resp = get_framebuffer();
     if (!fb_resp || fb_resp->framebuffer_count == 0) return;
-    struct limine_framebuffer* fb = fb_resp->framebuffers[0];
 
     int char_height = 8 * SCALE;
     int max_rows = fb->height / char_height;
