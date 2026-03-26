@@ -25,9 +25,14 @@ void internal_rsl_ls(void* path) {
     /* Disk Root Case: List Partitions */
     /* Check for format "N:/" where N is a digit */
     if (p[0] >= '0' && p[0] <= '9' && p[1] == ':' && p[2] == '/' && p[3] == '\0') {
-        char buf[8];
-        buf[0] = p[0]; buf[1] = ':'; buf[2] = '/'; buf[3] = '0'; buf[4] = '/'; buf[5] = '\n'; buf[6] = '\0';
-        print(buf);
+        int drive = p[0] - '0';
+        if (drive < get_vdisk_count()) {
+            char buf[8];
+            buf[0] = p[0]; buf[1] = ':'; buf[2] = '/'; buf[3] = '0'; buf[4] = '/'; buf[5] = '\n'; buf[6] = '\0';
+            print(buf);
+        } else {
+            print("Error: Disk not found.\n");
+        }
         return;
     }
 

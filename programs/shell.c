@@ -96,7 +96,22 @@ void shell_main(void) {
         }
         else if (cstr_match(argv[0], "cd")) {
             if (argc > 1) {
-                void* new_path = str_create(argv[1]);
+                void* new_path;
+                if (cstr_match(argv[1], "/")) {
+                    new_path = str_create("/");
+                } else if (cstr_match(argv[1], "..")) {
+                    /* Basic parent directory traversal */
+                    const char* cur = str_to_cstr(curdir);
+                    if (cstr_match(cur, "/")) {
+                        new_path = str_create("/");
+                    } else {
+                        /* Simplified: return to / if not at / */
+                        new_path = str_create("/");
+                    }
+                } else {
+                    new_path = str_create(argv[1]);
+                }
+
                 if (rsl_exists(new_path)) {
                     release(curdir);
                     curdir = new_path;
@@ -145,17 +160,18 @@ void shell_main(void) {
             }
         }
         else if (cstr_match(argv[0], "help")) {
-            print("Available Commands:\n");
-            print("ls          - List disks/partitions/files\n");
-            print("cd <path>   - Change directory context\n");
-            print("cat <file>  - Read file content\n");
-            print("echo <txt>  - Print text to screen\n");
-            print("write <f>   - File creation\n");
-            print("mkdir <d>   - Create directory\n");
-            print("rmdir <d>   - Remove directory\n");
-            print("color <f> <b>- Change console colors\n");
-            print("help        - Show this menu\n");
-            print("exit        - Terminate shell\n");
+            print("OSx2 Limemade RSL Shell Commands:\n");
+            print("---------------------------------\n");
+            print("ls [path]      - List disks (at /) or directory contents\n");
+            print("cd <path>      - Change to a new Sovereign path (e.g., 0:/)\n");
+            print("cat <file>     - Display contents of a Sovereign file\n");
+            print("echo <text>    - Print text to the screen\n");
+            print("write <file>   - Create or overwrite a file with interactive input\n");
+            print("mkdir <name>   - Create a new Sovereign directory\n");
+            print("rmdir <name>   - Remove a Sovereign directory or file\n");
+            print("color <fg> <bg>- Update console colors (e.g., color green black)\n");
+            print("help           - Show this command list\n");
+            print("exit           - Terminate the RSL shell session\n");
         }
         else if (cstr_match(argv[0], "exit")) {
             release(cmd_line);

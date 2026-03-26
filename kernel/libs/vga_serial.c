@@ -170,6 +170,9 @@ void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;
 
+    /* Bounds check to prevent out-of-bounds font access */
+    if ((uint8_t)c >= 128) return;
+
     const uint8_t* glyph = font8x8_basic[(uint8_t)c];
     for (int i = 0; i < 8; i++) {
         for (int j = 0; j < 8; j++) {
@@ -189,6 +192,10 @@ void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
 
 void vga_write_char(char c, uint8_t color_attr) {
     serial_write_char(c);
+
+    /* Ignore non-printable gibberish except for key control codes */
+    if ((uint8_t)c < 32 && c != '\n' && c != '\r' && c != '\b' && c != '\t') return;
+    if ((uint8_t)c >= 127) return;
 
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;

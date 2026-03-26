@@ -45,6 +45,24 @@ static char scancode_map[128] = {
   ' ',	/* Space bar */
 };
 
+static char shift_scancode_map[128] = {
+    0,  27, '!', '@', '#', '$', '%', '^', '&', '*',	/* 9 */
+  '(', ')', '_', '+', '\b',	/* Backspace */
+  '\t',			/* Tab */
+  'Q', 'W', 'E', 'R',	/* 19 */
+  'T', 'Y', 'U', 'I', 'O', 'P', '{', '}', '\n',	/* Enter key */
+    0,			/* 29   - Control */
+  'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':',	/* 39 */
+ '"', '~',   0,		/* Left shift */
+ '|', 'Z', 'X', 'C', 'V', 'B', 'N',			/* 49 */
+  'M', '<', '>', '?',   0,				/* Right shift */
+  '*',
+    0,	/* Alt */
+  ' ',	/* Space bar */
+};
+
+static bool shift_pressed = false;
+
 char get_char(void) {
     while (1) {
         /* 1. PS/2 Keyboard Polling */
@@ -55,19 +73,36 @@ char get_char(void) {
             /* Filter out mouse data (if bit 5 is set) */
             if (status & 0x20) continue;
 
+            /* Check for shift pressed/released */
+            if (scancode == 0x2A || scancode == 0x36) {
+                shift_pressed = true;
+                continue;
+            }
+            if (scancode == 0xAA || scancode == 0xB6) {
+                shift_pressed = false;
+                continue;
+            }
+
+            /* Special case: ENTER Release scancode (0x1C | 0x80 = 0x9C) */
+            if (scancode == 0x9C) return -1; /* Special Enter Release code */
+
+            /* All other release scancodes (scancode | 0x80) are ignored */
+            if (scancode & 0x80) continue;
+
             /* Break Signal: Escape (scancode 0x01) */
             if (scancode == 0x01) return 27;
 
-            if (scancode < 128 && scancode_map[scancode]) {
-                return scancode_map[scancode];
+            if (scancode < 128) {
+                char c = shift_pressed ? shift_scancode_map[scancode] : scancode_map[scancode];
+                if (c) return c;
             }
         }
 
-        /* 2. Serial COM1 Polling */
+        /* 2. Serial COM1 Polling (Printable Only + Control) */
         if (serial_received()) {
             char c = serial_read_char();
             if (c == 27) return 27; /* ESC */
-            return c;
+            if (c == '\n' || c == '\r' || c == '\b' || (c >= 32 && c <= 126)) return c;
         }
 
         __asm__ volatile ("pause");
@@ -84,6 +119,9 @@ void* input(const char* prompt) {
 
     while (idx < 127) {
         char c = get_char();
+
+        /* Wait for Enter key to be released before returning to prevent typing loop */
+        if (c == (char)-1) continue;
 
         /* Break logic: ESC */
         if (c == 27) {
