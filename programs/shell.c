@@ -98,6 +98,10 @@ void shell_main(void) {
             if (argc > 1) {
                 void* new_path;
                 if (cstr_match(argv[1], "/")) {
+                    if (cstr_match(str_to_cstr(curdir), "/")) {
+                        release(cmd_line);
+                        continue;
+                    }
                     new_path = str_create("/");
                 } else if (cstr_match(argv[1], "..")) {
                     /* Basic parent directory traversal */
