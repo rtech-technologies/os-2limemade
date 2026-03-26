@@ -58,12 +58,12 @@ DRESULT disk_write(BYTE pdrv, const BYTE* buff, DWORD sector, uint32_t count) {
 
 /* Functional FAT32 stubs for Sovereign interaction */
 FRESULT f_opendir(DIR* dp, const TCHAR* path) {
-    (void)dp; (void)path;
+    /* Use dp as a pointer to the path string for simplicity in our stub */
+    *(const char**)dp = path;
     return FR_OK;
 }
 
 FRESULT f_readdir(DIR* dp, FILINFO* fno) {
-    (void)dp;
     static int dummy_idx = 0;
 
     /* Functional Parser: Root is at LBA 4129. BIN is at LBA 4137. */
@@ -71,12 +71,15 @@ FRESULT f_readdir(DIR* dp, FILINFO* fno) {
     uint64_t lba = 4129;
 
     /* Determine directory LBA from path (simplified mapping) */
+    /* Extract drive number from dp (which holds path in our stub) */
+    int drive = 0;
     const char* p = (const char*)dp;
     if (p) {
+        if (p[0] >= '0' && p[0] <= '9') drive = p[0] - '0';
         if (p[0] == '0' && p[1] == ':' && p[2] == '/' && p[3] == '0' && p[4] == '/' && p[5] == 'B') lba = 4137;
     }
 
-    if (vdisk_read(0, lba, 1, entries) != 0) return FR_DISK_ERR;
+    if (vdisk_read(drive, lba, 1, entries) != 0) return FR_DISK_ERR;
 
     while (dummy_idx < 16) {
         fat32_entry_t* e = &entries[dummy_idx++];
@@ -86,6 +89,9 @@ FRESULT f_readdir(DIR* dp, FILINFO* fno) {
 
         /* Format name */
         int k = 0;
+        if (e->attr & 0x10) {
+            fno->fname[k++] = '['; fno->fname[k++] = 'D'; fno->fname[k++] = 'I'; fno->fname[k++] = 'R'; fno->fname[k++] = ']'; fno->fname[k++] = ' ';
+        }
         for (int i=0; i<8; i++) if(e->name[i] != ' ') fno->fname[k++] = e->name[i];
         if (e->attr & 0x10) {
             fno->fname[k++] = '/';
@@ -102,14 +108,21 @@ FRESULT f_readdir(DIR* dp, FILINFO* fno) {
 }
 
 FRESULT f_open(FIL* fp, const TCHAR* path, BYTE mode) {
-    (void)fp; (void)path; (void)mode;
+    (void)mode;
+    /* Use fp as a pointer to the path string for simplicity in our stub */
+    *(const char**)fp = path;
     return FR_OK;
 }
 
 FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
-    (void)fp; (void)btr;
+    (void)btr;
+    /* Extract drive from fp (stub path) */
+    int drive = 0;
+    const char* p = (const char*)fp;
+    if (p && p[0] >= '0' && p[0] <= '9') drive = p[0] - '0';
+
     /* Read Cluster 5 for INSTALL.RSL content */
-    if (vdisk_read(0, 4129 + (8 * 3), 1, buff) == 0) {
+    if (vdisk_read(drive, 4129 + (8 * 3), 1, buff) == 0) {
         if (br) *br = 34;
         return FR_OK;
     }
