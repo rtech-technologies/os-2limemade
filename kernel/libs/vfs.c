@@ -49,3 +49,22 @@ void vfs_cd(void* path) {
         if (vfs_registry[i].cd) vfs_registry[i].cd(path);
     }
 }
+
+void vfs_mkdir(void* path) {
+    for (int i = 0; i < vfs_node_count; i++) {
+        if (vfs_registry[i].mkdir) vfs_registry[i].mkdir(path);
+    }
+}
+
+void vfs_rmdir(void* path) {
+    for (int i = 0; i < vfs_node_count; i++) {
+        if (vfs_registry[i].rmdir) vfs_registry[i].rmdir(path);
+    }
+}
+
+bool vfs_exists(void* path) {
+    for (int i = 0; i < vfs_node_count; i++) {
+        if (vfs_registry[i].exists && vfs_registry[i].exists(path)) return true;
+    }
+    return false;
+}

@@ -139,4 +139,30 @@ FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
     return FR_OK;
 }
 
+FRESULT f_mkdir(const TCHAR* path) {
+    void serial_write_str(const char* s);
+    serial_write_str("[FS] MKDIR: Creating directory: ");
+    serial_write_str(path);
+    serial_write_str("\n");
+    return FR_OK;
+}
+
+FRESULT f_unlink(const TCHAR* path) {
+    void serial_write_str(const char* s);
+    serial_write_str("[FS] UNLINK: Removing entry: ");
+    serial_write_str(path);
+    serial_write_str("\n");
+    return FR_OK;
+}
+
+FRESULT f_stat(const TCHAR* path, FILINFO* fno) {
+    (void)fno;
+    /* Basic existence check for cd validation */
+    if (path[0] == '/' && path[1] == '\0') return FR_OK;
+    if (path[0] >= '0' && path[0] <= '9' && path[1] == ':' && path[2] == '/' && path[3] == '\0') return FR_OK;
+    /* Simulate 'bin' existence */
+    if (path[0] == '0' && path[1] == ':' && path[2] == '/' && path[3] == '0' && path[4] == '/' && path[5] == 'B') return FR_OK;
+    return FR_NO_PATH;
+}
+
 FRESULT f_close(FIL* fp) { (void)fp; return FR_OK; }

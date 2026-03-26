@@ -44,6 +44,9 @@ void internal_rsl_ls(void* path);
 void internal_rsl_cat(void* path);
 void internal_rsl_write(void* path, void* content);
 void internal_rsl_cd(void* path);
+void internal_rsl_mkdir(void* path);
+void internal_rsl_rmdir(void* path);
+bool internal_rsl_exists(void* path);
 
 void vdisk_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
@@ -54,7 +57,10 @@ void vdisk_service(kernel_event_t event) {
             .ls = internal_rsl_ls,
             .cat = internal_rsl_cat,
             .write = internal_rsl_write,
-            .cd = internal_rsl_cd
+            .cd = internal_rsl_cd,
+            .mkdir = internal_rsl_mkdir,
+            .rmdir = internal_rsl_rmdir,
+            .exists = internal_rsl_exists
         };
         vfs_register_node(root_node);
     }

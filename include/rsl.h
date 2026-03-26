@@ -32,5 +32,8 @@ void rsl_ls(void* path);
 void rsl_cat(void* path);
 void rsl_write(void* path, void* content);
 void rsl_cd(void* path);
+void rsl_mkdir(void* path);
+void rsl_rmdir(void* path);
+bool rsl_exists(void* path);
 
 #endif /* RSL_H */

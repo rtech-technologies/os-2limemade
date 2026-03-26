@@ -98,3 +98,36 @@ void internal_rsl_cd(void* path) {
     print(str_to_cstr(path));
     print("\n");
 }
+
+void rsl_mkdir(void* path) {
+    vfs_mkdir(path);
+}
+
+void rsl_rmdir(void* path) {
+    vfs_rmdir(path);
+}
+
+bool rsl_exists(void* path) {
+    return vfs_exists(path);
+}
+
+void internal_rsl_mkdir(void* path) {
+    if (f_mkdir(str_to_cstr(path)) == FR_OK) {
+        print("Directory created.\n");
+    } else {
+        print("Error: Could not create directory.\n");
+    }
+}
+
+void internal_rsl_rmdir(void* path) {
+    if (f_unlink(str_to_cstr(path)) == FR_OK) {
+        print("Directory removed.\n");
+    } else {
+        print("Error: Could not remove directory.\n");
+    }
+}
+
+bool internal_rsl_exists(void* path) {
+    FILINFO fno;
+    return f_stat(str_to_cstr(path), &fno) == FR_OK;
+}

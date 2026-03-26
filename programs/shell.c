@@ -96,11 +96,35 @@ void shell_main(void) {
         }
         else if (cstr_match(argv[0], "cd")) {
             if (argc > 1) {
-                release(curdir);
-                curdir = str_create(argv[1]);
-                rsl_cd(curdir);
+                void* new_path = str_create(argv[1]);
+                if (rsl_exists(new_path)) {
+                    release(curdir);
+                    curdir = new_path;
+                    rsl_cd(curdir);
+                } else {
+                    print("Error: Path does not exist.\n");
+                    release(new_path);
+                }
             } else {
                 print("Usage: cd <path>\n");
+            }
+        }
+        else if (cstr_match(argv[0], "mkdir")) {
+            if (argc > 1) {
+                void* path = str_create(argv[1]);
+                rsl_mkdir(path);
+                release(path);
+            } else {
+                print("Usage: mkdir <name>\n");
+            }
+        }
+        else if (cstr_match(argv[0], "rmdir")) {
+            if (argc > 1) {
+                void* path = str_create(argv[1]);
+                rsl_rmdir(path);
+                release(path);
+            } else {
+                print("Usage: rmdir <name>\n");
             }
         }
         else if (cstr_match(argv[0], "color")) {
@@ -127,6 +151,8 @@ void shell_main(void) {
             print("cat <file>  - Read file content\n");
             print("echo <txt>  - Print text to screen\n");
             print("write <f>   - File creation\n");
+            print("mkdir <d>   - Create directory\n");
+            print("rmdir <d>   - Remove directory\n");
             print("color <f> <b>- Change console colors\n");
             print("help        - Show this menu\n");
             print("exit        - Terminate shell\n");

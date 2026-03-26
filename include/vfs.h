@@ -10,6 +10,9 @@ typedef struct {
     void (*cat)(void* path);
     void (*write)(void* path, void* content);
     void (*cd)(void* path);
+    void (*mkdir)(void* path);
+    void (*rmdir)(void* path);
+    bool (*exists)(void* path);
 } vfs_node_t;
 
 void vfs_init(void);
@@ -18,5 +21,8 @@ void vfs_ls(void* path);
 void vfs_cat(void* path);
 void vfs_write(void* path, void* content);
 void vfs_cd(void* path);
+void vfs_mkdir(void* path);
+void vfs_rmdir(void* path);
+bool vfs_exists(void* path);
 
 #endif

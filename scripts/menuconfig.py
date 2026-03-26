@@ -8,15 +8,19 @@ def main():
     heap_size = input("Enter Heap Size in MB (default 16): ") or "16"
 
     print("\nAvailable Classic Screen Resolutions:")
-    print("1. 640x480 (Classic VGA)")
-    print("2. 800x600 (SVGA)")
-    print("3. 1024x768 (XGA)")
-    res_choice = input("Select Resolution (1-3, default 1): ") or "1"
+    print("1. 320x200 (Mode 13h Classic)")
+    print("2. 640x400 (Text Mode Classic)")
+    print("3. 640x480 (Classic VGA)")
+    print("4. 800x600 (SVGA)")
+    print("5. 1024x768 (XGA)")
+    res_choice = input("Select Resolution (1-5, default 3): ") or "3"
 
     res_map = {
-        "1": "640x480",
-        "2": "800x600",
-        "3": "1024x768"
+        "1": "320x200",
+        "2": "640x400",
+        "3": "640x480",
+        "4": "800x600",
+        "5": "1024x768"
     }
     resolution = res_map.get(res_choice, "640x480")
     width, height = resolution.split('x')

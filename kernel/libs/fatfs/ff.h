@@ -65,6 +65,9 @@ FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br);
 FRESULT f_write(FIL* fp, const void* buff, uint32_t btw, uint32_t* bw);
 FRESULT f_opendir(DIR* dp, const TCHAR* path);
 FRESULT f_readdir(DIR* dp, FILINFO* fno);
+FRESULT f_mkdir(const TCHAR* path);
+FRESULT f_unlink(const TCHAR* path);
+FRESULT f_stat(const TCHAR* path, FILINFO* fno);
 
 /* diskio.h equivalent */
 typedef BYTE DSTATUS;
