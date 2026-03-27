@@ -9,6 +9,7 @@ KERNEL_OBJ = $(KERNEL_SRC:.c=.o)
 KERNEL_ELF = kernel.elf
 
 ISO_IMAGE = osx2.iso
+SATA_DISK = sata_disk.img
 LIMINE_DIR = ./limine
 LIMINE_BIN = $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin $(LIMINE_DIR)/limine-uefi-cd.bin
 
@@ -18,6 +19,7 @@ all:
 	$(MAKE) limine-setup
 	$(MAKE) kernel
 	$(MAKE) iso
+	$(MAKE) $(SATA_DISK)
 
 limine-setup:
 	@mkdir -p limine
@@ -33,8 +35,11 @@ limine-setup:
 		$(MAKE) -C limine; \
 	fi
 
-run: iso
-	qemu-system-x86_64 -M q35 -m 512M -serial stdio -cdrom $(ISO_IMAGE)
+run: iso $(SATA_DISK)
+	qemu-system-x86_64 -M q35 -m 512M -serial stdio -cdrom $(ISO_IMAGE) -hda $(SATA_DISK)
+
+$(SATA_DISK):
+	@python3 scripts/fat_tool.py $(SATA_DISK)
 
 menuconfig:
 	python3 scripts/menuconfig.py
@@ -68,7 +73,7 @@ iso: limine-setup kernel
 	@echo "OSx2 Limemade ISO Created: $(ISO_IMAGE)"
 
 clean:
-	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) ramdisk.img
+	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) $(SATA_DISK) ramdisk.img
 	rm -rf iso_root
 	@# Keep limine source but clean its binaries
 	@if [ -d "limine" ]; then $(MAKE) -C limine clean || true; fi
