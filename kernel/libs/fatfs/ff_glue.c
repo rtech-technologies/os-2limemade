@@ -56,15 +56,45 @@ FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
     uint8_t boot_sector[512];
     if (disk_read(0, boot_sector, 0, 1) != RES_OK) return FR_DISK_ERR;
 
+    /* Verify FAT32 Signature (0x55AA) */
+    if (boot_sector[510] != 0x55 || boot_sector[511] != 0xAA) return FR_NO_FILESYSTEM;
+
     /* Basic BPB Parsing */
     fs_ctx.reserved_sectors = *(uint16_t*)&boot_sector[14];
     fs_ctx.num_fats = boot_sector[16];
     fs_ctx.sectors_per_fat = *(uint32_t*)&boot_sector[36];
     fs_ctx.sectors_per_cluster = boot_sector[13];
     fs_ctx.root_cluster = *(uint32_t*)&boot_sector[44];
+    if (fs_ctx.sectors_per_fat == 0) return FR_NO_FILESYSTEM;
     fs_ctx.data_lba = fs_ctx.reserved_sectors + (fs_ctx.num_fats * fs_ctx.sectors_per_fat);
 
     serial_write_str("[FS] FAT32 Mechanical Handshake Successful.\n");
+    return FR_OK;
+}
+
+FRESULT f_mkfs(const TCHAR* path, BYTE opt, DWORD au) {
+    (void)path; (void)opt; (void)au;
+    serial_write_str("[FS] Formatting Disk 0 (FAT32)...\n");
+
+    /* 1. Inject Sovereign Signature at Physical LBA 0 */
+    uint8_t sig[512] = {0};
+    sig[0] = 0xEF; sig[1] = 0xBE; sig[2] = 0xAD; sig[3] = 0xDE;
+    ahci_write_sectors(NULL, 0, 1, sig);
+
+    /* 2. Build Minimal FAT32 BPB at Partition LBA 0 (Physical LBA 1) */
+    uint8_t boot_sector[512] = {0};
+    boot_sector[0] = 0xEB; boot_sector[1] = 0x58; boot_sector[2] = 0x90; /* Jump */
+    boot_sector[11] = 0x00; boot_sector[12] = 0x02; /* 512 Bytes per Sector */
+    boot_sector[13] = 0x08; /* 8 Sectors per Cluster */
+    boot_sector[14] = 0x20; boot_sector[15] = 0x00; /* 32 Reserved Sectors */
+    boot_sector[16] = 0x02; /* 2 FATs */
+    boot_sector[17] = 0x00; boot_sector[18] = 0x00; /* 0 Root Entries (FAT32) */
+    *(uint32_t*)&boot_sector[36] = 0x00000800; /* 2048 Sectors per FAT */
+    *(uint32_t*)&boot_sector[44] = 0x00000002; /* Root Cluster 2 */
+    boot_sector[510] = 0x55; boot_sector[511] = 0xAA; /* Magic */
+
+    disk_write(0, boot_sector, 0, 1);
+    serial_write_str("[FS] Format Complete.\n");
     return FR_OK;
 }
 

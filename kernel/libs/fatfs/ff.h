@@ -59,6 +59,7 @@ typedef struct {
 } FILINFO;
 
 FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt);
+FRESULT f_mkfs(const TCHAR* path, BYTE opt, DWORD au);
 FRESULT f_open(FIL* fp, const TCHAR* path, BYTE mode);
 FRESULT f_close(FIL* fp);
 FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br);
