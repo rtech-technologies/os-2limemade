@@ -2,7 +2,8 @@
 #include <include/vfs.h>
 #include <kernel/libs/fatfs/ff.h>
 
-int get_vdisk_count(void);
+int get_hw_disk_count(void);
+int get_connect_disk_count(void);
 
 void rsl_ls(void* path) {
     vfs_ls(path);
@@ -11,15 +12,15 @@ void rsl_ls(void* path) {
 void internal_rsl_ls(void* path) {
     const char* p = str_to_cstr(path);
 
-    /* Global Root Case: List Disks */
+    /* Global Root Case: List all physical hardware (mounted or not) */
     if (p[0] == '/' && p[1] == '\0') {
-        int count = get_vdisk_count();
+        int count = get_hw_disk_count();
         for (int i = 0; i < count; i++) {
             char buf[32];
-            /* Check for Sovereign Signature at LBA 0 */
             uint8_t sector[512];
             bool sovereign = false;
-            if (vdisk_read(i, 0, 1, sector) == 0) {
+            int vdisk_read_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer);
+            if (vdisk_read_hw(i, 0, 1, sector) == 0) {
                 if (sector[0] == 0xEF && sector[1] == 0xBE && sector[2] == 0xAD && sector[3] == 0xDE) {
                     sovereign = true;
                 }
@@ -40,11 +41,26 @@ void internal_rsl_ls(void* path) {
         return;
     }
 
+    /* /CONNECT Case: List only mounted/connected disks */
+    if (str_match(path, "/CONNECT")) {
+        int count = get_connect_disk_count();
+        if (count == 0) {
+            print("No disks currently connected to /CONNECT.\n");
+        } else {
+            for (int i = 0; i < count; i++) {
+                char buf[16];
+                buf[0] = '0' + i; buf[1] = ':'; buf[2] = '/'; buf[3] = '\n'; buf[4] = '\0';
+                print(buf);
+            }
+        }
+        return;
+    }
+
     /* Disk Root Case: List Partitions */
     /* Check for format "N:/" where N is a digit */
     if (p[0] >= '0' && p[0] <= '9' && p[1] == ':' && p[2] == '/' && p[3] == '\0') {
         int drive = p[0] - '0';
-        if (drive < get_vdisk_count()) {
+        if (drive < get_hw_disk_count()) {
             char buf[8];
             buf[0] = p[0]; buf[1] = ':'; buf[2] = '/'; buf[3] = '0'; buf[4] = '/'; buf[5] = '\n'; buf[6] = '\0';
             print(buf);
@@ -155,9 +171,14 @@ bool internal_rsl_exists(void* path) {
     return f_stat(str_to_cstr(path), &fno) == FR_OK;
 }
 
+void vdisk_connect(int hw_id);
+
 void rsl_mount(void* path) {
     FATFS fs;
-    if (f_mount(&fs, str_to_cstr(path), 1) == FR_OK) {
+    const char* p = str_to_cstr(path);
+    if (f_mount(&fs, p, 1) == FR_OK) {
+        int drive = p[0] - '0';
+        vdisk_connect(drive);
         print("Mount successful.\n");
     } else {
         print("Error: Mount failed.\n");

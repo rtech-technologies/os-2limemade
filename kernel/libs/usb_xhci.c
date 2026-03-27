@@ -15,7 +15,7 @@ typedef struct {
     int (*write_lba)(void* priv, uint64_t lba, uint32_t count, void* buffer);
 } vdisk_node_t;
 
-void register_vdisk(vdisk_node_t node);
+void register_hardware_disk(vdisk_node_t node);
 int is_sovereign_disk(int disk_id);
 
 /* PCI Helpers (Simplified) */
@@ -89,7 +89,7 @@ void usb_xhci_service(kernel_event_t event) {
                                 .read_lba = xhci_disk_read,
                                 .write_lba = NULL
                             };
-                            register_vdisk(usb_disk);
+                            register_hardware_disk(usb_disk);
 
                             if (is_sovereign_disk(0)) {
                                 serial_write_str("[CONNECT] USB Handshake Successful.\n");

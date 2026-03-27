@@ -11,32 +11,54 @@ typedef struct {
     int (*write_lba)(void* priv, uint64_t lba, uint32_t count, void* buffer);
 } vdisk_node_t;
 
-#define MAX_VDISKS 8
-static vdisk_node_t vdisk_registry[MAX_VDISKS];
-static int vdisk_count = 0;
+#define MAX_DISKS 16
+
+/* Physical Hardware Registry */
+static vdisk_node_t hw_registry[MAX_DISKS];
+static int hw_count = 0;
+
+/* Logical Connected Registry (/CONNECT) */
+static vdisk_node_t connect_registry[MAX_DISKS];
+static int connect_count = 0;
 
 void serial_write_str(const char* s);
 
-void register_vdisk(vdisk_node_t node) {
-    if (vdisk_count < MAX_VDISKS) {
-        vdisk_registry[vdisk_count++] = node;
-        serial_write_str("[VDISK] Registered new OSx2 Limemade disk to /CONNECT.\n");
+void register_hardware_disk(vdisk_node_t node) {
+    if (hw_count < MAX_DISKS) {
+        hw_registry[hw_count++] = node;
+        serial_write_str("[VDISK] Physical hardware detected and registered.\n");
+    }
+}
+
+void vdisk_connect(int hw_id) {
+    if (hw_id >= 0 && hw_id < hw_count && connect_count < MAX_DISKS) {
+        connect_registry[connect_count++] = hw_registry[hw_id];
+        serial_write_str("[CONNECT] Disk volume linked to Sovereign /CONNECT registry.\n");
     }
 }
 
 int vdisk_read(int disk_id, uint64_t lba, uint32_t count, void* buffer) {
-    if (disk_id < 0 || disk_id >= vdisk_count) return -1;
-    return vdisk_registry[disk_id].read_lba(vdisk_registry[disk_id].private_data, lba, count, buffer);
+    if (disk_id < 0 || disk_id >= hw_count) return -1;
+    return hw_registry[disk_id].read_lba(hw_registry[disk_id].private_data, lba, count, buffer);
 }
 
 int vdisk_write(int disk_id, uint64_t lba, uint32_t count, void* buffer) {
-    if (disk_id < 0 || disk_id >= vdisk_count) return -1;
-    if (!vdisk_registry[disk_id].write_lba) return -1;
-    return vdisk_registry[disk_id].write_lba(vdisk_registry[disk_id].private_data, lba, count, buffer);
+    if (disk_id < 0 || disk_id >= hw_count) return -1;
+    if (!hw_registry[disk_id].write_lba) return -1;
+    return hw_registry[disk_id].write_lba(hw_registry[disk_id].private_data, lba, count, buffer);
 }
 
-int get_vdisk_count(void) {
-    return vdisk_count;
+int get_hw_disk_count(void) {
+    return hw_count;
+}
+
+int get_connect_disk_count(void) {
+    return connect_count;
+}
+
+int vdisk_read_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer) {
+    if (hw_id < 0 || hw_id >= hw_count) return -1;
+    return hw_registry[hw_id].read_lba(hw_registry[hw_id].private_data, lba, count, buffer);
 }
 
 #include <include/vfs.h>
@@ -63,5 +85,12 @@ void vdisk_service(kernel_event_t event) {
             .exists = internal_rsl_exists
         };
         vfs_register_node(root_node);
+
+        vfs_node_t connect_node = {
+            .name = "/CONNECT",
+            .ls = internal_rsl_ls,
+            .exists = internal_rsl_exists
+        };
+        vfs_register_node(connect_node);
     }
 }

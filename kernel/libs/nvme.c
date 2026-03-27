@@ -13,7 +13,7 @@ typedef struct {
     int (*write_lba)(void* priv, uint64_t lba, uint32_t count, void* buffer);
 } vdisk_node_t;
 
-void register_vdisk(vdisk_node_t node);
+void register_hardware_disk(vdisk_node_t node);
 
 int nvme_disk_read(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     (void)priv; (void)lba; (void)count; (void)buffer;
@@ -40,7 +40,7 @@ void nvme_service(kernel_event_t event) {
                         .read_lba = nvme_disk_read,
                         .write_lba = NULL
                     };
-                    register_vdisk(nvme_disk);
+                    register_hardware_disk(nvme_disk);
                 }
             }
         }

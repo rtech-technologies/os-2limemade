@@ -22,6 +22,8 @@ void _start(void) {
     bool mount_success = false;
     for (int retry = 0; retry < 3; retry++) {
         if (f_mount(&fs, "0:", 1) == FR_OK) {
+            void vdisk_connect(int hw_id);
+            vdisk_connect(0);
             mount_success = true;
             break;
         }
@@ -35,7 +37,10 @@ void _start(void) {
         if (choice && str_match(choice, "y")) {
             if (f_mkfs("0:", 0, 0) == FR_OK) {
                 print("[FS] Disk formatted. Retrying mount...\n");
-                if (f_mount(&fs, "0:", 1) != FR_OK) {
+                if (f_mount(&fs, "0:", 1) == FR_OK) {
+                    void vdisk_connect(int hw_id);
+                    vdisk_connect(0);
+                } else {
                     print("[FS] Mount failed. Entering Safe Mode.\n");
                     void enter_safe_mode(void);
                     enter_safe_mode();

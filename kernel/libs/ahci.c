@@ -13,7 +13,7 @@ typedef struct {
     int (*write_lba)(void* priv, uint64_t lba, uint32_t count, void* buffer);
 } vdisk_node_t;
 
-void register_vdisk(vdisk_node_t node);
+void register_hardware_disk(vdisk_node_t node);
 
 /* AHCI HBA Structures (Minimal) */
 typedef struct {
@@ -109,18 +109,20 @@ void ahci_service(kernel_event_t event) {
                                     .sector_size = 512,
                                     .total_lba = 1024 * 1024 * 10,
                                     .read_lba = ahci_read_sectors,
-                                    .write_lba = ahci_write_sectors
+                                    .write_lba = ahci_write_sectors,
+                                    .private_data = (void*)(uint64_t)p
                                 };
-                                register_vdisk(sata_disk);
+                                register_hardware_disk(sata_disk);
                             } else if (sig == 0xEB140101) { /* ATAPI */
                                 serial_write_str("[INIT] Port detected: ATAPI CD-ROM.\n");
                                 vdisk_node_t cdrom = {
                                     .sector_size = 2048,
                                     .total_lba = 1024 * 1024,
                                     .read_lba = atapi_read_sectors,
-                                    .write_lba = NULL
+                                    .write_lba = NULL,
+                                    .private_data = (void*)(uint64_t)p
                                 };
-                                register_vdisk(cdrom);
+                                register_hardware_disk(cdrom);
                             }
                         }
                     }
