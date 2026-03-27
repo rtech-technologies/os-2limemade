@@ -15,8 +15,26 @@ void internal_rsl_ls(void* path) {
     if (p[0] == '/' && p[1] == '\0') {
         int count = get_vdisk_count();
         for (int i = 0; i < count; i++) {
-            char buf[8];
-            buf[0] = '0' + i; buf[1] = ':'; buf[2] = '/'; buf[3] = '\n'; buf[4] = '\0';
+            char buf[32];
+            /* Check for Sovereign Signature at LBA 0 */
+            uint8_t sector[512];
+            bool sovereign = false;
+            if (vdisk_read(i, 0, 1, sector) == 0) {
+                if (sector[0] == 0xEF && sector[1] == 0xBE && sector[2] == 0xAD && sector[3] == 0xDE) {
+                    sovereign = true;
+                }
+            }
+
+            int k = 0;
+            buf[k++] = '0' + i; buf[k++] = ':'; buf[k++] = '/'; buf[k++] = ' ';
+            if (sovereign) {
+                const char* tag = "[SOVEREIGN]";
+                while(*tag) buf[k++] = *tag++;
+            } else {
+                const char* tag = "[RAW DISK]";
+                while(*tag) buf[k++] = *tag++;
+            }
+            buf[k++] = '\n'; buf[k++] = '\0';
             print(buf);
         }
         return;

@@ -17,7 +17,15 @@ void vfs_register_node(vfs_node_t node) {
 }
 
 void vfs_ls(void* path) {
-    /* Route to all nodes; the vdisk node handles the global '/' case specifically. */
+    const char* p = str_to_cstr(path);
+    /* Global Root: Only route to the first node (which is vdisk) to avoid duplicates */
+    if (p[0] == '/' && p[1] == '\0') {
+        if (vfs_node_count > 0 && vfs_registry[0].ls) {
+            vfs_registry[0].ls(path);
+        }
+        return;
+    }
+
     for (int i = 0; i < vfs_node_count; i++) {
         if (vfs_registry[i].ls) vfs_registry[i].ls(path);
     }
