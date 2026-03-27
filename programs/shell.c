@@ -137,6 +137,24 @@ void shell_main(void) {
                 print("Usage: mkdir <name>\n");
             }
         }
+        else if (cstr_match(argv[0], "mount")) {
+            if (argc > 1) {
+                void* path = str_create(argv[1]);
+                rsl_mount(path);
+                release(path);
+            } else {
+                print("Usage: mount <path>\n");
+            }
+        }
+        else if (cstr_match(argv[0], "format")) {
+            if (argc > 1) {
+                void* path = str_create(argv[1]);
+                rsl_format(path);
+                release(path);
+            } else {
+                print("Usage: format <path>\n");
+            }
+        }
         else if (cstr_match(argv[0], "rmdir")) {
             if (argc > 1) {
                 void* path = str_create(argv[1]);
@@ -166,13 +184,15 @@ void shell_main(void) {
         else if (cstr_match(argv[0], "help")) {
             print("OSx2 Limemade RSL Shell Commands:\n");
             print("---------------------------------\n");
-            print("ls [path]      - List disks (at /) or directory contents\n");
+            print("ls [path]      - List Sovereign disks (at /), ATAPI nodes, or directories\n");
             print("cd <path>      - Change to a new Sovereign path (e.g., 0:/)\n");
             print("cat <file>     - Display contents of a Sovereign file\n");
             print("echo <text>    - Print text to the screen\n");
             print("write <file>   - Create or overwrite a file with interactive input\n");
             print("mkdir <name>   - Create a new Sovereign directory\n");
             print("rmdir <name>   - Remove a Sovereign directory or file\n");
+            print("mount <path>   - Mount a Sovereign volume (e.g., 0:)\n");
+            print("format <path>  - Physically format a drive (e.g., 0:)\n");
             print("color <fg> <bg>- Update console colors (e.g., color green black)\n");
             print("help           - Show this command list\n");
             print("exit           - Terminate the RSL shell session\n");

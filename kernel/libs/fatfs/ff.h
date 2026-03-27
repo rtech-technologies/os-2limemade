@@ -8,6 +8,7 @@ typedef uint32_t DWORD;
 typedef uint16_t WORD;
 typedef uint8_t BYTE;
 typedef uint32_t FSIZE_t;
+typedef uint32_t LBA_t;
 
 typedef enum {
     FR_OK = 0,
@@ -33,30 +34,76 @@ typedef enum {
 } FRESULT;
 
 typedef struct {
-    BYTE fs_type;
-    BYTE drv;
-    /* ... minimal fields ... */
+    BYTE  fs_type;      /* Fat type (0, FAT12, FAT16, FAT32) */
+    BYTE  drv;          /* Physical drive number */
+    BYTE  n_fats;       /* Number of FAT copies */
+    BYTE  wflag;        /* win buffer dirty flag */
+    BYTE  fsi_flag;     /* FSINFO dirty flag */
+    WORD  id;           /* File system mount ID */
+    WORD  n_rootdir;    /* Number of root directory entries (FAT12/16) */
+    DWORD last_clst;    /* Last allocated cluster */
+    DWORD free_clst;    /* Number of free clusters */
+    DWORD n_fatent;     /* Number of FAT entries */
+    DWORD fsize;        /* Sectors per FAT */
+    LBA_t volbase;      /* Volume base sector */
+    LBA_t fatbase;      /* FAT base sector */
+    LBA_t dirbase;      /* Root directory base sector/cluster */
+    LBA_t database;     /* Data base sector */
+    DWORD winsect;      /* Current sector in win[] */
+    BYTE  win[512];     /* Disk access window for Directory/FAT/Boot */
 } FATFS;
 
 typedef struct {
-    FATFS* obj;
-    DWORD fptr;
-    FSIZE_t fsize;
-    /* ... minimal fields ... */
+    FATFS*  obj;        /* Pointer to the hosting volume object */
+    WORD    id;         /* Hosting volume mount ID */
+    BYTE    flag;       /* File status flags */
+    BYTE    err;        /* Error code */
+    DWORD   fptr;       /* File read/write pointer */
+    DWORD   fsize;      /* File size */
+    DWORD   sclust;     /* File start cluster */
+    DWORD   clust;      /* Current cluster */
+    LBA_t   dsect;      /* Current data sector */
 } FIL;
 
 typedef struct {
-    FATFS* obj;
-    /* ... minimal fields ... */
+    FATFS*  obj;        /* Pointer to the hosting volume object */
+    WORD    id;         /* Hosting volume mount ID */
+    DWORD   index;      /* Current directory index */
+    DWORD   sclust;     /* Table start cluster */
+    DWORD   clust;      /* Current cluster */
+    LBA_t   sect;       /* Current sector */
+    BYTE*   dir;        /* Pointer to the current SFN entry in win[] */
 } DIR;
 
 typedef struct {
-    FSIZE_t fsize;
-    WORD fdate;
-    WORD ftime;
-    BYTE fattrib;
-    TCHAR fname[256];
+    FSIZE_t fsize;      /* File size */
+    WORD    fdate;      /* Last modified date */
+    WORD    ftime;      /* Last modified time */
+    BYTE    fattrib;    /* Attribute */
+    TCHAR   fname[256]; /* File name */
 } FILINFO;
+
+/* File access control and open method flags */
+#define FA_READ             0x01
+#define FA_WRITE            0x02
+#define FA_OPEN_EXISTING    0x00
+#define FA_CREATE_ALWAYS    0x08
+#define FA_CREATE_NEW       0x04
+#define FA_OPEN_ALWAYS      0x10
+
+/* FAT sub-type boundaries */
+#define FS_FAT12    1
+#define FS_FAT16    2
+#define FS_FAT32    3
+
+/* File attribute bits */
+#define AM_RDO  0x01    /* Read only */
+#define AM_HID  0x02    /* Hidden */
+#define AM_SYS  0x04    /* System */
+#define AM_VOL  0x08    /* Volume label */
+#define AM_LFN  0x0F    /* LFN entry */
+#define AM_DIR  0x10    /* Directory */
+#define AM_ARC  0x20    /* Archive */
 
 FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt);
 FRESULT f_mkfs(const TCHAR* path, BYTE opt, DWORD au);
@@ -84,10 +131,5 @@ DSTATUS disk_initialize(BYTE pdrv);
 DSTATUS disk_status(BYTE pdrv);
 DRESULT disk_read(BYTE pdrv, BYTE* buff, DWORD sector, uint32_t count);
 DRESULT disk_write(BYTE pdrv, const BYTE* buff, DWORD sector, uint32_t count);
-
-#define FA_READ 0x01
-#define FA_WRITE 0x02
-#define FA_OPEN_EXISTING 0x00
-#define FA_CREATE_ALWAYS 0x08
 
 #endif

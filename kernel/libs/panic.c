@@ -11,15 +11,17 @@ typedef struct {
 } cpu_state_t;
 
 void forensic_panic(const char* message, cpu_state_t* state) {
-    /* Emerald color: Green on Black (LIGHT_GREEN, BLACK) */
-    set_color(LIGHT_GREEN, BLACK);
+    /* Critical Alert: Red on Black */
+    set_color(LIGHT_RED, BLACK);
 
     print("\n!!! SOVEREIGN KERNEL PANIC !!!\n");
-    print("Autopsy Message: ");
+    print("Autopsy Status: [ TERMINATED ]\n");
+    print("Failure Vector: ");
     print(message);
     print("\n\n");
 
-    serial_write_str("\n!!! PANIC !!!\n");
+    serial_write_str("\n[PANIC] !!! SOVEREIGN KERNEL EXCEPTION !!!\n");
+    serial_write_str("[PANIC] Error Signature: ");
     serial_write_str(message);
     serial_write_str("\n");
 

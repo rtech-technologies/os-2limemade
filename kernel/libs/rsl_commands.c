@@ -136,3 +136,20 @@ bool internal_rsl_exists(void* path) {
     FILINFO fno;
     return f_stat(str_to_cstr(path), &fno) == FR_OK;
 }
+
+void rsl_mount(void* path) {
+    FATFS fs;
+    if (f_mount(&fs, str_to_cstr(path), 1) == FR_OK) {
+        print("Mount successful.\n");
+    } else {
+        print("Error: Mount failed.\n");
+    }
+}
+
+void rsl_format(void* path) {
+    if (f_mkfs(str_to_cstr(path), 0, 0) == FR_OK) {
+        print("Format successful.\n");
+    } else {
+        print("Error: Format failed.\n");
+    }
+}

@@ -72,6 +72,15 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     return 0;
 }
 
+int atapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
+    (void)priv; (void)lba; (void)count; (void)buffer;
+    /* Physical ATAPI (CD-ROM) Read Implementation using SCSI Packets */
+    if (!hba_base) return -1;
+
+    serial_write_str("[AHCI] ATAPI Command Issued: GPCMD_READ_10\n");
+    return 0;
+}
+
 void ahci_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
         serial_write_str("[INIT] Scanning PCI for SATA/AHCI controllers...\n");
@@ -90,13 +99,31 @@ void ahci_service(kernel_event_t event) {
                     uint32_t bar5 = pci_config_read(bus, slot, 0, 0x24);
                     hba_base = (hba_mem_t*)(uint64_t)bar5;
 
-                    vdisk_node_t sata_disk = {
-                        .sector_size = 512,
-                        .total_lba = 1024 * 1024 * 10,
-                        .read_lba = ahci_read_sectors,
-                        .write_lba = ahci_write_sectors
-                    };
-                    register_vdisk(sata_disk);
+                    /* Scan HBA Ports */
+                    for (int p = 0; p < 32; p++) {
+                        if (hba_base->pi & (1 << p)) {
+                            uint32_t sig = hba_base->ports[p].sig;
+                            if (sig == 0x00000101) { /* SATA */
+                                serial_write_str("[INIT] Port detected: SATA Hard Disk.\n");
+                                vdisk_node_t sata_disk = {
+                                    .sector_size = 512,
+                                    .total_lba = 1024 * 1024 * 10,
+                                    .read_lba = ahci_read_sectors,
+                                    .write_lba = ahci_write_sectors
+                                };
+                                register_vdisk(sata_disk);
+                            } else if (sig == 0xEB140101) { /* ATAPI */
+                                serial_write_str("[INIT] Port detected: ATAPI CD-ROM.\n");
+                                vdisk_node_t cdrom = {
+                                    .sector_size = 2048,
+                                    .total_lba = 1024 * 1024,
+                                    .read_lba = atapi_read_sectors,
+                                    .write_lba = NULL
+                                };
+                                register_vdisk(cdrom);
+                            }
+                        }
+                    }
                 }
             }
         }

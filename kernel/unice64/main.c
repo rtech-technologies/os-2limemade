@@ -19,7 +19,16 @@ void _start(void) {
     serial_write_str("[EVENT] Entering EVENT_MAIN...\n");
 
     FATFS fs;
-    if (f_mount(&fs, "0:", 1) != FR_OK) {
+    bool mount_success = false;
+    for (int retry = 0; retry < 3; retry++) {
+        if (f_mount(&fs, "0:", 1) == FR_OK) {
+            mount_success = true;
+            break;
+        }
+        serial_write_str("[FS] Mount attempt failed, retrying...\n");
+    }
+
+    if (!mount_success) {
         set_color(YELLOW, BLACK);
         print("\n[FS] WARNING: Disk 0 is not a Sovereign FAT32 volume.\n");
         void* choice = input("Would you like to format Disk 0 now? (y/n): ");
@@ -27,15 +36,21 @@ void _start(void) {
             if (f_mkfs("0:", 0, 0) == FR_OK) {
                 print("[FS] Disk formatted. Retrying mount...\n");
                 if (f_mount(&fs, "0:", 1) != FR_OK) {
-                    forensic_panic("FORMAT SUCCESS BUT MOUNT FAILED", NULL);
+                    print("[FS] Mount failed. Entering Safe Mode.\n");
+                    void enter_safe_mode(void);
+                    enter_safe_mode();
                 }
             } else {
-                forensic_panic("DISK FORMAT FAILED", NULL);
+                print("[FS] Format failed. Entering Safe Mode.\n");
+                void enter_safe_mode(void);
+                enter_safe_mode();
             }
             release(choice);
         } else {
             if (choice) release(choice);
-            forensic_panic("CANNOT PROCEED WITHOUT SOVEREIGN FS", NULL);
+            print("[FS] Skipping format. Entering Safe Mode.\n");
+            void enter_safe_mode(void);
+            enter_safe_mode();
         }
     }
     serial_write_str("[FS] Disk 0 Mounted successfully via AHCI.\n");
