@@ -17,16 +17,7 @@ void vfs_register_node(vfs_node_t node) {
 }
 
 void vfs_ls(void* path) {
-    const char* p = str_to_cstr(path);
-    if (p[0] == '/' && p[1] == '\0') {
-        for (int i = 0; i < vfs_node_count; i++) {
-            print(vfs_registry[i].name);
-            print("\n");
-        }
-        return;
-    }
-
-    /* Simple routing: check if path starts with node name */
+    /* Route to all nodes; the vdisk node handles the global '/' case specifically. */
     for (int i = 0; i < vfs_node_count; i++) {
         if (vfs_registry[i].ls) vfs_registry[i].ls(path);
     }
