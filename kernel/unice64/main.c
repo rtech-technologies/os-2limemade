@@ -62,6 +62,12 @@ void _start(void) {
 
     dispatch_event(EVENT_MAIN);
 
+    /* Automated Sovereignty: Try to execute BOOT.RSL */
+    void rsl_execute_stream(const char* path);
+    if (mount_success) {
+        rsl_execute_stream("0:/BOOT.RSL");
+    }
+
     /* Launch the RSL Shell */
     shell_main();
 

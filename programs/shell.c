@@ -22,9 +22,16 @@ static color_t name_to_color(const char* name) {
 }
 
 void shell_main(void) {
-    set_color(GREEN, BLACK);
-    print("OSx2 Limemade: OS boot sucsess\n");
+    set_color(LIGHT_CYAN, BLACK);
+    print("  _____ _______ ______ _____ _    _    ____   _____     ___  \n");
+    print(" |  __ \\__   __|  ____/ ____| |  | |  / __ \\ / ____|   |__ \\ \n");
+    print(" | |__) | | |  | |__ | |    | |__| | | |  | | (_____  __  ) |\n");
+    print(" |  _  /  | |  |  __|| |    |  __  | | |  | |\\___ \\ \\/ / / / \n");
+    print(" | | \\ \\  | |  | |___| |____| |  | | | |__| |____) >  < / /_ \n");
+    print(" |_|  \\_\\ |_|  |______\\_____|_|  |_|  \\____/|_____/_/\\_\\____|\n");
+    print("\n[ OSx2 Sovereign ] Build Success.\n");
 
+    set_color(GREEN, BLACK);
     void* curdir = str_create("/");
 
     while (1) {
@@ -197,7 +204,17 @@ void shell_main(void) {
             print("help           - Show this command list\n");
             print("exit           - Terminate the RSL shell session\n");
         }
+        else if (cstr_match(argv[0], "run")) {
+            if (argc > 1) {
+                void rsl_execute_stream(const char* path);
+                rsl_execute_stream(argv[1]);
+            } else {
+                print("Usage: run <path>\n");
+            }
+        }
         else if (cstr_match(argv[0], "exit")) {
+            void rsl_shutdown(void);
+            rsl_shutdown();
             release(cmd_line);
             break;
         }

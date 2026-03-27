@@ -35,7 +35,7 @@ FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
     int drive = path[0] - '0';
     if (drive < 0 || drive > 9) drive = 0;
 
-    /* GPT Partition 0 usually starts at LBA 2048 */
+    /* The One Truth: GPT Partition 0 lives at LBA 2048 */
     uint8_t boot_sector[512];
     if (disk_read(drive, boot_sector, 2048, 1) != RES_OK) return FR_DISK_ERR;
 
@@ -51,12 +51,12 @@ FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
 
     if (fs_ctx.sectors_per_fat == 0) return FR_NO_FILESYSTEM;
 
-    /* Update data_lba with the 2048 GPT offset */
+    /* Global Base: 2048. Data Base follows BPB + FATs. */
     fs_ctx.data_lba = 2048 + fs_ctx.reserved_sectors + (fs_ctx.num_fats * fs_ctx.sectors_per_fat);
     fs_ctx.active = true;
     safe_mode = false;
 
-    serial_write_str("[FS] FAT32 Mount Successful (GPT/LBA 2048).\n");
+    serial_write_str("[FS] FAT32 Mount Successful (Mechanical LBA 2048).\n");
     return FR_OK;
 }
 
@@ -68,6 +68,7 @@ FRESULT f_mkfs(const TCHAR* path, BYTE opt, DWORD au) {
     uint8_t mbr[512] = {0};
     disk_read(0, mbr, 0, 1); /* Preserve existing MBR partition table */
     mbr[0] = 0xEF; mbr[1] = 0xBE; mbr[2] = 0xAD; mbr[3] = 0xDE;
+    /* GPT Protective Header often at LBA 1, Partition at 2048. */
     disk_write(0, mbr, 0, 1);
 
     /* 2. Build Minimal FAT32 BPB at Partition LBA 2048 */
@@ -83,17 +84,17 @@ FRESULT f_mkfs(const TCHAR* path, BYTE opt, DWORD au) {
     disk_write(0, boot_sector, 2048, 1);
 
     /* 3. FAT Tables at 2048 + 32 */
-    uint8_t fat[512] = {0};
-    *(uint32_t*)&fat[0] = 0x0FFFFFF8;
-    *(uint32_t*)&fat[4] = 0xFFFFFFFF;
-    *(uint32_t*)&fat[8] = 0x0FFFFFFF;
-    disk_write(0, fat, 2048 + 32, 1);
+    uint8_t fat_init[512] = {0};
+    *(uint32_t*)&fat_init[0] = 0x0FFFFFF8;
+    *(uint32_t*)&fat_init[4] = 0xFFFFFFFF;
+    *(uint32_t*)&fat_init[8] = 0x0FFFFFFF;
+    disk_write(0, fat_init, 2048 + 32, 1);
 
     /* 4. Root Directory at 2048 + 32 + (2*1024) */
     uint8_t zero[512] = {0};
     disk_write(0, zero, 2048 + 32 + 2048, 1);
 
-    serial_write_str("[FS] Format Complete at LBA 2048.\n");
+    serial_write_str("[FS] Format Complete (MBR Protected / LBA 2048).\n");
     return FR_OK;
 }
 
@@ -143,20 +144,32 @@ FRESULT f_open(FIL* fp, const TCHAR* path, BYTE mode) {
     return FR_OK;
 }
 
+static uint32_t get_next_cluster(uint32_t cluster) {
+    uint32_t fat_sector = 2048 + fs_ctx.reserved_sectors + (cluster * 4 / 512);
+    uint32_t fat_offset = (cluster * 4) % 512;
+    uint8_t buf[512];
+    if (disk_read(0, buf, fat_sector, 1) != RES_OK) return 0x0FFFFFFF;
+    return (*(uint32_t*)&buf[fat_offset]) & 0x0FFFFFFF;
+}
+
 FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
-    (void)fp; (void)btr;
     if (!fs_ctx.active) return FR_DENIED;
-    if (disk_read(0, buff, fs_ctx.data_lba + 100, 1) == RES_OK) {
-        if (br) *br = 0;
+    uint32_t cluster = (uint64_t)fp; /* Stub: cluster stored in fp for now */
+    uint32_t sector = fs_ctx.data_lba + (cluster - 2) * fs_ctx.sectors_per_cluster;
+
+    if (disk_read(0, buff, sector, 1) == RES_OK) {
+        if (br) *br = btr > 512 ? 512 : btr;
         return FR_OK;
     }
     return FR_DISK_ERR;
 }
 
 FRESULT f_write(FIL* fp, const void* buff, uint32_t btw, uint32_t* bw) {
-    (void)fp;
     if (safe_mode || !fs_ctx.active) return FR_DENIED;
-    if (disk_write(0, (BYTE*)buff, fs_ctx.data_lba + 100, 1) == RES_OK) {
+    uint32_t cluster = (uint64_t)fp;
+    uint32_t sector = fs_ctx.data_lba + (cluster - 2) * fs_ctx.sectors_per_cluster;
+
+    if (disk_write(0, (BYTE*)buff, sector, 1) == RES_OK) {
         if (bw) *bw = btw;
         return FR_OK;
     }
