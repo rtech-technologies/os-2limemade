@@ -59,7 +59,7 @@ void _start(void) {
 
     if (!mount_success) {
         set_color(YELLOW, BLACK);
-        print("\n[FS] WARNING: Disk 0 is not a Sovereign FAT32 volume.\n");
+        print("\n[FS] MECHANICAL ERROR: Disk 0 is not a Sovereign volume.\n");
         void* choice = input("Would you like to format Disk 0 now? (y/n): ");
         if (choice && str_match(choice, "y")) {
             if (f_mkfs("0:", 0, 0) == FR_OK) {

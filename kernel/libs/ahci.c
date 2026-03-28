@@ -15,7 +15,62 @@ typedef struct {
 
 void register_hardware_disk(vdisk_node_t node);
 
-/* AHCI HBA Structures (Minimal) */
+/* AHCI HBA Structures (Physical) */
+typedef struct {
+    uint8_t  fis_type;
+    uint8_t  pmport:4;
+    uint8_t  rsv0:3;
+    uint8_t  c:1;
+    uint8_t  command;
+    uint8_t  featurel;
+    uint8_t  lba0;
+    uint8_t  lba1;
+    uint8_t  lba2;
+    uint8_t  device;
+    uint8_t  lba3;
+    uint8_t  lba4;
+    uint8_t  lba5;
+    uint8_t  featureh;
+    uint8_t  countl;
+    uint8_t  counth;
+    uint8_t  icc;
+    uint8_t  control;
+    uint8_t  rsv1[4];
+} fis_reg_h2d_t;
+
+typedef struct {
+    uint32_t dba;
+    uint32_t dbau;
+    uint32_t rsv0;
+    uint32_t dbc:22;
+    uint32_t rsv1:9;
+    uint32_t i:1;
+} hba_prdt_entry_t;
+
+typedef struct {
+    uint8_t  cfis[64];
+    uint8_t  acmd[16];
+    uint8_t  rsv[48];
+    hba_prdt_entry_t prdt_entry[1];
+} hba_cmd_tbl_t;
+
+typedef struct {
+    uint8_t  cfl:5;
+    uint8_t  a:1;
+    uint8_t  w:1;
+    uint8_t  p:1;
+    uint8_t  r:1;
+    uint8_t  b:1;
+    uint8_t  c:1;
+    uint8_t  rsv0:1;
+    uint8_t  pmp:4;
+    uint16_t prdtl;
+    volatile uint32_t prdbc;
+    uint32_t ctba;
+    uint32_t ctbau;
+    uint32_t rsv1[4];
+} hba_cmd_header_t;
+
 typedef struct {
     uint32_t clb;
     uint32_t clbu;
@@ -75,58 +130,79 @@ void ahci_hardware_audit(int p) {
 int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     if (!hba_base) return -1;
     int p = (int)(uint64_t)priv;
-    (void)buffer;
+    hba_port_t* port = &hba_base->ports[p];
 
-    /* Physical AHCI Read Handshake */
-    serial_write_str("[AHCI] Mechanical Read - LBA: ");
-    char buf[20];
-    int k=0;
-    uint64_t temp = lba;
-    if(temp == 0) buf[k++] = '0';
-    else while(temp > 0 && k < 19) { buf[k++] = '0' + (temp % 10); temp /= 10; }
-    buf[k] = '\0';
-    serial_write_str(buf);
-    serial_write_str("\n");
+    /* 1. Command Header Setup */
+    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)(uint64_t)port->clb;
+    cmdhdr->cfl = 5; /* 5 DWORDs */
+    cmdhdr->w = 0;   /* Read */
+    cmdhdr->prdtl = 1;
 
-    /* Verify device is present before issuing */
-    if ((hba_base->ports[p].ssts & 0x0F) != 0x03) return -1;
+    /* 2. Command Table / PRDT Setup */
+    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)(uint64_t)cmdhdr->ctba;
+    cmdtbl->prdt_entry[0].dba = (uint32_t)(uint64_t)buffer;
+    cmdtbl->prdt_entry[0].dbau = (uint32_t)((uint64_t)buffer >> 32);
+    cmdtbl->prdt_entry[0].dbc = (count * 512) - 1;
+    cmdtbl->prdt_entry[0].i = 1;
 
-    /* AHCI Command Issue sequence: Mechanical Truth verified via PxCI */
-    hba_base->ports[p].ci = (1 << 0); /* Issue command in slot 0 */
+    /* 3. Setup Command FIS (H2D) */
+    fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
+    fis->fis_type = 0x27; /* H2D */
+    fis->c = 1;
+    fis->command = 0x25; /* READ DMA EXT */
+    fis->lba0 = (uint8_t)lba;
+    fis->lba1 = (uint8_t)(lba >> 8);
+    fis->lba2 = (uint8_t)(lba >> 16);
+    fis->device = 1 << 6; /* LBA mode */
+    fis->lba3 = (uint8_t)(lba >> 24);
+    fis->lba4 = (uint8_t)(lba >> 32);
+    fis->lba5 = (uint8_t)(lba >> 40);
+    fis->countl = (uint8_t)count;
+    fis->counth = (uint8_t)(count >> 8);
 
-    /* Real hardware wait loop */
-    while(hba_base->ports[p].ci & (1 << 0)) {
-        if (hba_base->ports[p].tfd & (1 << 0)) { /* Error bit set */
-            serial_write_str("[AHCI] READ ERROR: Command failed by controller.\n");
-            return -1;
-        }
-        __asm__ volatile("pause");
+    /* 4. Issue Command */
+    port->ci = (1 << 0);
+    while (port->ci & (1 << 0)) {
+        if (port->tfd & (1 << 0)) return -1;
+        __asm__ volatile ("pause");
     }
-
     return 0;
 }
 
 int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     if (!hba_base) return -1;
     int p = (int)(uint64_t)priv;
-    (void)buffer;
+    hba_port_t* port = &hba_base->ports[p];
 
-    serial_write_str("[AHCI] Mechanical Write - LBA: ");
-    char buf[20];
-    int k=0;
-    uint64_t temp = lba;
-    if(temp == 0) buf[k++] = '0';
-    else while(temp > 0 && k < 19) { buf[k++] = '0' + (temp % 10); temp /= 10; }
-    buf[k] = '\0';
-    serial_write_str(buf);
-    serial_write_str("\n");
+    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)(uint64_t)port->clb;
+    cmdhdr->cfl = 5;
+    cmdhdr->w = 1; /* Write */
+    cmdhdr->prdtl = 1;
 
-    if ((hba_base->ports[p].ssts & 0x0F) != 0x03) return -1;
+    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)(uint64_t)cmdhdr->ctba;
+    cmdtbl->prdt_entry[0].dba = (uint32_t)(uint64_t)buffer;
+    cmdtbl->prdt_entry[0].dbau = (uint32_t)((uint64_t)buffer >> 32);
+    cmdtbl->prdt_entry[0].dbc = (count * 512) - 1;
+    cmdtbl->prdt_entry[0].i = 1;
 
-    hba_base->ports[p].ci = (1 << 0);
-    while(hba_base->ports[p].ci & (1 << 0)) {
-        if (hba_base->ports[p].tfd & (1 << 0)) return -1;
-        __asm__ volatile("pause");
+    fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
+    fis->fis_type = 0x27;
+    fis->c = 1;
+    fis->command = 0x35; /* WRITE DMA EXT */
+    fis->lba0 = (uint8_t)lba;
+    fis->lba1 = (uint8_t)(lba >> 8);
+    fis->lba2 = (uint8_t)(lba >> 16);
+    fis->device = 1 << 6;
+    fis->lba3 = (uint8_t)(lba >> 24);
+    fis->lba4 = (uint8_t)(lba >> 32);
+    fis->lba5 = (uint8_t)(lba >> 40);
+    fis->countl = (uint8_t)count;
+    fis->counth = (uint8_t)(count >> 8);
+
+    port->ci = (1 << 0);
+    while (port->ci & (1 << 0)) {
+        if (port->tfd & (1 << 0)) return -1;
+        __asm__ volatile ("pause");
     }
     return 0;
 }
