@@ -19,6 +19,10 @@ def main():
         # LBA 0: Sovereign Signature (MBR Protected)
         f.write(struct.pack("<I", 0xEFBEADDE))
 
+        # LBA 1: Placeholder for GPT Primary Header
+        f.seek(1 * sector_size)
+        f.write(b'EFI PART') # GPT Magic
+
         # LBA 2048: FAT32 Boot Sector (BPB)
         f.seek(partition_start * sector_size)
         f.write(b'\xEB\x58\x90') # Jump
@@ -54,12 +58,12 @@ def main():
         name = b'BOOT    RSL'
         f.write(name + b'\x20\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00\x00')
 
-        # Cluster 3: BIN directory content (8 sectors after root_lba)
+        # Cluster 3: BIN directory content
         f.seek((root_lba + 8) * sector_size)
         name = b'INSTALL RSL'
         f.write(name + b'\x20\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00\x00')
 
-        # Cluster 4: BOOT.RSL content (16 sectors after root_lba)
+        # Cluster 4: BOOT.RSL content
         f.seek((root_lba + 16) * sector_size)
         f.write(b"print('OSx2 Sovereign: System Environment Initialized.');\n")
 
@@ -67,7 +71,7 @@ def main():
         f.seek((root_lba + 24) * sector_size)
         f.write(b"print('Preparing Sovereign Installation...');\n")
 
-    print(f"OSx2 Limemade FAT32 Disk Image {img_path} created with LBA 2048 alignment.")
+    print(f"OSx2 Limemade FAT32 Disk Image {img_path} created with GPT space and LBA 2048 alignment.")
 
 if __name__ == "__main__":
     main()

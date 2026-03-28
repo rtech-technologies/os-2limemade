@@ -30,37 +30,55 @@ typedef struct {
     uint32_t size;
 } __attribute__((packed)) fat_dir_entry_t;
 
+void serial_print_hex(const char* label, uint16_t val);
+
 FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
     (void)fs; (void)opt;
     int drive = path[0] - '0';
     if (drive < 0 || drive > 9) drive = 0;
 
-    /* The One Truth: GPT Partition 0 lives at LBA 2048 */
-    uint8_t boot_sector[512];
-    if (disk_read(drive, boot_sector, 2048, 1) != RES_OK) return FR_DISK_ERR;
+    uint8_t sector_data[512];
 
-    /* Verify FAT32 Signature (0x55AA) */
-    if (boot_sector[510] != 0x55 || boot_sector[511] != 0xAA) return FR_NO_FILESYSTEM;
+    /* 1. The Sovereign Handshake: Check LBA 0 */
+    if (disk_read(drive, sector_data, 0, 1) != RES_OK) {
+        serial_write_str("[FS] ERROR: Physical read failure at LBA 0.\n");
+        return FR_DISK_ERR;
+    }
 
-    /* BPB Parsing */
-    fs_ctx.reserved_sectors = *(uint16_t*)&boot_sector[14];
-    fs_ctx.num_fats = boot_sector[16];
-    fs_ctx.sectors_per_fat = *(uint32_t*)&boot_sector[36];
-    fs_ctx.sectors_per_cluster = boot_sector[13];
-    fs_ctx.root_cluster = *(uint32_t*)&boot_sector[44];
-
-    if (fs_ctx.sectors_per_fat == 0) return FR_NO_FILESYSTEM;
-
-    /* Global Base: 2048. Data Base follows BPB + FATs. */
-    fs_ctx.data_lba = 2048 + fs_ctx.reserved_sectors + (fs_ctx.num_fats * fs_ctx.sectors_per_fat);
-
-    /* Signature Verification Handshake at LBA 0 */
-    uint8_t mbr[512];
-    disk_read(drive, mbr, 0, 1);
-    if (mbr[0] != 0xEF || mbr[1] != 0xBE || mbr[2] != 0xAD || mbr[3] != 0xDE) {
-        serial_write_str("[FS] Sovereign Signature MISSING at LBA 0.\n");
+    if (*(uint32_t*)sector_data != 0xEFBEADDE) {
+        serial_write_str("[FS] MOUNT FAIL: Sovereign Signature (0xEFBEADDE) Mismatch at LBA 0!\n");
         return FR_NO_FILESYSTEM;
     }
+
+    /* 2. The GPT Standard: Read BPB at LBA 2048 */
+    if (disk_read(drive, sector_data, 2048, 1) != RES_OK) {
+        serial_write_str("[FS] ERROR: Physical read failure at LBA 2048.\n");
+        return FR_DISK_ERR;
+    }
+
+    /* DEBUG: Trace the Mechanical Truth */
+    serial_print_hex("[FS] LBA 2048 Boot Signature: ", *(uint16_t*)&sector_data[510]);
+
+    /* Verify FAT32 Signature (0x55AA) */
+    if (sector_data[510] != 0x55 || sector_data[511] != 0xAA) {
+        serial_write_str("[FS] MOUNT FAIL: FAT32 Sig 0x55AA not found at LBA 2048!\n");
+        return FR_NO_FILESYSTEM;
+    }
+
+    /* 3. Mechanical BPB Parsing */
+    fs_ctx.reserved_sectors = *(uint16_t*)&sector_data[14];
+    fs_ctx.num_fats = sector_data[16];
+    fs_ctx.sectors_per_fat = *(uint32_t*)&sector_data[36];
+    fs_ctx.sectors_per_cluster = sector_data[13];
+    fs_ctx.root_cluster = *(uint32_t*)&sector_data[44];
+
+    if (fs_ctx.sectors_per_fat == 0) {
+        serial_write_str("[FS] MOUNT FAIL: Sectors per FAT is zero!\n");
+        return FR_NO_FILESYSTEM;
+    }
+
+    /* Calculate Data Region LBA (Relative to physical disk start) */
+    fs_ctx.data_lba = 2048 + fs_ctx.reserved_sectors + (fs_ctx.num_fats * fs_ctx.sectors_per_fat);
 
     fs_ctx.active = true;
     safe_mode = false;

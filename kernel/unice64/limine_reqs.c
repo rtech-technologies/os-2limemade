@@ -30,6 +30,12 @@ static volatile struct limine_framebuffer_request framebuffer_request = {
     .revision = 0
 };
 
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_kernel_address_request kernel_address_request = {
+    .id = LIMINE_KERNEL_ADDRESS_REQUEST,
+    .revision = 0
+};
+
 /* Provide access functions for other kernel parts */
 struct limine_memmap_response* get_memmap(void) {
     return memmap_request.response;
@@ -45,4 +51,8 @@ struct limine_module_response* get_modules(void) {
 
 struct limine_framebuffer_response* get_framebuffer(void) {
     return framebuffer_request.response;
+}
+
+struct limine_kernel_address_response* get_kernel_address(void) {
+    return kernel_address_request.response;
 }

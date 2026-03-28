@@ -268,6 +268,22 @@ void vga_clear(void) {
     cursor_y = 0;
 }
 
+void vga_set_cursor(int x, int y) {
+    cursor_x = x;
+    cursor_y = y;
+}
+
+void serial_print_hex(const char* label, uint16_t val) {
+    serial_write_str(label);
+    serial_write_str("0x");
+    const char* hex = "0123456789ABCDEF";
+    serial_write_char(hex[(val >> 12) & 0xF]);
+    serial_write_char(hex[(val >> 8) & 0xF]);
+    serial_write_char(hex[(val >> 4) & 0xF]);
+    serial_write_char(hex[val & 0xF]);
+    serial_write_char('\n');
+}
+
 void vga_serial_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
         serial_init();
