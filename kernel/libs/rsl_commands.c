@@ -209,3 +209,39 @@ bool rsl_safe_mode(void) {
     extern bool safe_mode;
     return safe_mode;
 }
+
+void draw_pixel(int x, int y, uint32_t color);
+
+void rsl_draw_rrif(void* path, int x, int y) {
+    const char* p = str_to_cstr(path);
+    FIL fp;
+    if (f_open(&fp, p, FA_READ) != FR_OK) return;
+
+    /* RRIF Header: 4 bytes 'RRIF', 2 bytes width, 2 bytes height */
+    uint8_t header[8];
+    uint32_t br;
+    if (f_read(&fp, header, 8, &br) != FR_OK || br < 8) {
+        f_close(&fp);
+        return;
+    }
+
+    if (header[0] != 'R' || header[1] != 'R' || header[2] != 'I' || header[3] != 'F') {
+        f_close(&fp);
+        return;
+    }
+
+    uint16_t w = *(uint16_t*)&header[4];
+    uint16_t h = *(uint16_t*)&header[6];
+
+    /* Draw pixel by pixel (32-bit ARGB/XRGB assumed) */
+    uint32_t pixel;
+
+    for (int j = 0; j < h; j++) {
+        for (int i = 0; i < w; i++) {
+            if (f_read(&fp, &pixel, 4, &br) == FR_OK && br == 4) {
+                draw_pixel(x + i, y + j, pixel);
+            }
+        }
+    }
+    f_close(&fp);
+}

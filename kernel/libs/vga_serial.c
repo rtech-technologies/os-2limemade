@@ -166,6 +166,14 @@ static int cursor_y = 0;
 
 static struct limine_framebuffer* global_fb = NULL;
 
+void draw_pixel(int x, int y, uint32_t color) {
+    if (!global_fb) return;
+    struct limine_framebuffer* fb = global_fb;
+    if (x < 0 || (uint64_t)x >= fb->width || y < 0 || (uint64_t)y >= fb->height) return;
+    uint32_t* pixel = (uint32_t*)(fb->address + y * fb->pitch + x * 4);
+    *pixel = color;
+}
+
 void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;

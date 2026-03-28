@@ -10,6 +10,10 @@ typedef struct {
     uint64_t rip, cs, rflags, rsp, ss;
 } cpu_state_t;
 
+void* get_xhci_base(void);
+uint64_t get_hhdm_offset(void);
+void serial_print_hex(const char* label, uint16_t val);
+
 void forensic_panic(const char* message, cpu_state_t* state) {
     /* Critical Alert: Red on Black */
     set_color(LIGHT_RED, BLACK);
@@ -31,8 +35,17 @@ void forensic_panic(const char* message, cpu_state_t* state) {
 
     /* Mandatory Capture: USB controller registers */
     serial_write_str("[AUTOPSY] Scanning USB registers for mount failure state...\n");
-    serial_write_str("XHCI_USBCMD: 0x00000001\n");
-    serial_write_str("XHCI_USBSTS: 0x00000000\n");
+    void* xhci_ptr = get_xhci_base();
+    if (xhci_ptr) {
+        uint64_t hhdm = get_hhdm_offset();
+        volatile uint32_t* op_regs = (uint32_t*)(hhdm + (uint64_t)xhci_ptr + 0x20); // USBCMD is at +0x20 in Operational Regs
+        serial_print_hex("XHCI_USBCMD: ", (uint16_t)(op_regs[0] >> 16));
+        serial_print_hex("", (uint16_t)(op_regs[0] & 0xFFFF));
+        serial_print_hex("XHCI_USBSTS: ", (uint16_t)(op_regs[1] >> 16));
+        serial_print_hex("", (uint16_t)(op_regs[1] & 0xFFFF));
+    } else {
+        serial_write_str("XHCI Controller Not Found.\n");
+    }
 
     for (;;) {
         __asm__ volatile ("hlt");

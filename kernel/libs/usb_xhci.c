@@ -64,6 +64,12 @@ int xhci_disk_read(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     return 0;
 }
 
+static void* xhci_base = NULL;
+
+void* get_xhci_base(void) {
+    return xhci_base;
+}
+
 /* USB / XHCI Registry and Scanning */
 void usb_xhci_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
@@ -83,6 +89,9 @@ void usb_xhci_service(kernel_event_t event) {
                     if (base_class == 0x0C && sub_class == 0x03) { /* USB */
                         if (prog_if == 0x30) { /* XHCI */
                             serial_write_str("[INIT] Found XHCI Controller.\n");
+                            uint32_t bar0 = pci_config_read(bus, slot, func, 0x10);
+                            xhci_base = (void*)(uint64_t)(bar0 & 0xFFFFFFF0);
+
                             vdisk_node_t usb_disk = {
                                 .sector_size = 512,
                                 .total_lba = 1024 * 1024,

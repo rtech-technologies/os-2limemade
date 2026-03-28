@@ -117,6 +117,30 @@ void ahci_port_start(hba_port_t *port) {
     port->cmd |= (1 << 0);
 }
 
+void ahci_reinit_port(hba_port_t *port) {
+    /* 1. Perform COMRESET */
+    port->sctl = (port->sctl & ~0x0F) | 0x01;
+
+    /* 2. WAIT: The AHCI spec suggests 1 millisecond at minimum.
+       In QEMU, we'll give it a solid 10ms delay loop. */
+    for(volatile int i = 0; i < 10000000; i++) { __asm__ volatile ("pause"); }
+
+    /* 3. CLEAR RESET: Return to normal operation */
+    port->sctl &= ~0x0F;
+
+    /* 4. POLL for Link (Up to 1 second timeout) */
+    int timeout = 1000;
+    while (timeout--) {
+        if ((port->ssts & 0x0F) == 0x03) {
+            serial_write_str("[AHCI] Link Established! 0x3\n");
+            ahci_port_start(port);
+            return;
+        }
+        for(volatile int i = 0; i < 100000; i++) { __asm__ volatile ("pause"); }
+    }
+    serial_write_str("[AHCI] MECHANICAL ERROR: Link Timeout. Port is dead.\n");
+}
+
 void ahci_hardware_audit(int p) {
     if (!hba_base) return;
     hba_port_t* port = &hba_base->ports[p];
@@ -135,18 +159,7 @@ void ahci_hardware_audit(int p) {
         ahci_port_start(port);
     } else if ((ssts & 0x0F) == 0x01) {
         serial_write_str("[AHCI] Device detected, attempting COMRESET...\n");
-        port->sctl = (port->sctl & ~0x0F) | 0x01; /* COMRESET to establish link */
-        for(volatile int i=0; i<1000000; i++) { __asm__ volatile("pause"); }
-        port->sctl &= ~0x0F;
-
-        /* Re-check link after reset */
-        for(volatile int i=0; i<1000000; i++) { __asm__ volatile("pause"); }
-        if ((port->ssts & 0x0F) == 0x03) {
-            serial_write_str("[AHCI] SATA Link established after reset.\n");
-            ahci_port_start(port);
-        } else {
-            serial_write_str("[AHCI] MECHANICAL ERROR: Link failed after COMRESET.\n");
-        }
+        ahci_reinit_port(port);
     } else {
         serial_write_str("[AHCI] MECHANICAL ERROR: No SATA device detected on port.\n");
     }
