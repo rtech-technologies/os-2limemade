@@ -37,5 +37,6 @@ void rsl_rmdir(void* path);
 bool rsl_exists(void* path);
 void rsl_mount(void* path);
 void rsl_format(void* path);
+void rsl_stamp(void* path);
 
 #endif /* RSL_H */

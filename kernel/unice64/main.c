@@ -22,6 +22,9 @@ void _start(void) {
     bool mount_success = false;
 
     /* 1. Sovereign Discovery: Check for Empty Disk or Existing Signature */
+    void ahci_hardware_audit(int p);
+    ahci_hardware_audit(0);
+
     uint8_t sector[512];
     if (disk_read(0, sector, 0, 1) == RES_OK) {
         uint32_t sig = *(uint32_t*)sector;

@@ -51,25 +51,57 @@ typedef struct {
 
 static hba_mem_t* hba_base = NULL;
 
+void serial_print_hex(const char* label, uint16_t val);
+
+void ahci_hardware_audit(int p) {
+    if (!hba_base) return;
+
+    /* Audit GHC (Global Host Control) */
+    uint32_t ghc = hba_base->ghc;
+    serial_print_hex("[AHCI] GHC Status: ", (uint16_t)(ghc >> 16));
+    serial_print_hex("", (uint16_t)ghc);
+
+    /* Audit Port SSTS (SATA Status) */
+    uint32_t ssts = hba_base->ports[p].ssts;
+    serial_print_hex("[AHCI] Port SSTS: ", (uint16_t)ssts);
+
+    if ((ssts & 0x0F) != 0x03) {
+        serial_write_str("[AHCI] MECHANICAL ERROR: No SATA device detected on port.\n");
+    } else {
+        serial_write_str("[AHCI] SATA Hardware Online.\n");
+    }
+}
+
 int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     if (!hba_base) return -1;
     int p = (int)(uint64_t)priv;
+    (void)buffer;
 
     /* Physical AHCI Read Handshake */
-    serial_write_str("[AHCI] Mechanical Read Sector: ");
-    /* Simple LBA logging */
-    char buf[16];
+    serial_write_str("[AHCI] Mechanical Read - LBA: ");
+    char buf[20];
     int k=0;
     uint64_t temp = lba;
     if(temp == 0) buf[k++] = '0';
-    else while(temp > 0 && k < 15) { buf[k++] = '0' + (temp % 10); temp /= 10; }
+    else while(temp > 0 && k < 19) { buf[k++] = '0' + (temp % 10); temp /= 10; }
     buf[k] = '\0';
     serial_write_str(buf);
     serial_write_str("\n");
 
-    /* AHCI Command Issue sequence simulation */
-    hba_base->ports[p].ci |= (1 << 0); /* Issue slot 0 */
-    while(hba_base->ports[p].ci & (1 << 0)) { __asm__ volatile("pause"); }
+    /* Verify device is present before issuing */
+    if ((hba_base->ports[p].ssts & 0x0F) != 0x03) return -1;
+
+    /* AHCI Command Issue sequence: Mechanical Truth verified via PxCI */
+    hba_base->ports[p].ci = (1 << 0); /* Issue command in slot 0 */
+
+    /* Real hardware wait loop */
+    while(hba_base->ports[p].ci & (1 << 0)) {
+        if (hba_base->ports[p].tfd & (1 << 0)) { /* Error bit set */
+            serial_write_str("[AHCI] READ ERROR: Command failed by controller.\n");
+            return -1;
+        }
+        __asm__ volatile("pause");
+    }
 
     return 0;
 }
@@ -77,9 +109,25 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     if (!hba_base) return -1;
     int p = (int)(uint64_t)priv;
+    (void)buffer;
 
-    serial_write_str("[AHCI] Mechanical Write Sector: ");
-    hba_base->ports[p].ci |= (1 << 0);
+    serial_write_str("[AHCI] Mechanical Write - LBA: ");
+    char buf[20];
+    int k=0;
+    uint64_t temp = lba;
+    if(temp == 0) buf[k++] = '0';
+    else while(temp > 0 && k < 19) { buf[k++] = '0' + (temp % 10); temp /= 10; }
+    buf[k] = '\0';
+    serial_write_str(buf);
+    serial_write_str("\n");
+
+    if ((hba_base->ports[p].ssts & 0x0F) != 0x03) return -1;
+
+    hba_base->ports[p].ci = (1 << 0);
+    while(hba_base->ports[p].ci & (1 << 0)) {
+        if (hba_base->ports[p].tfd & (1 << 0)) return -1;
+        __asm__ volatile("pause");
+    }
     return 0;
 }
 

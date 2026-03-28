@@ -67,22 +67,37 @@ FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
         return FR_NO_FILESYSTEM;
     }
 
-    /* 2. The GPT Standard: Read BPB at LBA 2048 */
-    if (disk_read(drive, sector_data, 2048, 1) != RES_OK) {
-        serial_write_str("[FS] ERROR: Physical read failure at LBA 2048.\n");
+    /* 2. Dynamic Discovery: Find FAT32 Partition in MBR */
+    uint32_t part_lba = 0;
+    for (int i = 0; i < 4; i++) {
+        uint8_t* p = &sector_data[446 + (i * 16)];
+        if (p[4] == 0x0C || p[4] == 0x0B) { /* FAT32 LBA or FAT32 */
+            part_lba = *(uint32_t*)&p[8];
+            break;
+        }
+    }
+
+    if (part_lba == 0) {
+        serial_write_str("[FS] MOUNT FAIL: No FAT32 partition found in MBR table.\n");
+        return FR_NO_FILESYSTEM;
+    }
+
+    /* 3. Read BPB at Dynamic Offset */
+    if (disk_read(drive, sector_data, part_lba, 1) != RES_OK) {
+        serial_write_str("[FS] ERROR: Physical read failure at Partition Start.\n");
         return FR_DISK_ERR;
     }
 
     /* DEBUG: Trace the Mechanical Truth */
-    serial_print_hex("[FS] LBA 2048 Boot Signature: ", *(uint16_t*)&sector_data[510]);
+    serial_print_hex("[FS] Partition Boot Signature: ", *(uint16_t*)&sector_data[510]);
 
     /* Verify FAT32 Signature (0x55AA) */
     if (sector_data[510] != 0x55 || sector_data[511] != 0xAA) {
-        serial_write_str("[FS] MOUNT FAIL: FAT32 Sig 0x55AA not found at LBA 2048!\n");
+        serial_write_str("[FS] MOUNT FAIL: FAT32 Sig 0x55AA not found at BPB!\n");
         return FR_NO_FILESYSTEM;
     }
 
-    /* 3. Mechanical BPB Parsing */
+    /* 4. Mechanical BPB Parsing */
     fs_ctx.reserved_sectors = *(uint16_t*)&sector_data[14];
     fs_ctx.num_fats = sector_data[16];
     fs_ctx.sectors_per_fat = *(uint32_t*)&sector_data[36];

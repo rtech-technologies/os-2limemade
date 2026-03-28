@@ -162,6 +162,15 @@ void shell_main(void) {
                 print("Usage: format <path>\n");
             }
         }
+        else if (cstr_match(argv[0], "stamp")) {
+            if (argc > 1) {
+                void* path = str_create(argv[1]);
+                rsl_stamp(path);
+                release(path);
+            } else {
+                print("Usage: stamp <drive_id:>\n");
+            }
+        }
         else if (cstr_match(argv[0], "rmdir")) {
             if (argc > 1) {
                 void* path = str_create(argv[1]);
@@ -200,6 +209,7 @@ void shell_main(void) {
             print("rmdir <name>   - Remove a Sovereign directory or file\n");
             print("mount <path>   - Mount a Sovereign volume (e.g., 0:)\n");
             print("format <path>  - Physically format a drive (e.g., 0:)\n");
+            print("stamp <path>   - Apply Sovereign signature to LBA 0\n");
             print("color <fg> <bg>- Update console colors (e.g., color green black)\n");
             print("help           - Show this command list\n");
             print("exit           - Terminate the RSL shell session\n");

@@ -192,3 +192,15 @@ void rsl_format(void* path) {
         print("Error: Format failed.\n");
     }
 }
+
+void rsl_stamp(void* path) {
+    const char* p = str_to_cstr(path);
+    int drive = p[0] - '0';
+    uint8_t sector[512] = {0};
+    sector[0] = 0xEF; sector[1] = 0xBE; sector[2] = 0xAD; sector[3] = 0xDE;
+    if (vdisk_write(drive, 0, 1, sector) == 0) {
+        print("Sovereign Stamp applied to LBA 0.\n");
+    } else {
+        print("Error: Stamp failed.\n");
+    }
+}
