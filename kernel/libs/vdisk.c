@@ -23,10 +23,22 @@ static int connect_count = 0;
 
 void serial_write_str(const char* s);
 
+void vga_print(const char* fmt, ...);
+
 void register_hardware_disk(vdisk_node_t node) {
     if (hw_count < MAX_DISKS) {
+        /* Sovereign Handshake: Check for 0xEFBEADDE at LBA 0 */
+        uint8_t sector[512];
+        if (node.read_lba(node.private_data, 0, 1, sector) == 0) {
+            uint32_t sig = *(uint32_t*)sector;
+            if (sig == 0xEFBEADDE) {
+                vga_print("[VDISK] Sovereign Signature Verified at LBA 0.\n");
+            } else {
+                vga_print("[VDISK] Warning: Raw Disk (No Sovereign Signature).\n");
+            }
+        }
         hw_registry[hw_count++] = node;
-        serial_write_str("[VDISK] Physical hardware detected and registered.\n");
+        vga_print("[VDISK] Physical hardware detected and registered.\n");
     }
 }
 

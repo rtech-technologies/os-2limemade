@@ -28,6 +28,47 @@ void print(const char* s) {
     }
 }
 
+static void print_num(uint32_t n, int base) {
+    char buf[32];
+    int i = 0;
+    if (n == 0) {
+        vga_write_char('0', current_color_val);
+        return;
+    }
+    const char* digits = "0123456789ABCDEF";
+    while (n > 0) {
+        buf[i++] = digits[n % base];
+        n /= base;
+    }
+    while (i > 0) {
+        vga_write_char(buf[--i], current_color_val);
+    }
+}
+
+void vga_print(const char* fmt, ...) {
+    __builtin_va_list args;
+    __builtin_va_start(args, fmt);
+
+    for (int i = 0; fmt[i] != '\0'; i++) {
+        if (fmt[i] == '%' && fmt[i+1] != '\0') {
+            i++;
+            if (fmt[i] == 'd') {
+                int n = __builtin_va_arg(args, int);
+                print_num(n, 10);
+            } else if (fmt[i] == 'x') {
+                uint32_t n = __builtin_va_arg(args, uint32_t);
+                print_num(n, 16);
+            } else if (fmt[i] == 's') {
+                char* s = __builtin_va_arg(args, char*);
+                print(s);
+            }
+        } else {
+            vga_write_char(fmt[i], current_color_val);
+        }
+    }
+    __builtin_va_end(args);
+}
+
 /* Scancode to ASCII (Simplified US-QWERTY) */
 static char scancode_map[128] = {
     0,  27, '1', '2', '3', '4', '5', '6', '7', '8',	/* 9 */

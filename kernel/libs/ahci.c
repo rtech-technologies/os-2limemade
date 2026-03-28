@@ -107,7 +107,7 @@ typedef struct {
 static hba_mem_t* hba_base = NULL;
 
 void serial_print_hex(const char* label, uint16_t val);
-
+void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
 void ahci_port_start(hba_port_t *port) {
     /* 1. Wait for bit 15 (Command List Running) to clear */
     while (port->cmd & (1 << 15));
@@ -117,28 +117,47 @@ void ahci_port_start(hba_port_t *port) {
     port->cmd |= (1 << 0);
 }
 
-void ahci_reinit_port(hba_port_t *port) {
-    /* 1. Perform COMRESET */
+void vga_print(const char* fmt, ...);
+
+void ahci_force_port_reset(hba_port_t *port, int port_no) {
+    /* 1. STOP: Kill the DMA engines (ST and FRE) */
+    port->cmd &= ~0x0001; /* Bit 0: ST (Start) */
+    port->cmd &= ~0x0010; /* Bit 4: FRE (FIS Receive Enable) */
+
+    /* Wait for the engines to actually stop (CR and FR bits) */
+    int engine_timeout = 1000;
+    while ((port->cmd & 0x8000 || port->cmd & 0x4000) && engine_timeout--) {
+        __asm__ volatile ("pause");
+    }
+
+    /* 2. CLEAR: Purge the Error and Status registers */
+    /* In AHCI, writing 1 to these bits CLEARS them. */
+    port->serr = 0xFFFFFFFF;
+    port->is = 0xFFFFFFFF;
+
+    /* 3. KICK: The COMRESET (SCTL) */
+    /* Bit 0-3 = 1 (Perform Reset), Bit 4-7 = 3 (No Power Management) */
     port->sctl = (port->sctl & ~0x0F) | 0x01;
 
-    /* 2. WAIT: The AHCI spec suggests 1 millisecond at minimum.
-       In QEMU, we'll give it a solid 10ms delay loop. */
-    for(volatile int i = 0; i < 10000000; i++) { __asm__ volatile ("pause"); }
+    /* R-Tech Delay: Give the hardware 2ms to physically reset */
+    for(volatile int i = 0; i < 2000000; i++) { __asm__ volatile ("pause"); }
 
-    /* 3. CLEAR RESET: Return to normal operation */
-    port->sctl &= ~0x0F;
+    port->sctl &= ~0x01; /* End Reset (Back to 0) */
 
-    /* 4. POLL for Link (Up to 1 second timeout) */
+    /* 4. WAIT: The 1-Second Negotiation Loop */
     int timeout = 1000;
-    while (timeout--) {
-        if ((port->ssts & 0x0F) == 0x03) {
-            serial_write_str("[AHCI] Link Established! 0x3\n");
-            ahci_port_start(port);
-            return;
-        }
-        for(volatile int i = 0; i < 100000; i++) { __asm__ volatile ("pause"); }
+    while ((port->ssts & 0x0F) != 0x03 && timeout--) {
+        for(volatile int i = 0; i < 10000; i++) { __asm__ volatile ("pause"); }
     }
-    serial_write_str("[AHCI] MECHANICAL ERROR: Link Timeout. Port is dead.\n");
+
+    if ((port->ssts & 0x0F) == 0x03) {
+        vga_print("[AHCI] PORT %d: LINK ESTABLISHED (SSTS: 0x%x)\n", port_no, port->ssts);
+        /* Now it's safe to set the Command List and FIS addresses */
+        port->cmd |= 0x0010; /* FRE */
+        port->cmd |= 0x0001; /* ST */
+    } else {
+        vga_print("[AHCI] PORT %d: MECHANICAL FAILURE (SSTS: 0x%x)\n", port_no, port->ssts);
+    }
 }
 
 void ahci_hardware_audit(int p) {
@@ -155,13 +174,13 @@ void ahci_hardware_audit(int p) {
     serial_print_hex("[AHCI] Port SSTS: ", (uint16_t)ssts);
 
     if ((ssts & 0x0F) == 0x03) {
-        serial_write_str("[AHCI] SATA Hardware Online. Link Established.\n");
+        vga_print("[AHCI] SATA Hardware Online. Link Established.\n");
         ahci_port_start(port);
     } else if ((ssts & 0x0F) == 0x01) {
-        serial_write_str("[AHCI] Device detected, attempting COMRESET...\n");
-        ahci_reinit_port(port);
+        vga_print("[AHCI] Device detected, attempting Force Reset...\n");
+        ahci_force_port_reset(port, p);
     } else {
-        serial_write_str("[AHCI] MECHANICAL ERROR: No SATA device detected on port.\n");
+        vga_print("[AHCI] MECHANICAL ERROR: No SATA device detected on port %d.\n", p);
     }
 }
 
@@ -257,7 +276,7 @@ int atapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 
 void ahci_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
-        serial_write_str("[INIT] Scanning PCI for SATA/AHCI controllers...\n");
+        vga_print("[INIT] Scanning PCI for SATA/AHCI controllers...\n");
         for (int bus = 0; bus < 256; bus++) {
             for (int slot = 0; slot < 32; slot++) {
                 uint32_t vendor_device = pci_config_read(bus, slot, 0, 0);
@@ -268,7 +287,8 @@ void ahci_service(kernel_event_t event) {
                 uint8_t sub_class = (class_info >> 16) & 0xFF;
 
                 if (base_class == 0x01 && sub_class == 0x06) { /* Mass Storage, SATA */
-                    serial_write_str("[INIT] Found AHCI Controller.\n");
+                    vga_print("[INIT] Found AHCI Controller.\n");
+                    pci_enable_master(bus, slot, 0);
 
                     uint32_t bar5 = pci_config_read(bus, slot, 0, 0x24);
                     hba_base = (hba_mem_t*)(uint64_t)bar5;
@@ -278,17 +298,23 @@ void ahci_service(kernel_event_t event) {
                         if (hba_base->pi & (1 << p)) {
                             uint32_t sig = hba_base->ports[p].sig;
                             if (sig == 0x00000101) { /* SATA */
-                                serial_write_str("[INIT] Port detected: SATA Hard Disk.\n");
-                                vdisk_node_t sata_disk = {
-                                    .sector_size = 512,
-                                    .total_lba = 1024 * 1024 * 10,
-                                    .read_lba = ahci_read_sectors,
-                                    .write_lba = ahci_write_sectors,
-                                    .private_data = (void*)(uint64_t)p
-                                };
-                                register_hardware_disk(sata_disk);
+                                vga_print("[INIT] Port %d detected: SATA Hard Disk.\n", p);
+
+                                /* Aggressive Reset to ensure Link 0x3 */
+                                ahci_force_port_reset(&hba_base->ports[p], p);
+
+                                if ((hba_base->ports[p].ssts & 0x0F) == 0x03) {
+                                    vdisk_node_t sata_disk = {
+                                        .sector_size = 512,
+                                        .total_lba = 1024 * 1024 * 10,
+                                        .read_lba = ahci_read_sectors,
+                                        .write_lba = ahci_write_sectors,
+                                        .private_data = (void*)(uint64_t)p
+                                    };
+                                    register_hardware_disk(sata_disk);
+                                }
                             } else if (sig == 0xEB140101) { /* ATAPI */
-                                serial_write_str("[INIT] Port detected: ATAPI CD-ROM.\n");
+                                vga_print("[INIT] Port %d detected: ATAPI CD-ROM.\n", p);
                                 vdisk_node_t cdrom = {
                                     .sector_size = 2048,
                                     .total_lba = 1024 * 1024,
