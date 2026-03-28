@@ -108,8 +108,18 @@ static hba_mem_t* hba_base = NULL;
 
 void serial_print_hex(const char* label, uint16_t val);
 
+void ahci_port_start(hba_port_t *port) {
+    /* 1. Wait for bit 15 (Command List Running) to clear */
+    while (port->cmd & (1 << 15));
+
+    /* 2. Set bit 4 (FIS Receive Enable) and bit 0 (Start) */
+    port->cmd |= (1 << 4);
+    port->cmd |= (1 << 0);
+}
+
 void ahci_hardware_audit(int p) {
     if (!hba_base) return;
+    hba_port_t* port = &hba_base->ports[p];
 
     /* Audit GHC (Global Host Control) */
     uint32_t ghc = hba_base->ghc;
@@ -117,13 +127,28 @@ void ahci_hardware_audit(int p) {
     serial_print_hex("", (uint16_t)ghc);
 
     /* Audit Port SSTS (SATA Status) */
-    uint32_t ssts = hba_base->ports[p].ssts;
+    uint32_t ssts = port->ssts;
     serial_print_hex("[AHCI] Port SSTS: ", (uint16_t)ssts);
 
-    if ((ssts & 0x0F) != 0x03) {
-        serial_write_str("[AHCI] MECHANICAL ERROR: No SATA device detected on port.\n");
+    if ((ssts & 0x0F) == 0x03) {
+        serial_write_str("[AHCI] SATA Hardware Online. Link Established.\n");
+        ahci_port_start(port);
+    } else if ((ssts & 0x0F) == 0x01) {
+        serial_write_str("[AHCI] Device detected, attempting COMRESET...\n");
+        port->sctl = (port->sctl & ~0x0F) | 0x01; /* COMRESET to establish link */
+        for(volatile int i=0; i<1000000; i++) { __asm__ volatile("pause"); }
+        port->sctl &= ~0x0F;
+
+        /* Re-check link after reset */
+        for(volatile int i=0; i<1000000; i++) { __asm__ volatile("pause"); }
+        if ((port->ssts & 0x0F) == 0x03) {
+            serial_write_str("[AHCI] SATA Link established after reset.\n");
+            ahci_port_start(port);
+        } else {
+            serial_write_str("[AHCI] MECHANICAL ERROR: Link failed after COMRESET.\n");
+        }
     } else {
-        serial_write_str("[AHCI] SATA Hardware Online.\n");
+        serial_write_str("[AHCI] MECHANICAL ERROR: No SATA device detected on port.\n");
     }
 }
 

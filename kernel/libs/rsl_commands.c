@@ -204,3 +204,8 @@ void rsl_stamp(void* path) {
         print("Error: Stamp failed.\n");
     }
 }
+
+bool rsl_safe_mode(void) {
+    extern bool safe_mode;
+    return safe_mode;
+}

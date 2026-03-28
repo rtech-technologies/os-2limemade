@@ -61,6 +61,13 @@ void shell_main(void) {
         if (argc == 0) { release(cmd_line); continue; }
 
         /* Dispatcher */
+        bool is_safe = rsl_safe_mode();
+        if (is_safe) {
+            set_color(YELLOW, BLACK);
+            print("[SAFE MODE] ");
+            set_color(GREEN, BLACK);
+        }
+
         if (cstr_match(argv[0], "ls")) {
             rsl_ls(curdir);
         }
@@ -81,6 +88,7 @@ void shell_main(void) {
             }
         }
         else if (cstr_match(argv[0], "write")) {
+            if (is_safe) { print("Error: Write commands disabled in Safe Mode.\n"); release(cmd_line); continue; }
             if (argc > 1) {
                 void* path = str_create(argv[1]);
                 void* content = input("Enter Content: ");
@@ -136,6 +144,7 @@ void shell_main(void) {
             }
         }
         else if (cstr_match(argv[0], "mkdir")) {
+            if (is_safe) { print("Error: Directory commands disabled in Safe Mode.\n"); release(cmd_line); continue; }
             if (argc > 1) {
                 void* path = str_create(argv[1]);
                 rsl_mkdir(path);
@@ -172,6 +181,7 @@ void shell_main(void) {
             }
         }
         else if (cstr_match(argv[0], "rmdir")) {
+            if (is_safe) { print("Error: Directory commands disabled in Safe Mode.\n"); release(cmd_line); continue; }
             if (argc > 1) {
                 void* path = str_create(argv[1]);
                 rsl_rmdir(path);

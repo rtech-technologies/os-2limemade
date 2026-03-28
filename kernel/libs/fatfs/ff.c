@@ -19,7 +19,7 @@ typedef struct {
 } fat32_internal_t;
 
 static fat32_internal_t fs_ctx;
-static bool safe_mode = false;
+bool safe_mode = false;
 
 typedef struct {
     uint8_t name[11];
@@ -172,8 +172,14 @@ FRESULT f_mkfs(const TCHAR* path, BYTE opt, DWORD au) {
     return FR_OK;
 }
 
-FRESULT f_mkdir(const TCHAR* path) { (void)path; return FR_OK; }
-FRESULT f_unlink(const TCHAR* path) { (void)path; return FR_OK; }
+FRESULT f_mkdir(const TCHAR* path) {
+    if (safe_mode) return FR_DENIED;
+    (void)path; return FR_OK;
+}
+FRESULT f_unlink(const TCHAR* path) {
+    if (safe_mode) return FR_DENIED;
+    (void)path; return FR_OK;
+}
 FRESULT f_stat(const TCHAR* path, FILINFO* fno) { (void)fno; if(path[0]=='/') return FR_OK; return FR_NO_PATH; }
 FRESULT f_close(FIL* fp) { (void)fp; return FR_OK; }
 void enter_safe_mode(void) { safe_mode = true; serial_write_str("[FS] SAFE MODE ACTIVE.\n"); }
