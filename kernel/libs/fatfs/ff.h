@@ -106,6 +106,7 @@ typedef struct {
 #define AM_ARC  0x20    /* Archive */
 
 FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt);
+FRESULT f_fdisk(int drive);
 FRESULT f_mkfs(const TCHAR* path, BYTE opt, DWORD au);
 FRESULT f_open(FIL* fp, const TCHAR* path, BYTE mode);
 FRESULT f_close(FIL* fp);

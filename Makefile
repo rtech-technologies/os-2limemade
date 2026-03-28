@@ -39,7 +39,9 @@ run: iso $(SATA_DISK)
 	qemu-system-x86_64 -M q35 -m 512M -serial stdio -cdrom $(ISO_IMAGE) -hda $(SATA_DISK)
 
 $(SATA_DISK):
-	@python3 scripts/fat_tool.py $(SATA_DISK)
+	@# Generate an empty truly empty disk to test OS internal installer
+	@dd if=/dev/zero of=$(SATA_DISK) bs=1M count=64 status=none
+	@echo "OSx2: 64MB Empty persistent disk created for internal installation test."
 
 menuconfig:
 	python3 scripts/menuconfig.py

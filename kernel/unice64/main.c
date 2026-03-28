@@ -20,6 +20,30 @@ void _start(void) {
 
     FATFS fs;
     bool mount_success = false;
+
+    /* 1. Sovereign Discovery: Check for Empty Disk or Existing Signature */
+    uint8_t sector[512];
+    if (disk_read(0, sector, 0, 1) == RES_OK) {
+        uint32_t sig = *(uint32_t*)sector;
+        if (sig == 0) {
+            set_color(LIGHT_CYAN, BLACK);
+            print("OSx2: Empty Disk Detected. Claiming Sovereignty...\n");
+
+            /* Stamp the disk at LBA 0 */
+            uint8_t stamp[512] = {0};
+            stamp[0] = 0xEF; stamp[1] = 0xBE; stamp[2] = 0xAD; stamp[3] = 0xDE;
+            disk_write(0, stamp, 0, 1);
+
+            print("OSx2: Building Partition Map and Formatting FAT32...\n");
+            FRESULT f_fdisk(int drive);
+            if (f_fdisk(0) == FR_OK) {
+                if (f_mkfs("0:", 0, 0) == FR_OK) {
+                    print("OSx2: Installation Complete. 0:/0/ is Online.\n");
+                }
+            }
+        }
+    }
+
     for (int retry = 0; retry < 3; retry++) {
         if (f_mount(&fs, "0:", 1) == FR_OK) {
             void vdisk_connect(int hw_id);

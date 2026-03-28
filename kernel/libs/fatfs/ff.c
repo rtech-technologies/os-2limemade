@@ -32,6 +32,23 @@ typedef struct {
 
 void serial_print_hex(const char* label, uint16_t val);
 
+FRESULT f_fdisk(int drive) {
+    /* Minimal MBR Partition Table Entry */
+    uint8_t mbr[512];
+    disk_read(drive, mbr, 0, 1);
+
+    /* Offset 446: Start of first partition entry */
+    uint8_t* p = &mbr[446];
+    p[0] = 0x80; /* Bootable */
+    p[4] = 0x0C; /* FAT32 LBA */
+    *(uint32_t*)&p[8] = 2048; /* LBA Start */
+    *(uint32_t*)&p[12] = 129024; /* Size in sectors */
+
+    mbr[510] = 0x55; mbr[511] = 0xAA;
+    disk_write(drive, mbr, 0, 1);
+    return FR_OK;
+}
+
 FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
     (void)fs; (void)opt;
     int drive = path[0] - '0';
@@ -102,10 +119,10 @@ FRESULT f_mkfs(const TCHAR* path, BYTE opt, DWORD au) {
     uint8_t boot_sector[512] = {0};
     boot_sector[0] = 0xEB; boot_sector[1] = 0x58; boot_sector[2] = 0x90;
     boot_sector[11] = 0x00; boot_sector[12] = 0x02; /* 512 bytes/sector */
-    boot_sector[13] = 0x08; /* 8 sectors/cluster (Synced with fat_tool.py) */
+    boot_sector[13] = 0x08; /* 8 sectors/cluster */
     boot_sector[14] = 0x20; boot_sector[15] = 0x00; /* 32 reserved */
     boot_sector[16] = 0x02; /* 2 FATs */
-    *(uint32_t*)&boot_sector[36] = 0x00000800; /* 2048 sectors per FAT */
+    *(uint32_t*)&boot_sector[36] = 0x00000080; /* 128 sectors per FAT (Synced with fat_tool.py) */
     *(uint32_t*)&boot_sector[44] = 0x00000002; /* Root Cluster 2 */
     boot_sector[510] = 0x55; boot_sector[511] = 0xAA;
     disk_write(0, boot_sector, 2048, 1);
@@ -115,13 +132,14 @@ FRESULT f_mkfs(const TCHAR* path, BYTE opt, DWORD au) {
     *(uint32_t*)&fat_init[0] = 0x0FFFFFF8;
     *(uint32_t*)&fat_init[4] = 0xFFFFFFFF;
     *(uint32_t*)&fat_init[8] = 0x0FFFFFFF;
-    disk_write(0, fat_init, 2048 + 32, 1);
+    disk_write(0, fat_init, 2048 + 32, 1);       /* FAT1 Start */
+    disk_write(0, fat_init, 2048 + 32 + 128, 1); /* FAT2 Start */
 
-    /* 4. Root Directory at 2048 + 32 + (2*2048) */
+    /* 4. Root Directory Area (Cluster 2) */
     uint8_t zero[512] = {0};
-    disk_write(0, zero, 2048 + 32 + 4096, 1);
+    disk_write(0, zero, 2048 + 32 + (2 * 128), 1);
 
-    serial_write_str("[FS] Format Complete (MBR Protected / LBA 2048).\n");
+    serial_write_str("[FS] Format Complete (Mechanical LBA 2048 / Clean Slate).\n");
     return FR_OK;
 }
 
@@ -133,7 +151,6 @@ FRESULT f_opendir(DIR* dp, const TCHAR* path) {
 
 FRESULT f_readdir(DIR* dp, FILINFO* fno) {
     static int idx = 0;
-    const char* path = *(const char**)dp;
     if (safe_mode || !fs_ctx.active) return FR_DENIED;
 
     uint32_t root_lba = fs_ctx.data_lba + (fs_ctx.root_cluster - 2) * fs_ctx.sectors_per_cluster;
@@ -180,15 +197,11 @@ static uint32_t get_next_cluster(uint32_t cluster) {
 }
 
 FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
+    (void)fp;
     if (!fs_ctx.active) return FR_DENIED;
 
-    /* Determine cluster from path stored in fp for simulation */
-    const char* path = *(const char**)fp;
-    uint32_t cluster = 2; /* Default Root */
-    if (path[0] == '0' && path[1] == ':' && path[2] == '/' && path[3] == 'B' && path[4] == 'O') cluster = 4;
-    if (path[0] == '0' && path[1] == ':' && path[2] == '/' && path[3] == '0' && path[4] == '/' && path[5] == 'I') cluster = 5;
-
-    uint32_t sector = fs_ctx.data_lba + (cluster - 2) * fs_ctx.sectors_per_cluster;
+    /* Simplified persistence: Read from Data LBA (Simulated static cluster) */
+    uint32_t sector = fs_ctx.data_lba + 100;
 
     if (disk_read(0, buff, sector, 1) == RES_OK) {
         if (br) *br = btr > 512 ? 512 : btr;
