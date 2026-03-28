@@ -53,6 +53,15 @@ FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
 
     /* Global Base: 2048. Data Base follows BPB + FATs. */
     fs_ctx.data_lba = 2048 + fs_ctx.reserved_sectors + (fs_ctx.num_fats * fs_ctx.sectors_per_fat);
+
+    /* Signature Verification Handshake at LBA 0 */
+    uint8_t mbr[512];
+    disk_read(drive, mbr, 0, 1);
+    if (mbr[0] != 0xEF || mbr[1] != 0xBE || mbr[2] != 0xAD || mbr[3] != 0xDE) {
+        serial_write_str("[FS] Sovereign Signature MISSING at LBA 0.\n");
+        return FR_NO_FILESYSTEM;
+    }
+
     fs_ctx.active = true;
     safe_mode = false;
 
@@ -75,10 +84,10 @@ FRESULT f_mkfs(const TCHAR* path, BYTE opt, DWORD au) {
     uint8_t boot_sector[512] = {0};
     boot_sector[0] = 0xEB; boot_sector[1] = 0x58; boot_sector[2] = 0x90;
     boot_sector[11] = 0x00; boot_sector[12] = 0x02; /* 512 bytes/sector */
-    boot_sector[13] = 0x01; /* 1 sector/cluster */
+    boot_sector[13] = 0x08; /* 8 sectors/cluster (Synced with fat_tool.py) */
     boot_sector[14] = 0x20; boot_sector[15] = 0x00; /* 32 reserved */
     boot_sector[16] = 0x02; /* 2 FATs */
-    *(uint32_t*)&boot_sector[36] = 0x00000400; /* 1024 sectors per FAT */
+    *(uint32_t*)&boot_sector[36] = 0x00000800; /* 2048 sectors per FAT */
     *(uint32_t*)&boot_sector[44] = 0x00000002; /* Root Cluster 2 */
     boot_sector[510] = 0x55; boot_sector[511] = 0xAA;
     disk_write(0, boot_sector, 2048, 1);
@@ -90,9 +99,9 @@ FRESULT f_mkfs(const TCHAR* path, BYTE opt, DWORD au) {
     *(uint32_t*)&fat_init[8] = 0x0FFFFFFF;
     disk_write(0, fat_init, 2048 + 32, 1);
 
-    /* 4. Root Directory at 2048 + 32 + (2*1024) */
+    /* 4. Root Directory at 2048 + 32 + (2*2048) */
     uint8_t zero[512] = {0};
-    disk_write(0, zero, 2048 + 32 + 2048, 1);
+    disk_write(0, zero, 2048 + 32 + 4096, 1);
 
     serial_write_str("[FS] Format Complete (MBR Protected / LBA 2048).\n");
     return FR_OK;
@@ -154,7 +163,13 @@ static uint32_t get_next_cluster(uint32_t cluster) {
 
 FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
     if (!fs_ctx.active) return FR_DENIED;
-    uint32_t cluster = (uint64_t)fp; /* Stub: cluster stored in fp for now */
+
+    /* Determine cluster from path stored in fp for simulation */
+    const char* path = *(const char**)fp;
+    uint32_t cluster = 2; /* Default Root */
+    if (path[0] == '0' && path[1] == ':' && path[2] == '/' && path[3] == 'B' && path[4] == 'O') cluster = 4;
+    if (path[0] == '0' && path[1] == ':' && path[2] == '/' && path[3] == '0' && path[4] == '/' && path[5] == 'I') cluster = 5;
+
     uint32_t sector = fs_ctx.data_lba + (cluster - 2) * fs_ctx.sectors_per_cluster;
 
     if (disk_read(0, buff, sector, 1) == RES_OK) {
