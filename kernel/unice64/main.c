@@ -67,6 +67,7 @@ void _start(void) {
                 if (f_mount(&fs, "0:", 1) == FR_OK) {
                     void vdisk_connect(int hw_id);
                     vdisk_connect(0);
+                    serial_write_str("[FS] Disk 0 Mounted successfully via AHCI.\n");
                 } else {
                     print("[FS] Mount failed. Entering Safe Mode.\n");
                     void enter_safe_mode(void);
@@ -84,8 +85,9 @@ void _start(void) {
             void enter_safe_mode(void);
             enter_safe_mode();
         }
+    } else {
+        serial_write_str("[FS] Disk 0 Mounted successfully via AHCI.\n");
     }
-    serial_write_str("[FS] Disk 0 Mounted successfully via AHCI.\n");
 
     dispatch_event(EVENT_MAIN);
 

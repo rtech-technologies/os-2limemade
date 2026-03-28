@@ -127,21 +127,24 @@ void ahci_hardware_audit(int p) {
     }
 }
 
+uint64_t get_hhdm_offset(void);
+
 int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     if (!hba_base) return -1;
     int p = (int)(uint64_t)priv;
     hba_port_t* port = &hba_base->ports[p];
+    uint64_t hhdm = get_hhdm_offset();
 
     /* 1. Command Header Setup */
-    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)(uint64_t)port->clb;
+    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)(hhdm + (uint64_t)port->clb);
     cmdhdr->cfl = 5; /* 5 DWORDs */
     cmdhdr->w = 0;   /* Read */
     cmdhdr->prdtl = 1;
 
     /* 2. Command Table / PRDT Setup */
-    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)(uint64_t)cmdhdr->ctba;
-    cmdtbl->prdt_entry[0].dba = (uint32_t)(uint64_t)buffer;
-    cmdtbl->prdt_entry[0].dbau = (uint32_t)((uint64_t)buffer >> 32);
+    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)(hhdm + (uint64_t)cmdhdr->ctba);
+    cmdtbl->prdt_entry[0].dba = (uint32_t)((uint64_t)buffer - hhdm);
+    cmdtbl->prdt_entry[0].dbau = (uint32_t)(((uint64_t)buffer - hhdm) >> 32);
     cmdtbl->prdt_entry[0].dbc = (count * 512) - 1;
     cmdtbl->prdt_entry[0].i = 1;
 
@@ -173,15 +176,16 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     if (!hba_base) return -1;
     int p = (int)(uint64_t)priv;
     hba_port_t* port = &hba_base->ports[p];
+    uint64_t hhdm = get_hhdm_offset();
 
-    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)(uint64_t)port->clb;
+    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)(hhdm + (uint64_t)port->clb);
     cmdhdr->cfl = 5;
     cmdhdr->w = 1; /* Write */
     cmdhdr->prdtl = 1;
 
-    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)(uint64_t)cmdhdr->ctba;
-    cmdtbl->prdt_entry[0].dba = (uint32_t)(uint64_t)buffer;
-    cmdtbl->prdt_entry[0].dbau = (uint32_t)((uint64_t)buffer >> 32);
+    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)(hhdm + (uint64_t)cmdhdr->ctba);
+    cmdtbl->prdt_entry[0].dba = (uint32_t)((uint64_t)buffer - hhdm);
+    cmdtbl->prdt_entry[0].dbau = (uint32_t)(((uint64_t)buffer - hhdm) >> 32);
     cmdtbl->prdt_entry[0].dbc = (count * 512) - 1;
     cmdtbl->prdt_entry[0].i = 1;
 
