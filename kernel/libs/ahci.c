@@ -107,9 +107,14 @@ typedef struct {
 } hba_mem_t;
 
 static hba_mem_t* hba_base = NULL;
+static void* port_clb_virt[32];
+static void* port_fb_virt[32];
 
 void serial_print_hex(const char* label, uint16_t val);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
+void* bump_alloc(size_t size);
+uint64_t vmm_get_phys(void* virt);
+
 void ahci_port_start(hba_port_t *port) {
     /* 1. Wait for bit 15 (Command List Running) to clear */
     while (port->cmd & (1 << 15));
@@ -121,6 +126,8 @@ void ahci_port_start(hba_port_t *port) {
 
 void vga_print(const char* fmt, ...);
 
+void pit_wait_ms(uint32_t ms);
+
 void ahci_force_port_reset(hba_port_t *port, int port_no) {
     /* 1. STOP: Kill the DMA engines (ST and FRE) */
     port->cmd &= ~0x0001; /* Bit 0: ST (Start) */
@@ -129,7 +136,7 @@ void ahci_force_port_reset(hba_port_t *port, int port_no) {
     /* Wait for the engines to actually stop (CR and FR bits) */
     int engine_timeout = 1000;
     while ((port->cmd & 0x8000 || port->cmd & 0x4000) && engine_timeout--) {
-        __asm__ volatile ("pause");
+        pit_wait_ms(1);
     }
 
     /* 2. CLEAR: Purge the Error and Status registers */
@@ -142,14 +149,14 @@ void ahci_force_port_reset(hba_port_t *port, int port_no) {
     port->sctl = (port->sctl & ~0x0F) | 0x01;
 
     /* R-Tech Delay: Give the hardware 2ms to physically reset */
-    for(volatile int i = 0; i < 2000000; i++) { __asm__ volatile ("pause"); }
+    pit_wait_ms(2);
 
     port->sctl &= ~0x01; /* End Reset (Back to 0) */
 
     /* 4. WAIT: The 1-Second Negotiation Loop */
     int timeout = 1000;
     while ((port->ssts & 0x0F) != 0x03 && timeout--) {
-        for(volatile int i = 0; i < 10000; i++) { __asm__ volatile ("pause"); }
+        pit_wait_ms(1);
     }
 
     if ((port->ssts & 0x0F) == 0x03) {
@@ -194,20 +201,27 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     int p = (int)(uint64_t)priv;
     if (!(hba_base->pi & (1 << p))) return -1;
     hba_port_t* port = &hba_base->ports[p];
-    uint64_t hhdm = get_hhdm_offset();
     uint64_t vmm_get_phys(void* virt);
 
     /* THE FIX: Convert 'buffer' (Virtual) to 'phys_buffer' (Physical) */
     uint64_t phys_buffer = vmm_get_phys(buffer);
 
     /* 1. Command Header Setup */
-    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)(hhdm + (uint64_t)port->clb);
+    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
     cmdhdr->cfl = 5; /* 5 DWORDs */
     cmdhdr->w = 0;   /* Read */
     cmdhdr->prdtl = 1;
 
     /* 2. Command Table / PRDT Setup */
-    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)(hhdm + (uint64_t)cmdhdr->ctba);
+    /* For simplicity, we'll reuse a fixed area or allocate one */
+    static void* cmdtbl_virt = NULL;
+    if (!cmdtbl_virt) cmdtbl_virt = bump_alloc(4096);
+
+    uint64_t cmdtbl_phys = vmm_get_phys(cmdtbl_virt);
+    cmdhdr->ctba = (uint32_t)(cmdtbl_phys & 0xFFFFFFFF);
+    cmdhdr->ctbau = (uint32_t)(cmdtbl_phys >> 32);
+
+    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)cmdtbl_virt;
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
     cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
     cmdtbl->prdt_entry[0].dbc = (count * 512) - 1;
@@ -245,18 +259,24 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     int p = (int)(uint64_t)priv;
     if (!(hba_base->pi & (1 << p))) return -1;
     hba_port_t* port = &hba_base->ports[p];
-    uint64_t hhdm = get_hhdm_offset();
     uint64_t vmm_get_phys(void* virt);
 
     /* THE FIX: Convert 'buffer' (Virtual) to 'phys_buffer' (Physical) */
     uint64_t phys_buffer = vmm_get_phys(buffer);
 
-    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)(hhdm + (uint64_t)port->clb);
+    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
     cmdhdr->cfl = 5;
     cmdhdr->w = 1; /* Write */
     cmdhdr->prdtl = 1;
 
-    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)(hhdm + (uint64_t)cmdhdr->ctba);
+    static void* cmdtbl_virt = NULL;
+    if (!cmdtbl_virt) cmdtbl_virt = bump_alloc(4096);
+
+    uint64_t cmdtbl_phys = vmm_get_phys(cmdtbl_virt);
+    cmdhdr->ctba = (uint32_t)(cmdtbl_phys & 0xFFFFFFFF);
+    cmdhdr->ctbau = (uint32_t)(cmdtbl_phys >> 32);
+
+    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)cmdtbl_virt;
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
     cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
     cmdtbl->prdt_entry[0].dbc = (count * 512) - 1;
@@ -310,11 +330,23 @@ void ahci_service(kernel_event_t event) {
                     pci_enable_master(bus, slot, 0);
 
                     uint32_t bar5 = pci_config_read(bus, slot, 0, 0x24);
-                    hba_base = (hba_mem_t*)(uint64_t)bar5;
+                    uint64_t hhdm = get_hhdm_offset();
+                    hba_base = (hba_mem_t*)(hhdm + (uint64_t)(bar5 & 0xFFFFFFF0));
 
                     /* Scan HBA Ports */
                     for (int p = 0; p < 32; p++) {
                         if (hba_base->pi & (1 << p)) {
+                            /* Initial setup of addresses must be physical */
+                            port_clb_virt[p] = bump_alloc(1024);
+                            uint64_t clb_phys = vmm_get_phys(port_clb_virt[p]);
+                            hba_base->ports[p].clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
+                            hba_base->ports[p].clbu = (uint32_t)(clb_phys >> 32);
+
+                            port_fb_virt[p] = bump_alloc(256);
+                            uint64_t fb_phys = vmm_get_phys(port_fb_virt[p]);
+                            hba_base->ports[p].fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
+                            hba_base->ports[p].fbu = (uint32_t)(fb_phys >> 32);
+
                             uint32_t sig = hba_base->ports[p].sig;
                             if (sig == 0x00000101) { /* SATA */
                                 vga_print("[INIT] Port %d detected: SATA Hard Disk.\n", p);

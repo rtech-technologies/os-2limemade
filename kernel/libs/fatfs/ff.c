@@ -74,10 +74,27 @@ FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
     uint32_t part_lba = 0;
     for (int i = 0; i < 4; i++) {
         uint8_t* p = &sector[446 + (i * 16)];
-        if (p[4] == 0x0C) { part_lba = *(uint32_t*)&p[8]; break; }
+        if (p[4] == 0x0C) {
+            part_lba = *(uint32_t*)&p[8];
+            break;
+        }
+        if (p[4] == 0xEE) {
+            /* GPT Detected - Looking for partition at LBA 2048 */
+            uint8_t gpt[512];
+            if (disk_read(drive, gpt, 1, 1) == RES_OK) {
+                if (*(uint64_t*)gpt == 0x5452415020494645ULL) { /* "EFI PART" */
+                    /* Read first partition entry from LBA 2 */
+                    if (disk_read(drive, gpt, 2, 1) == RES_OK) {
+                        part_lba = (uint32_t)*(uint64_t*)&gpt[32];
+                        vga_print("[FS] GPT Sovereign Partition detected at LBA %d.\n", part_lba);
+                        break;
+                    }
+                }
+            }
+        }
     }
     if (part_lba == 0) {
-        vga_print("[FS] ERROR: No FAT32 (0x0C) partition found in MBR\n");
+        vga_print("[FS] ERROR: No valid partition (FAT32 or GPT) found.\n");
         return FR_NO_FILESYSTEM;
     }
 
@@ -334,8 +351,42 @@ static uint32_t find_free_cluster(void) {
     return 0;
 }
 
+static uint32_t parse_path_and_get_parent(const char* path, char* last_name) {
+    uint32_t cluster = fs_ctx.root_cluster;
+    char name[256];
+    int i = 0, j = 0;
+
+    if (path[i] >= '0' && path[i] <= '9') {
+        while (path[i] >= '0' && path[i] <= '9') i++;
+        if (path[i] == ':') i++;
+    }
+    if (path[i] == '/') i++;
+
+    while (path[i]) {
+        j = 0;
+        while (path[i] && path[i] != '/') name[j++] = path[i++];
+        name[j] = '\0';
+        if (path[i] == '/') i++;
+
+        if (!path[i]) {
+            /* This is the last component */
+            for(int k=0; k<j+1; k++) last_name[k] = name[k];
+            return cluster;
+        }
+
+        fat_dir_entry_t entry;
+        cluster = find_entry(cluster, name, &entry);
+        if (!cluster) return 0;
+    }
+    return 0;
+}
+
 FRESULT f_mkdir(const TCHAR* path) {
     if (safe_mode) { vga_print("[FS] MKDIR DENIED: Safe Mode Active.\n"); return FR_DENIED; }
+
+    char name[256];
+    uint32_t parent_cluster = parse_path_and_get_parent(path, name);
+    if (!parent_cluster) return FR_NO_PATH;
 
     /* 1. Find free cluster for new directory */
     uint32_t new_cluster = find_free_cluster();
@@ -355,20 +406,21 @@ FRESULT f_mkdir(const TCHAR* path) {
     ((uint32_t*)fat_buf)[(new_cluster * 4 % ss) / 4] = 0x0FFFFFFF;
     disk_write(fs_ctx.drive, fat_buf, fat_sector, 1);
 
-    /* 4. Add entry to root (Simplified) */
+    /* 4. Add entry to parent */
     fat_dir_entry_t entry = {0};
-    to_sfn(path, entry.name);
+    to_sfn(name, entry.name);
     entry.attr = AM_DIR;
     entry.first_cluster_low = new_cluster & 0xFFFF;
     entry.first_cluster_high = (new_cluster >> 16) & 0xFFFF;
 
-    uint8_t root_buf[ss];
-    disk_read(fs_ctx.drive, root_buf, fs_ctx.data_lba + (fs_ctx.root_cluster - 2) * fs_ctx.sectors_per_cluster, 1);
-    fat_dir_entry_t* entries = (fat_dir_entry_t*)root_buf;
+    uint8_t dir_buf[ss];
+    uint32_t parent_lba = fs_ctx.data_lba + (parent_cluster - 2) * fs_ctx.sectors_per_cluster;
+    disk_read(fs_ctx.drive, dir_buf, parent_lba, 1);
+    fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
     for(int i=0; i<16; i++) {
         if (entries[i].name[0] == 0 || entries[i].name[0] == 0xE5) {
             entries[i] = entry;
-            disk_write(fs_ctx.drive, root_buf, fs_ctx.data_lba + (fs_ctx.root_cluster - 2) * fs_ctx.sectors_per_cluster, 1);
+            disk_write(fs_ctx.drive, dir_buf, parent_lba, 1);
             return FR_OK;
         }
     }
@@ -377,18 +429,24 @@ FRESULT f_mkdir(const TCHAR* path) {
 
 FRESULT f_unlink(const TCHAR* path) {
     if (safe_mode) { vga_print("[FS] UNLINK DENIED: Safe Mode Active.\n"); return FR_DENIED; }
+
+    char name[256];
+    uint32_t parent_cluster = parse_path_and_get_parent(path, name);
+    if (!parent_cluster) return FR_NO_PATH;
+
     uint32_t ss = fs_ctx.sector_size ? fs_ctx.sector_size : 512;
-    uint8_t root_buf[ss];
-    disk_read(fs_ctx.drive, root_buf, fs_ctx.data_lba + (fs_ctx.root_cluster - 2) * fs_ctx.sectors_per_cluster, 1);
-    fat_dir_entry_t* entries = (fat_dir_entry_t*)root_buf;
+    uint8_t dir_buf[ss];
+    uint32_t parent_lba = fs_ctx.data_lba + (parent_cluster - 2) * fs_ctx.sectors_per_cluster;
+    disk_read(fs_ctx.drive, dir_buf, parent_lba, 1);
+    fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
     uint8_t sfn[11];
-    to_sfn(path, sfn);
+    to_sfn(name, sfn);
     for(int i=0; i<16; i++) {
         bool match = true;
         for(int k=0; k<11; k++) if(entries[i].name[k] != sfn[k]) match = false;
         if (match) {
             entries[i].name[0] = 0xE5;
-            disk_write(fs_ctx.drive, root_buf, fs_ctx.data_lba + (fs_ctx.root_cluster - 2) * fs_ctx.sectors_per_cluster, 1);
+            disk_write(fs_ctx.drive, dir_buf, parent_lba, 1);
             return FR_OK;
         }
     }

@@ -38,10 +38,11 @@ void _start(void) {
     int hw_count = get_hw_disk_count();
     vga_print("[BOOT] Scanning %d detected hardware volumes...\n", hw_count);
 
-    /* Phase 1: Identify the Limine Boot Device (The CD-ROM / ISO) */
-    struct limine_boot_volume_response* bv = get_boot_volume();
-    if (bv) {
-        vga_print("[BOOT] Limine Boot Device: %x\n", (uint64_t)bv->boot_volume);
+    /* Phase 1: Identify the Bootloader */
+    struct limine_bootloader_info_response* get_bootloader_info(void);
+    struct limine_bootloader_info_response* bi = get_bootloader_info();
+    if (bi) {
+        vga_print("[BOOT] Bootloader: %s %s\n", bi->name, bi->version);
     }
 
     for (int i = 0; i < hw_count; i++) {

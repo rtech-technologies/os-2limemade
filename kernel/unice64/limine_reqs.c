@@ -37,8 +37,14 @@ static volatile struct limine_kernel_address_request kernel_address_request = {
 };
 
 __attribute__((used, section(".limine_requests")))
-static volatile struct limine_boot_volume_request boot_volume_request = {
-    .id = LIMINE_BOOT_VOLUME_REQUEST,
+static volatile struct limine_bootloader_info_request bootloader_info_request = {
+    .id = LIMINE_BOOTLOADER_INFO_REQUEST,
+    .revision = 0
+};
+
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_rsdp_request rsdp_request = {
+    .id = LIMINE_RSDP_REQUEST,
     .revision = 0
 };
 
@@ -63,8 +69,12 @@ struct limine_kernel_address_response* get_kernel_address(void) {
     return kernel_address_request.response;
 }
 
-struct limine_boot_volume_response* get_boot_volume(void) {
-    return boot_volume_request.response;
+struct limine_bootloader_info_response* get_bootloader_info(void) {
+    return bootloader_info_request.response;
+}
+
+void* get_rsdp(void) {
+    return rsdp_request.response ? rsdp_request.response->address : NULL;
 }
 
 uint64_t vmm_get_phys(void* virt) {
@@ -72,16 +82,16 @@ uint64_t vmm_get_phys(void* virt) {
     uint64_t hhdm = hhdm_request.response ? hhdm_request.response->offset : 0;
     struct limine_kernel_address_response* ka = kernel_address_request.response;
 
-    /* Limine HHDM range check */
-    if (hhdm != 0 && v >= hhdm && v < 0xffffffff80000000) {
-        return v - hhdm;
-    }
-
-    /* Kernel range check */
+    /* 1. Kernel range check (must come first as it's a subset of high memory) */
     if (ka && v >= ka->virtual_base) {
         return v - ka->virtual_base + ka->physical_base;
     }
 
-    /* Fallback for low-memory addresses if HHDM isn't available */
+    /* 2. Limine HHDM range check */
+    if (hhdm != 0 && v >= hhdm) {
+        return v - hhdm;
+    }
+
+    /* 3. Fallback for low-memory addresses or absolute physical pointers */
     return v;
 }

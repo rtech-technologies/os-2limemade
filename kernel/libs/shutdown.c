@@ -26,7 +26,8 @@ void rsl_shutdown(void) {
 
     /* 6-second mechanical safety delay */
     /* Wait for the HDD to physically spin down/park */
-    for (volatile uint64_t i = 0; i < 600000000; i++) { __asm__ volatile("nop"); }
+    void pit_wait_ms(uint32_t ms);
+    pit_wait_ms(6000);
 
     serial_write_str("[OS] Powering off via ACPI...\n");
 

@@ -1,5 +1,6 @@
 import sys
 import struct
+import uuid
 
 def main():
     if len(sys.argv) < 2:
@@ -11,13 +12,7 @@ def main():
     sector_size = 512
     part_offset = 2048           # The Sovereign Offset
     total_sectors = img_size // sector_size
-    part_sectors = total_sectors - part_offset
-
-    # FAT32 Parameters
-    sectors_per_cluster = 8
-    reserved_sectors = 32
-    num_fats = 2
-    sectors_per_fat = 128        # Enough for 64MB @ 8 sectors/cluster
+    part_sectors = total_sectors - part_offset - 33 # Leave room for backup GPT
 
     with open(img_path, "wb") as f:
         # 1. Create the sparse file
@@ -25,63 +20,78 @@ def main():
         f.write(b'\0')
         f.seek(0)
 
-        # 2. LBA 0: Sovereign Signature & MBR Partition Table
-        # Signature
-        f.write(struct.pack("<I", 0xEFBEADDE))
-        # Fill until partition table offset (446)
+        # 2. LBA 0: Protective MBR
+        f.write(struct.pack("<I", 0xEFBEADDE)) # Sovereign Signature
         f.seek(446)
-        # Entry 1: Bootable, Type 0x0C (FAT32 LBA), Start LBA 2048
-        f.write(b'\x80\x00\x00\x00\x0C\x00\x00\x00')
-        f.write(struct.pack("<I", 2048)) # Start LBA
-        f.write(struct.pack("<I", part_sectors)) # Size
-        # MBR Boot Signature
+        # Entry 1: GPT Protective Partition (Type 0xEE)
+        f.write(b'\x00\x00\x02\x00\xEE\xFF\xFF\xFF')
+        f.write(struct.pack("<I", 1)) # Start LBA 1
+        f.write(struct.pack("<I", total_sectors - 1))
         f.seek(510)
         f.write(b'\x55\xAA')
 
-        # 3. LBA 1: GPT Placeholder
-        f.seek(1 * sector_size)
-        f.write(b'EFI PART')
+        # 3. Partition Entry Array (LBA 2-33)
+        entries = bytearray(128 * 128)
+        # Entry 1: Sovereign Data
+        # Partition Type GUID (EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 - Basic Data)
+        entries[0:16] = uuid.UUID('EBD0A0A2-B9E5-4433-87C0-68B6B72699C7').bytes_le
+        entries[16:32] = uuid.uuid4().bytes_le # Unique GUID
+        entries[32:40] = struct.pack("<Q", part_offset) # Start LBA 2048
+        entries[40:48] = struct.pack("<Q", part_offset + part_sectors - 1) # End LBA
+        entries[56:128] = "Sovereign".encode('utf-16le')
 
-        # 4. LBA 2048: The BPB (The Heart of the FS)
+        f.seek(2 * sector_size)
+        f.write(entries)
+
+        # 4. LBA 1: GPT Header
+        f.seek(1 * sector_size)
+        header = bytearray(92)
+        header[0:8] = b'EFI PART'
+        header[8:12] = b'\x00\x00\x01\x00' # Revision
+        header[12:16] = struct.pack("<I", 92) # Header size
+        header[24:32] = struct.pack("<Q", 1) # MyLBA
+        header[32:40] = struct.pack("<Q", total_sectors - 1) # AlternateLBA
+        header[40:48] = struct.pack("<Q", 34) # FirstUsableLBA
+        header[48:56] = struct.pack("<Q", total_sectors - 34) # LastUsableLBA
+        header[56:72] = uuid.uuid4().bytes # Disk GUID
+        header[72:80] = struct.pack("<Q", 2) # PartitionEntryLBA
+        header[80:84] = struct.pack("<I", 128) # NumberOfPartitionEntries
+        header[84:88] = struct.pack("<I", 128) # SizeOfPartitionEntry
+
+        # Calculate Partition Entry Array Checksum
+        import zlib
+        header[88:92] = struct.pack("<I", zlib.crc32(entries) & 0xFFFFFFFF)
+
+        # Calculate Header Checksum
+        header[16:20] = b'\x00\x00\x00\x00'
+        header[16:20] = struct.pack("<I", zlib.crc32(header) & 0xFFFFFFFF)
+        f.write(header)
+
+        # 4. LBA 2048: The BPB
         f.seek(part_offset * sector_size)
         f.write(b'\xEB\x58\x90') # Boot Jump
         f.seek(part_offset * sector_size + 3)
         f.write(b'OSX2.0  ')    # OEM Name
         f.seek(part_offset * sector_size + 11)
         f.write(struct.pack("<H", sector_size))        # Bytes/Sector
-        f.write(struct.pack("<B", sectors_per_cluster)) # Sectors/Cluster
-        f.write(struct.pack("<H", reserved_sectors))    # Reserved
-        f.write(struct.pack("<B", num_fats))            # FATs
+        f.write(struct.pack("<B", 8)) # Sectors/Cluster
+        f.write(struct.pack("<H", 32))    # Reserved
+        f.write(struct.pack("<B", 2))            # FATs
         f.seek(part_offset * sector_size + 32)
-        f.write(struct.pack("<I", part_sectors))       # Total Sectors in Partition
-        f.write(struct.pack("<I", sectors_per_fat))    # FAT Size
-        f.write(struct.pack("<I", 2))                  # Root Cluster (2)
+        f.write(struct.pack("<I", part_sectors))       # Total Sectors
+        f.write(struct.pack("<I", 128))    # FAT Size
+        f.write(struct.pack("<I", 2))                  # Root Cluster
         f.seek(part_offset * sector_size + 510)
         f.write(b'\x55\xAA') # Boot Signature
 
-        # 5. Initialize FAT Tables (Cluster 0, 1, and 2)
-        # Cluster 0: Media Type, Cluster 1: EOC, Cluster 2: Root Dir EOC
-        for i in range(num_fats):
-            f.seek((part_offset + reserved_sectors + (i * sectors_per_fat)) * sector_size)
-            f.write(struct.pack("<I", 0x0FFFFFF8)) # FAT[0]
-            f.write(struct.pack("<I", 0xFFFFFFFF)) # FAT[1]
-            f.write(struct.pack("<I", 0x0FFFFFFF)) # FAT[2] (End of Root Chain)
+        # 5. Initialize FAT Tables
+        for i in range(2):
+            f.seek((part_offset + 32 + (i * 128)) * sector_size)
+            f.write(struct.pack("<I", 0x0FFFFFF8))
+            f.write(struct.pack("<I", 0xFFFFFFFF))
+            f.write(struct.pack("<I", 0x0FFFFFFF))
 
-        # 6. Data Area (Cluster 2) starts at part_offset + reserved + (num_fats * sectors_per_fat)
-        # 2048 + 32 + (2 * 128) = 2336.
-        data_start = part_offset + reserved_sectors + (num_fats * sectors_per_fat)
-        f.seek(data_start * sector_size)
-
-        # Root Dir Entry 1: "BOOT    RSL"
-        name = b'BOOT    RSL'
-        f.write(name + b'\x20\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x04\x00\x00\x00\x00')
-
-        # Root Dir Entry 2: "README  TXT"
-        name = b'README  TXT'
-        f.write(name + b'\x20\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x05\x00\x00\x00\x00')
-
-    print(f"OSX2: 64MB Sovereign Disk Created at {img_path}.")
-    print(f"Handshake: LBA 0=0xEFBEADDE | LBA 2048=0x55AA")
+    print(f"OSX2: 64MB GPT Sovereign Disk Created at {img_path}.")
 
 if __name__ == "__main__":
     main()
