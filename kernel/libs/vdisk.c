@@ -73,6 +73,12 @@ int vdisk_read_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer) {
     return hw_registry[hw_id].read_lba(hw_registry[hw_id].private_data, lba, count, buffer);
 }
 
+int vdisk_write_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer) {
+    if (hw_id < 0 || hw_id >= hw_count) return -1;
+    if (!hw_registry[hw_id].write_lba) return -1;
+    return hw_registry[hw_id].write_lba(hw_registry[hw_id].private_data, lba, count, buffer);
+}
+
 #include <include/vfs.h>
 void internal_rsl_ls(void* path);
 void internal_rsl_cat(void* path);

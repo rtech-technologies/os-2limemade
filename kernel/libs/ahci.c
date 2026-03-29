@@ -151,17 +151,18 @@ void ahci_force_port_reset(hba_port_t *port, int port_no) {
     }
 
     if ((port->ssts & 0x0F) == 0x03) {
-        vga_print("[AHCI] PORT %d: LINK ESTABLISHED (SSTS: 0x%x)\n", port_no, port->ssts);
+        vga_print("[AHCI] PORT %d: LINK ESTABLISHED (SSTS: 0x%x, SERR: 0x%x)\n", port_no, port->ssts, port->serr);
         /* Now it's safe to set the Command List and FIS addresses */
         port->cmd |= 0x0010; /* FRE */
         port->cmd |= 0x0001; /* ST */
     } else {
-        vga_print("[AHCI] PORT %d: MECHANICAL FAILURE (SSTS: 0x%x)\n", port_no, port->ssts);
+        vga_print("[AHCI] PORT %d: MECHANICAL FAILURE (SSTS: 0x%x, SERR: 0x%x)\n", port_no, port->ssts, port->serr);
     }
 }
 
 void ahci_hardware_audit(int p) {
     if (!hba_base) return;
+    if (!(hba_base->pi & (1 << p))) return;
     hba_port_t* port = &hba_base->ports[p];
 
     /* Audit GHC (Global Host Control) */
@@ -189,6 +190,7 @@ uint64_t get_hhdm_offset(void);
 int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     if (!hba_base) return -1;
     int p = (int)(uint64_t)priv;
+    if (!(hba_base->pi & (1 << p))) return -1;
     hba_port_t* port = &hba_base->ports[p];
     uint64_t hhdm = get_hhdm_offset();
 
@@ -223,7 +225,10 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     /* 4. Issue Command */
     port->ci = (1 << 0);
     while (port->ci & (1 << 0)) {
-        if (port->tfd & (1 << 0)) return -1;
+        if (port->tfd & (1 << 0)) {
+            vga_print("[AHCI] PORT %d READ ERROR: TFD 0x%x (LBA %d)\n", p, port->tfd, (uint32_t)lba);
+            return -1;
+        }
         __asm__ volatile ("pause");
     }
     return 0;
@@ -232,6 +237,7 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     if (!hba_base) return -1;
     int p = (int)(uint64_t)priv;
+    if (!(hba_base->pi & (1 << p))) return -1;
     hba_port_t* port = &hba_base->ports[p];
     uint64_t hhdm = get_hhdm_offset();
 
@@ -262,7 +268,10 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 
     port->ci = (1 << 0);
     while (port->ci & (1 << 0)) {
-        if (port->tfd & (1 << 0)) return -1;
+        if (port->tfd & (1 << 0)) {
+            vga_print("[AHCI] PORT %d WRITE ERROR: TFD 0x%x (LBA %d)\n", p, port->tfd, (uint32_t)lba);
+            return -1;
+        }
         __asm__ volatile ("pause");
     }
     return 0;
