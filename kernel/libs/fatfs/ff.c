@@ -7,21 +7,6 @@ void vga_print(const char* fmt, ...);
 void serial_write_str(const char* s);
 void serial_print_hex(const char* label, uint16_t val);
 
-/* 100% Mechanical FAT32 Context */
-typedef struct {
-    uint16_t reserved_sectors;
-    uint8_t num_fats;
-    uint32_t sectors_per_fat;
-    uint8_t sectors_per_cluster;
-    uint32_t root_cluster;
-    uint32_t data_lba;
-    uint32_t partition_lba;
-    uint16_t sector_size;
-    uint8_t drive;
-    bool active;
-} fat32_internal_t;
-
-static fat32_internal_t fs_ctx;
 bool safe_mode = true;
 
 typedef struct {
@@ -58,7 +43,7 @@ static int get_drive_id(const char* path) {
 }
 
 FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
-    (void)fs; (void)opt;
+    (void)opt;
     int drive = get_drive_id(path);
     uint8_t sector[512];
 
@@ -107,28 +92,28 @@ FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
         return FR_NO_FILESYSTEM;
     }
 
-    fs_ctx.partition_lba = part_lba;
-    fs_ctx.reserved_sectors = *(uint16_t*)&sector[14];
-    fs_ctx.num_fats = sector[16];
-    fs_ctx.sectors_per_fat = *(uint32_t*)&sector[36];
-    fs_ctx.sectors_per_cluster = sector[13];
-    fs_ctx.root_cluster = *(uint32_t*)&sector[44];
-    fs_ctx.sector_size = *(uint16_t*)&sector[11];
-    fs_ctx.data_lba = part_lba + fs_ctx.reserved_sectors + (fs_ctx.num_fats * fs_ctx.sectors_per_fat);
-    fs_ctx.drive = (uint8_t)drive;
+    fs->partition_lba = part_lba;
+    fs->reserved_sectors = *(uint16_t*)&sector[14];
+    fs->n_fats = sector[16];
+    fs->sectors_per_fat = *(uint32_t*)&sector[36];
+    fs->sectors_per_cluster = sector[13];
+    fs->root_cluster = *(uint32_t*)&sector[44];
+    fs->sector_size = *(uint16_t*)&sector[11];
+    fs->data_lba = part_lba + fs->reserved_sectors + (fs->n_fats * fs->sectors_per_fat);
+    fs->drv = (uint8_t)drive;
 
-    fs_ctx.active = true;
+    fs->active = true;
     safe_mode = false;
     serial_write_str("[FS] Mechanical FAT32 Mount Successful.\n");
     return FR_OK;
 }
 
-static uint32_t get_next_cluster(uint32_t cluster) {
-    uint32_t ss = fs_ctx.sector_size ? fs_ctx.sector_size : 512;
-    uint32_t fat_sector = fs_ctx.partition_lba + fs_ctx.reserved_sectors + (cluster * 4 / ss);
+static uint32_t get_next_cluster(FATFS* fs, uint32_t cluster) {
+    uint32_t ss = fs->sector_size ? fs->sector_size : 512;
+    uint32_t fat_sector = fs->partition_lba + fs->reserved_sectors + (cluster * 4 / ss);
     uint32_t fat_offset = (cluster * 4) % ss;
     uint8_t buf[ss];
-    if (disk_read(fs_ctx.drive, buf, fat_sector, 1) != RES_OK) return 0x0FFFFFFF;
+    if (disk_read(fs->drv, buf, fat_sector, 1) != RES_OK) return 0x0FFFFFFF;
     return (*(uint32_t*)&buf[fat_offset]) & 0x0FFFFFFF;
 }
 
@@ -145,17 +130,17 @@ static void to_sfn(const char* src, uint8_t* dst) {
     for (int k = 0; k < 11; k++) if (dst[k] >= 'a' && dst[k] <= 'z') dst[k] -= 32;
 }
 
-static uint32_t find_entry(uint32_t dir_cluster, const char* name, fat_dir_entry_t* out_entry) {
-    if (!fs_ctx.active) return 0;
+static uint32_t find_entry(FATFS* fs, uint32_t dir_cluster, const char* name, fat_dir_entry_t* out_entry) {
+    if (!fs->active) return 0;
     uint32_t cluster = dir_cluster;
     uint8_t sfn[11];
     to_sfn(name, sfn);
 
     while (cluster < 0x0FFFFFF8) {
-        uint32_t lba = fs_ctx.data_lba + (cluster - 2) * fs_ctx.sectors_per_cluster;
+        uint32_t lba = fs->data_lba + (cluster - 2) * fs->sectors_per_cluster;
         fat_dir_entry_t entries[16];
-        for (uint8_t s = 0; s < fs_ctx.sectors_per_cluster; s++) {
-            if (disk_read(fs_ctx.drive, (BYTE*)entries, lba + s, 1) != RES_OK) return 0;
+        for (uint8_t s = 0; s < fs->sectors_per_cluster; s++) {
+            if (disk_read(fs->drv, (BYTE*)entries, lba + s, 1) != RES_OK) return 0;
             for (int i = 0; i < 16; i++) {
                 if (entries[i].name[0] == 0) return 0;
                 if (entries[i].name[0] == 0xE5) continue;
@@ -167,22 +152,23 @@ static uint32_t find_entry(uint32_t dir_cluster, const char* name, fat_dir_entry
                 }
             }
         }
-        cluster = get_next_cluster(cluster);
+        cluster = get_next_cluster(fs, cluster);
     }
     return 0;
 }
 
 FRESULT f_open(FIL* fp, const TCHAR* path, BYTE mode) {
+    FATFS* fs = fp->obj;
     if (safe_mode && (mode & FA_WRITE)) {
         vga_print("[FS] ERROR: Denied (Safe Mode is ACTIVE)\n");
         return FR_DENIED;
     }
-    if (!fs_ctx.active) {
+    if (!fs->active) {
         vga_print("[FS] ERROR: Filesystem not mounted\n");
         return FR_DENIED;
     }
 
-    uint32_t cluster = fs_ctx.root_cluster;
+    uint32_t cluster = fs->root_cluster;
     char name[256];
     int i = 0, j = 0;
 
@@ -199,7 +185,7 @@ FRESULT f_open(FIL* fp, const TCHAR* path, BYTE mode) {
         if (path[i] == '/') i++;
 
         fat_dir_entry_t entry;
-        cluster = find_entry(cluster, name, &entry);
+        cluster = find_entry(fs, cluster, name, &entry);
         if (!cluster) return FR_NO_FILE;
         if (!path[i]) {
             fp->sclust = cluster;
@@ -213,43 +199,46 @@ FRESULT f_open(FIL* fp, const TCHAR* path, BYTE mode) {
 }
 
 FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
-    if (!fs_ctx.active) return FR_DENIED;
-    uint32_t ss = fs_ctx.sector_size ? fs_ctx.sector_size : 512;
-    uint32_t sector_in_cluster = (fp->fptr / ss) % fs_ctx.sectors_per_cluster;
-    uint32_t lba = fs_ctx.data_lba + (fp->clust - 2) * fs_ctx.sectors_per_cluster + sector_in_cluster;
+    FATFS* fs = fp->obj;
+    if (!fs->active) return FR_DENIED;
+    uint32_t ss = fs->sector_size ? fs->sector_size : 512;
+    uint32_t sector_in_cluster = (fp->fptr / ss) % fs->sectors_per_cluster;
+    uint32_t lba = fs->data_lba + (fp->clust - 2) * fs->sectors_per_cluster + sector_in_cluster;
 
-    if (disk_read(fs_ctx.drive, buff, lba, 1) == RES_OK) {
+    if (disk_read(fs->drv, buff, lba, 1) == RES_OK) {
         uint32_t read = btr > ss ? ss : btr;
         if (br) *br = read;
         fp->fptr += read;
-        if (fp->fptr % (ss * fs_ctx.sectors_per_cluster) == 0) {
-            fp->clust = get_next_cluster(fp->clust);
+        if (fp->fptr % (ss * fs->sectors_per_cluster) == 0) {
+            fp->clust = get_next_cluster(fs, fp->clust);
         }
         return FR_OK;
     }
-    vga_print("[FS] READ ERROR: Drive %d, LBA %d\n", fs_ctx.drive, lba);
+    vga_print("[FS] READ ERROR: Drive %d, LBA %d\n", fs->drv, lba);
     return FR_DISK_ERR;
 }
 
 FRESULT f_write(FIL* fp, const void* buff, uint32_t btw, uint32_t* bw) {
-    if (safe_mode || !fs_ctx.active) return FR_DENIED;
-    uint32_t ss = fs_ctx.sector_size ? fs_ctx.sector_size : 512;
-    uint32_t sector_in_cluster = (fp->fptr / ss) % fs_ctx.sectors_per_cluster;
-    uint32_t lba = fs_ctx.data_lba + (fp->clust - 2) * fs_ctx.sectors_per_cluster + sector_in_cluster;
+    FATFS* fs = fp->obj;
+    if (safe_mode || !fs->active) return FR_DENIED;
+    uint32_t ss = fs->sector_size ? fs->sector_size : 512;
+    uint32_t sector_in_cluster = (fp->fptr / ss) % fs->sectors_per_cluster;
+    uint32_t lba = fs->data_lba + (fp->clust - 2) * fs->sectors_per_cluster + sector_in_cluster;
 
-    if (disk_write(fs_ctx.drive, (BYTE*)buff, lba, 1) == RES_OK) {
+    if (disk_write(fs->drv, (BYTE*)buff, lba, 1) == RES_OK) {
         if (bw) *bw = btw;
         fp->fptr += btw;
         /* Simple write: No auto-expansion of clusters for now */
         return FR_OK;
     }
-    vga_print("[FS] WRITE ERROR: Drive %d, LBA %d\n", fs_ctx.drive, lba);
+    vga_print("[FS] WRITE ERROR: Drive %d, LBA %d\n", fs->drv, lba);
     return FR_DISK_ERR;
 }
 
 FRESULT f_opendir(DIR* dp, const TCHAR* path) {
-    if (safe_mode || !fs_ctx.active) return FR_DENIED;
-    dp->sclust = fs_ctx.root_cluster;
+    FATFS* fs = dp->obj;
+    if (safe_mode || !fs->active) return FR_DENIED;
+    dp->sclust = fs->root_cluster;
 
     int i = 0;
     if (path[i] >= '0' && path[i] <= '9') {
@@ -260,14 +249,14 @@ FRESULT f_opendir(DIR* dp, const TCHAR* path) {
 
     if (path[i]) {
         /* Basic path traversal for opendir */
-        uint32_t cluster = fs_ctx.root_cluster;
+        uint32_t cluster = fs->root_cluster;
         char name[256];
         while (path[i]) {
             int j = 0;
             while (path[i] && path[i] != '/') name[j++] = path[i++];
             name[j] = '\0';
             if (path[i] == '/') i++;
-            cluster = find_entry(cluster, name, NULL);
+            cluster = find_entry(fs, cluster, name, NULL);
             if (!cluster) return FR_NO_PATH;
         }
         dp->sclust = cluster;
@@ -279,20 +268,21 @@ FRESULT f_opendir(DIR* dp, const TCHAR* path) {
 }
 
 FRESULT f_readdir(DIR* dp, FILINFO* fno) {
-    if (safe_mode || !fs_ctx.active) return FR_DENIED;
+    FATFS* fs = dp->obj;
+    if (safe_mode || !fs->active) return FR_DENIED;
 
     while (dp->clust < 0x0FFFFFF8) {
-        uint32_t lba = fs_ctx.data_lba + (dp->clust - 2) * fs_ctx.sectors_per_cluster;
+        uint32_t lba = fs->data_lba + (dp->clust - 2) * fs->sectors_per_cluster;
         fat_dir_entry_t entries[16];
 
         uint32_t sector_idx = (dp->index / 16);
-        if (sector_idx >= fs_ctx.sectors_per_cluster) {
+        if (sector_idx >= fs->sectors_per_cluster) {
             dp->index = 0;
-            dp->clust = get_next_cluster(dp->clust);
+            dp->clust = get_next_cluster(fs, dp->clust);
             continue;
         }
 
-        if (disk_read(fs_ctx.drive, (BYTE*)entries, lba + sector_idx, 1) != RES_OK) return FR_DISK_ERR;
+        if (disk_read(fs->drv, (BYTE*)entries, lba + sector_idx, 1) != RES_OK) return FR_DISK_ERR;
 
         while ((dp->index % 16) < 16) {
             fat_dir_entry_t* e = &entries[dp->index % 16];
@@ -337,11 +327,11 @@ FRESULT f_mkfs(const TCHAR* path, BYTE opt, DWORD au) {
     return FR_OK;
 }
 
-static uint32_t find_free_cluster(void) {
-    uint32_t ss = fs_ctx.sector_size ? fs_ctx.sector_size : 512;
+static uint32_t find_free_cluster(FATFS* fs) {
+    uint32_t ss = fs->sector_size ? fs->sector_size : 512;
     uint8_t buf[ss];
-    for (uint32_t s = 0; s < fs_ctx.sectors_per_fat; s++) {
-        if (disk_read(fs_ctx.drive, buf, fs_ctx.partition_lba + fs_ctx.reserved_sectors + s, 1) == RES_OK) {
+    for (uint32_t s = 0; s < fs->sectors_per_fat; s++) {
+        if (disk_read(fs->drv, buf, fs->partition_lba + fs->reserved_sectors + s, 1) == RES_OK) {
             uint32_t* fat = (uint32_t*)buf;
             for (uint32_t i = 0; i < ss/4; i++) {
                 if ((fat[i] & 0x0FFFFFFF) == 0) return (s * (ss/4)) + i;
@@ -351,8 +341,8 @@ static uint32_t find_free_cluster(void) {
     return 0;
 }
 
-static uint32_t parse_path_and_get_parent(const char* path, char* last_name) {
-    uint32_t cluster = fs_ctx.root_cluster;
+static uint32_t parse_path_and_get_parent(FATFS* fs, const char* path, char* last_name) {
+    uint32_t cluster = fs->root_cluster;
     char name[256];
     int i = 0, j = 0;
 
@@ -375,36 +365,40 @@ static uint32_t parse_path_and_get_parent(const char* path, char* last_name) {
         }
 
         fat_dir_entry_t entry;
-        cluster = find_entry(cluster, name, &entry);
+        cluster = find_entry(fs, cluster, name, &entry);
         if (!cluster) return 0;
     }
     return 0;
 }
 
+static FATFS* global_fs_context = NULL;
+
 FRESULT f_mkdir(const TCHAR* path) {
     if (safe_mode) { vga_print("[FS] MKDIR DENIED: Safe Mode Active.\n"); return FR_DENIED; }
+    if (!global_fs_context) return FR_DENIED;
+    FATFS* fs = global_fs_context;
 
     char name[256];
-    uint32_t parent_cluster = parse_path_and_get_parent(path, name);
+    uint32_t parent_cluster = parse_path_and_get_parent(fs, path, name);
     if (!parent_cluster) return FR_NO_PATH;
 
     /* 1. Find free cluster for new directory */
-    uint32_t new_cluster = find_free_cluster();
+    uint32_t new_cluster = find_free_cluster(fs);
     if (!new_cluster) return FR_DENIED;
 
     /* 2. Write empty directory sector */
-    uint32_t ss = fs_ctx.sector_size ? fs_ctx.sector_size : 512;
+    uint32_t ss = fs->sector_size ? fs->sector_size : 512;
     uint8_t zero[ss];
     for(uint32_t i=0; i<ss; i++) zero[i] = 0;
-    uint32_t lba = fs_ctx.data_lba + (new_cluster - 2) * fs_ctx.sectors_per_cluster;
-    disk_write(fs_ctx.drive, zero, lba, 1);
+    uint32_t lba = fs->data_lba + (new_cluster - 2) * fs->sectors_per_cluster;
+    disk_write(fs->drv, zero, lba, 1);
 
     /* 3. Mark cluster as EOC in FAT */
-    uint32_t fat_sector = fs_ctx.partition_lba + fs_ctx.reserved_sectors + (new_cluster * 4 / ss);
+    uint32_t fat_sector = fs->partition_lba + fs->reserved_sectors + (new_cluster * 4 / ss);
     uint8_t fat_buf[ss];
-    disk_read(fs_ctx.drive, fat_buf, fat_sector, 1);
+    disk_read(fs->drv, fat_buf, fat_sector, 1);
     ((uint32_t*)fat_buf)[(new_cluster * 4 % ss) / 4] = 0x0FFFFFFF;
-    disk_write(fs_ctx.drive, fat_buf, fat_sector, 1);
+    disk_write(fs->drv, fat_buf, fat_sector, 1);
 
     /* 4. Add entry to parent */
     fat_dir_entry_t entry = {0};
@@ -414,13 +408,13 @@ FRESULT f_mkdir(const TCHAR* path) {
     entry.first_cluster_high = (new_cluster >> 16) & 0xFFFF;
 
     uint8_t dir_buf[ss];
-    uint32_t parent_lba = fs_ctx.data_lba + (parent_cluster - 2) * fs_ctx.sectors_per_cluster;
-    disk_read(fs_ctx.drive, dir_buf, parent_lba, 1);
+    uint32_t parent_lba = fs->data_lba + (parent_cluster - 2) * fs->sectors_per_cluster;
+    disk_read(fs->drv, dir_buf, parent_lba, 1);
     fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
     for(int i=0; i<16; i++) {
         if (entries[i].name[0] == 0 || entries[i].name[0] == 0xE5) {
             entries[i] = entry;
-            disk_write(fs_ctx.drive, dir_buf, parent_lba, 1);
+            disk_write(fs->drv, dir_buf, parent_lba, 1);
             return FR_OK;
         }
     }
@@ -429,15 +423,17 @@ FRESULT f_mkdir(const TCHAR* path) {
 
 FRESULT f_unlink(const TCHAR* path) {
     if (safe_mode) { vga_print("[FS] UNLINK DENIED: Safe Mode Active.\n"); return FR_DENIED; }
+    if (!global_fs_context) return FR_DENIED;
+    FATFS* fs = global_fs_context;
 
     char name[256];
-    uint32_t parent_cluster = parse_path_and_get_parent(path, name);
+    uint32_t parent_cluster = parse_path_and_get_parent(fs, path, name);
     if (!parent_cluster) return FR_NO_PATH;
 
-    uint32_t ss = fs_ctx.sector_size ? fs_ctx.sector_size : 512;
+    uint32_t ss = fs->sector_size ? fs->sector_size : 512;
     uint8_t dir_buf[ss];
-    uint32_t parent_lba = fs_ctx.data_lba + (parent_cluster - 2) * fs_ctx.sectors_per_cluster;
-    disk_read(fs_ctx.drive, dir_buf, parent_lba, 1);
+    uint32_t parent_lba = fs->data_lba + (parent_cluster - 2) * fs->sectors_per_cluster;
+    disk_read(fs->drv, dir_buf, parent_lba, 1);
     fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
     uint8_t sfn[11];
     to_sfn(name, sfn);
@@ -446,7 +442,7 @@ FRESULT f_unlink(const TCHAR* path) {
         for(int k=0; k<11; k++) if(entries[i].name[k] != sfn[k]) match = false;
         if (match) {
             entries[i].name[0] = 0xE5;
-            disk_write(fs_ctx.drive, dir_buf, parent_lba, 1);
+            disk_write(fs->drv, dir_buf, parent_lba, 1);
             return FR_OK;
         }
     }

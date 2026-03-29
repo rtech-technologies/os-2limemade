@@ -79,6 +79,10 @@ typedef struct {
     uint32_t serr;
     uint32_t sact;
     uint32_t ci;
+    uint32_t sntf;
+    uint32_t fbs;
+    uint32_t devslp;
+    uint32_t rsv1[14]; /* Pad to 128 bytes (0x80) */
 } hba_port_t;
 
 typedef struct {
@@ -91,8 +95,7 @@ typedef struct {
     uint32_t bccd;
     uint32_t cap2;
     uint32_t bohc;
-    uint8_t  rsv[0xA0-0x28];
-    uint8_t  vendor[0x100-0xA0];
+    uint8_t  rsv[0x100 - 0x24]; /* Pad to 0x100 where ports start */
     hba_port_t ports[32];
 } hba_mem_t;
 
@@ -371,6 +374,9 @@ void ahci_service(kernel_event_t event) {
                     uint32_t bar5 = pci_config_read(bus, slot, 0, 0x24);
                     uint64_t hhdm = get_hhdm_offset();
                     hba_base = (hba_mem_t*)(hhdm + (uint64_t)(bar5 & 0xFFFFFFF0));
+
+                    vga_print("[AHCI] ABAR: 0x%x, PI Mask: 0x%x\n", (uint64_t)hba_base, hba_base->pi);
+                    vga_print("[AHCI] Port 0 SSTS Addr: 0x%x, Port 2 SSTS Addr: 0x%x\n", (uint64_t)&hba_base->ports[0].ssts, (uint64_t)&hba_base->ports[2].ssts);
 
                     /* Scan HBA Ports */
                     for (int p = 0; p < 32; p++) {

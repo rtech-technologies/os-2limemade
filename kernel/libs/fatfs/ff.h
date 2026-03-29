@@ -2,6 +2,7 @@
 #define FF_DEFINED
 
 #include <stdint.h>
+#include <stdbool.h>
 
 typedef char TCHAR;
 typedef uint32_t DWORD;
@@ -51,6 +52,16 @@ typedef struct {
     LBA_t database;     /* Data base sector */
     DWORD winsect;      /* Current sector in win[] */
     BYTE  win[512];     /* Disk access window for Directory/FAT/Boot */
+
+    /* Sovereign Mechanical Context */
+    uint16_t reserved_sectors;
+    uint32_t sectors_per_fat;
+    uint8_t sectors_per_cluster;
+    uint32_t root_cluster;
+    uint32_t data_lba;
+    uint32_t partition_lba;
+    uint16_t sector_size;
+    bool active;
 } FATFS;
 
 typedef struct {

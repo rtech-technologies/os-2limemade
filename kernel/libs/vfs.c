@@ -31,15 +31,31 @@ void vfs_ls(void* path) {
     }
 }
 
+static bool path_starts_with(void* path, const char* prefix) {
+    const char* p = str_to_cstr(path);
+    int i = 0;
+    while (prefix[i]) {
+        if (p[i] != prefix[i]) return false;
+        i++;
+    }
+    return true;
+}
+
 void vfs_cat(void* path) {
     for (int i = 0; i < vfs_node_count; i++) {
-        if (vfs_registry[i].cat) vfs_registry[i].cat(path);
+        if (path_starts_with(path, vfs_registry[i].name)) {
+            if (vfs_registry[i].cat) vfs_registry[i].cat(path);
+            return;
+        }
     }
 }
 
 void vfs_write(void* path, void* content) {
     for (int i = 0; i < vfs_node_count; i++) {
-        if (vfs_registry[i].write) vfs_registry[i].write(path, content);
+        if (path_starts_with(path, vfs_registry[i].name)) {
+            if (vfs_registry[i].write) vfs_registry[i].write(path, content);
+            return;
+        }
     }
 }
 

@@ -21,16 +21,6 @@ void vga_print(const char* fmt, ...);
 
 void register_hardware_disk(vdisk_node_t node) {
     if (hw_count < MAX_DISKS) {
-        /* Sovereign Handshake: Check for 0xEFBEADDE at LBA 0 */
-        uint8_t sector[512];
-        if (node.read_lba(node.private_data, 0, 1, sector) == 0) {
-            uint32_t sig = *(uint32_t*)sector;
-            if (sig == 0xEFBEADDE) {
-                vga_print("[VDISK] Sovereign Signature Verified at LBA 0.\n");
-            } else {
-                vga_print("[VDISK] Warning: Raw Disk (No Sovereign Signature).\n");
-            }
-        }
         hw_registry[hw_count++] = node;
         vga_print("[VDISK] Physical hardware detected and registered.\n");
     }
@@ -76,6 +66,20 @@ int vdisk_write_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer) {
 bool vdisk_is_atapi(int hw_id) {
     if (hw_id < 0 || hw_id >= hw_count) return false;
     return hw_registry[hw_id].is_atapi;
+}
+
+int is_sovereign_disk(int disk_id) {
+    uint32_t buffer[128]; /* 512 bytes */
+    if (vdisk_read_hw(disk_id, 0, 1, buffer) != 0) {
+        return 0;
+    }
+
+    if (buffer[0] == 0xEFBEADDE) {
+        vga_print("[VDISK] OSx2 Limemade signature 0xEFBEADDE found!\n");
+        return 1;
+    }
+
+    return 0;
 }
 
 #include <include/vfs.h>
