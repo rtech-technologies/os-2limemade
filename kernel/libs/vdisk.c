@@ -3,15 +3,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-/* VDISK Node Structure */
-typedef struct {
-    uint32_t sector_size;
-    uint64_t total_lba;
-    void* private_data;
-    int (*read_lba)(void* priv, uint64_t lba, uint32_t count, void* buffer);
-    int (*write_lba)(void* priv, uint64_t lba, uint32_t count, void* buffer);
-    bool is_atapi;
-} vdisk_node_t;
+#include "vdisk.h"
 
 #define MAX_DISKS 16
 

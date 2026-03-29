@@ -2,20 +2,10 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include "vdisk.h"
 
 void serial_write_str(const char* s);
 uint32_t pci_config_read(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset);
-
-typedef struct {
-    uint32_t sector_size;
-    uint64_t total_lba;
-    void* private_data;
-    int (*read_lba)(void* priv, uint64_t lba, uint32_t count, void* buffer);
-    int (*write_lba)(void* priv, uint64_t lba, uint32_t count, void* buffer);
-    bool is_atapi;
-} vdisk_node_t;
-
-void register_hardware_disk(vdisk_node_t node);
 
 /* AHCI HBA Structures (Physical) */
 typedef struct {
@@ -129,7 +119,12 @@ void vga_print(const char* fmt, ...);
 void pit_wait_ms(uint32_t ms);
 
 void ahci_force_port_reset(hba_port_t *port, int port_no) {
-    /* 1. STOP: Kill the DMA engines (ST and FRE) */
+    /* 1. CLEAR: Purge the Error register at the very start to acknowledge noise */
+    /* In AHCI, writing 1 to these bits CLEARS them. */
+    port->serr = 0xFFFFFFFF;
+    port->is = 0xFFFFFFFF;
+
+    /* 2. STOP: Kill the DMA engines (ST and FRE) */
     port->cmd &= ~0x0001; /* Bit 0: ST (Start) */
     port->cmd &= ~0x0010; /* Bit 4: FRE (FIS Receive Enable) */
 
@@ -139,19 +134,15 @@ void ahci_force_port_reset(hba_port_t *port, int port_no) {
         pit_wait_ms(1);
     }
 
-    /* 2. CLEAR: Purge the Error and Status registers */
-    /* In AHCI, writing 1 to these bits CLEARS them. */
-    port->serr = 0xFFFFFFFF;
-    port->is = 0xFFFFFFFF;
-
     /* 3. KICK: The COMRESET (SCTL) */
     /* Bit 0-3 = 1 (Perform Reset), Bit 4-7 = 3 (No Power Management) */
-    port->sctl = (port->sctl & ~0x0F) | 0x01;
+    /* 0x301 Forces 1.5/3.0 Gbps handshake + Reset */
+    port->sctl = (port->sctl & ~0x0F) | 0x301;
 
-    /* R-Tech Delay: Give the hardware 2ms to physically reset */
-    pit_wait_ms(2);
+    /* Hardware Delay: Give the hardware 1ms to physically reset */
+    pit_wait_ms(1);
 
-    port->sctl &= ~0x01; /* End Reset (Back to 0) */
+    port->sctl = (port->sctl & ~0x0F) | 0x300; /* End Reset (Back to normal Operation) */
 
     /* 4. WAIT: The 1-Second Negotiation Loop */
     int timeout = 1000;
@@ -186,11 +177,12 @@ void ahci_hardware_audit(int p) {
     if ((ssts & 0x0F) == 0x03) {
         vga_print("[AHCI] SATA Hardware Online. Link Established.\n");
         ahci_port_start(port);
-    } else if ((ssts & 0x0F) == 0x01) {
-        vga_print("[AHCI] Device detected, attempting Force Reset...\n");
+    } else if ((ssts & 0x0F) == 0x01 || (ssts & 0x0F) == 0x00) {
+        /* If SSTS 0x01 (detected but no link) or even 0x00 (in case it's just stuck), try handshake */
+        vga_print("[AHCI] Port %d: Attempting Hardware Handshake...\n", p);
         ahci_force_port_reset(port, p);
     } else {
-        vga_print("[AHCI] MECHANICAL ERROR: No SATA device detected on port %d.\n", p);
+        vga_print("[AHCI] MECHANICAL ERROR: Port %d SSTS: 0x%x\n", p, ssts);
     }
 }
 
@@ -308,8 +300,55 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 }
 
 int atapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
-    (void)priv; (void)lba; (void)count; (void)buffer;
-    serial_write_str("[AHCI] ATAPI Packet Command: GPCMD_READ_10\n");
+    if (!hba_base) return -1;
+    int p = (int)(uint64_t)priv;
+    if (!(hba_base->pi & (1 << p))) return -1;
+    hba_port_t* port = &hba_base->ports[p];
+    uint64_t vmm_get_phys(void* virt);
+
+    uint64_t phys_buffer = vmm_get_phys(buffer);
+
+    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
+    cmdhdr->cfl = 5;
+    cmdhdr->w = 0;
+    cmdhdr->a = 1; /* ATAPI */
+    cmdhdr->prdtl = 1;
+
+    static void* cmdtbl_virt = NULL;
+    if (!cmdtbl_virt) cmdtbl_virt = bump_alloc(4096);
+    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)cmdtbl_virt;
+
+    uint64_t cmdtbl_phys = vmm_get_phys(cmdtbl_virt);
+    cmdhdr->ctba = (uint32_t)(cmdtbl_phys & 0xFFFFFFFF);
+    cmdhdr->ctbau = (uint32_t)(cmdtbl_phys >> 32);
+
+    /* PRDT Setup: ATAPI uses 2048-byte sectors usually */
+    cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
+    cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
+    cmdtbl->prdt_entry[0].dbc = (count * 2048) - 1;
+    cmdtbl->prdt_entry[0].i = 1;
+
+    /* ATAPI Packet: SCSI READ(10) */
+    cmdtbl->acmd[0] = 0x28; /* GPCMD_READ_10 */
+    cmdtbl->acmd[1] = 0;
+    cmdtbl->acmd[2] = (uint8_t)(lba >> 24);
+    cmdtbl->acmd[3] = (uint8_t)(lba >> 16);
+    cmdtbl->acmd[4] = (uint8_t)(lba >> 8);
+    cmdtbl->acmd[5] = (uint8_t)lba;
+    cmdtbl->acmd[6] = 0;
+    cmdtbl->acmd[7] = (uint8_t)(count >> 8);
+    cmdtbl->acmd[8] = (uint8_t)count;
+    cmdtbl->acmd[9] = 0;
+
+    /* Issue Command */
+    port->ci = (1 << 0);
+    while (port->ci & (1 << 0)) {
+        if (port->tfd & (1 << 0)) {
+            vga_print("[AHCI] ATAPI PORT %d READ ERROR: TFD 0x%x\n", p, port->tfd);
+            return -1;
+        }
+        __asm__ volatile ("pause");
+    }
     return 0;
 }
 

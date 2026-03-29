@@ -2,20 +2,11 @@
 #include <limine.h>
 #include <stdint.h>
 #include <stddef.h>
+#include "vdisk.h"
 
 /* Forward declarations */
 void serial_write_str(const char* s);
 struct limine_module_response* get_modules(void);
-
-typedef struct {
-    uint32_t sector_size;
-    uint64_t total_lba;
-    void* private_data;
-    int (*read_lba)(void* priv, uint64_t lba, uint32_t count, void* buffer);
-    int (*write_lba)(void* priv, uint64_t lba, uint32_t count, void* buffer);
-} vdisk_node_t;
-
-void register_hardware_disk(vdisk_node_t node);
 int is_sovereign_disk(int disk_id);
 
 /* PCI Helpers (Simplified) */

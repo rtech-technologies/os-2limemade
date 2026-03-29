@@ -1,4 +1,5 @@
 #include <kernel/libs/services.h>
+#include <kernel/libs/vdisk.h>
 #include <include/rsl.h>
 #include <limine.h>
 #include <stddef.h>
@@ -24,7 +25,6 @@ void _start(void) {
     /* 1. Sovereign Discovery: Scan ALL registered hardware for a bootable volume */
     void ahci_hardware_audit(int p);
     void vga_print(const char* fmt, ...);
-    int get_hw_disk_count(void);
 
     /* First, ensure all AHCI ports are audited and linked */
     for (int p = 0; p < 32; p++) {
@@ -33,7 +33,6 @@ void _start(void) {
 
     int boot_drive = -1;
     int install_drive = -1;
-    bool vdisk_is_atapi(int hw_id);
 
     int hw_count = get_hw_disk_count();
     vga_print("[BOOT] Scanning %d detected hardware volumes...\n", hw_count);
