@@ -16,6 +16,7 @@ typedef struct {
     uint32_t root_cluster;
     uint32_t data_lba;
     uint32_t partition_lba;
+    uint16_t sector_size;
     uint8_t drive;
     bool active;
 } fat32_internal_t;
@@ -95,6 +96,7 @@ FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
     fs_ctx.sectors_per_fat = *(uint32_t*)&sector[36];
     fs_ctx.sectors_per_cluster = sector[13];
     fs_ctx.root_cluster = *(uint32_t*)&sector[44];
+    fs_ctx.sector_size = *(uint16_t*)&sector[11];
     fs_ctx.data_lba = part_lba + fs_ctx.reserved_sectors + (fs_ctx.num_fats * fs_ctx.sectors_per_fat);
     fs_ctx.drive = (uint8_t)drive;
 
@@ -105,9 +107,10 @@ FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
 }
 
 static uint32_t get_next_cluster(uint32_t cluster) {
-    uint32_t fat_sector = fs_ctx.partition_lba + fs_ctx.reserved_sectors + (cluster * 4 / 512);
-    uint32_t fat_offset = (cluster * 4) % 512;
-    uint8_t buf[512];
+    uint32_t ss = fs_ctx.sector_size ? fs_ctx.sector_size : 512;
+    uint32_t fat_sector = fs_ctx.partition_lba + fs_ctx.reserved_sectors + (cluster * 4 / ss);
+    uint32_t fat_offset = (cluster * 4) % ss;
+    uint8_t buf[ss];
     if (disk_read(fs_ctx.drive, buf, fat_sector, 1) != RES_OK) return 0x0FFFFFFF;
     return (*(uint32_t*)&buf[fat_offset]) & 0x0FFFFFFF;
 }
@@ -194,14 +197,15 @@ FRESULT f_open(FIL* fp, const TCHAR* path, BYTE mode) {
 
 FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
     if (!fs_ctx.active) return FR_DENIED;
-    uint32_t sector_in_cluster = (fp->fptr / 512) % fs_ctx.sectors_per_cluster;
+    uint32_t ss = fs_ctx.sector_size ? fs_ctx.sector_size : 512;
+    uint32_t sector_in_cluster = (fp->fptr / ss) % fs_ctx.sectors_per_cluster;
     uint32_t lba = fs_ctx.data_lba + (fp->clust - 2) * fs_ctx.sectors_per_cluster + sector_in_cluster;
 
     if (disk_read(fs_ctx.drive, buff, lba, 1) == RES_OK) {
-        uint32_t read = btr > 512 ? 512 : btr;
+        uint32_t read = btr > ss ? ss : btr;
         if (br) *br = read;
         fp->fptr += read;
-        if (fp->fptr % (512 * fs_ctx.sectors_per_cluster) == 0) {
+        if (fp->fptr % (ss * fs_ctx.sectors_per_cluster) == 0) {
             fp->clust = get_next_cluster(fp->clust);
         }
         return FR_OK;
@@ -212,7 +216,8 @@ FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
 
 FRESULT f_write(FIL* fp, const void* buff, uint32_t btw, uint32_t* bw) {
     if (safe_mode || !fs_ctx.active) return FR_DENIED;
-    uint32_t sector_in_cluster = (fp->fptr / 512) % fs_ctx.sectors_per_cluster;
+    uint32_t ss = fs_ctx.sector_size ? fs_ctx.sector_size : 512;
+    uint32_t sector_in_cluster = (fp->fptr / ss) % fs_ctx.sectors_per_cluster;
     uint32_t lba = fs_ctx.data_lba + (fp->clust - 2) * fs_ctx.sectors_per_cluster + sector_in_cluster;
 
     if (disk_write(fs_ctx.drive, (BYTE*)buff, lba, 1) == RES_OK) {
@@ -315,23 +320,79 @@ FRESULT f_mkfs(const TCHAR* path, BYTE opt, DWORD au) {
     return FR_OK;
 }
 
-FRESULT f_mkdir(const TCHAR* path) {
-    (void)path;
-    if (safe_mode) {
-        vga_print("[FS] MKDIR DENIED: Safe Mode Active.\n");
-        return FR_DENIED;
+static uint32_t find_free_cluster(void) {
+    uint32_t ss = fs_ctx.sector_size ? fs_ctx.sector_size : 512;
+    uint8_t buf[ss];
+    for (uint32_t s = 0; s < fs_ctx.sectors_per_fat; s++) {
+        if (disk_read(fs_ctx.drive, buf, fs_ctx.partition_lba + fs_ctx.reserved_sectors + s, 1) == RES_OK) {
+            uint32_t* fat = (uint32_t*)buf;
+            for (uint32_t i = 0; i < ss/4; i++) {
+                if ((fat[i] & 0x0FFFFFFF) == 0) return (s * (ss/4)) + i;
+            }
+        }
     }
-    vga_print("[FS] MKDIR ERROR: Logical creation not implemented in this build.\n");
+    return 0;
+}
+
+FRESULT f_mkdir(const TCHAR* path) {
+    if (safe_mode) { vga_print("[FS] MKDIR DENIED: Safe Mode Active.\n"); return FR_DENIED; }
+
+    /* 1. Find free cluster for new directory */
+    uint32_t new_cluster = find_free_cluster();
+    if (!new_cluster) return FR_DENIED;
+
+    /* 2. Write empty directory sector */
+    uint32_t ss = fs_ctx.sector_size ? fs_ctx.sector_size : 512;
+    uint8_t zero[ss];
+    for(uint32_t i=0; i<ss; i++) zero[i] = 0;
+    uint32_t lba = fs_ctx.data_lba + (new_cluster - 2) * fs_ctx.sectors_per_cluster;
+    disk_write(fs_ctx.drive, zero, lba, 1);
+
+    /* 3. Mark cluster as EOC in FAT */
+    uint32_t fat_sector = fs_ctx.partition_lba + fs_ctx.reserved_sectors + (new_cluster * 4 / ss);
+    uint8_t fat_buf[ss];
+    disk_read(fs_ctx.drive, fat_buf, fat_sector, 1);
+    ((uint32_t*)fat_buf)[(new_cluster * 4 % ss) / 4] = 0x0FFFFFFF;
+    disk_write(fs_ctx.drive, fat_buf, fat_sector, 1);
+
+    /* 4. Add entry to root (Simplified) */
+    fat_dir_entry_t entry = {0};
+    to_sfn(path, entry.name);
+    entry.attr = AM_DIR;
+    entry.first_cluster_low = new_cluster & 0xFFFF;
+    entry.first_cluster_high = (new_cluster >> 16) & 0xFFFF;
+
+    uint8_t root_buf[ss];
+    disk_read(fs_ctx.drive, root_buf, fs_ctx.data_lba + (fs_ctx.root_cluster - 2) * fs_ctx.sectors_per_cluster, 1);
+    fat_dir_entry_t* entries = (fat_dir_entry_t*)root_buf;
+    for(int i=0; i<16; i++) {
+        if (entries[i].name[0] == 0 || entries[i].name[0] == 0xE5) {
+            entries[i] = entry;
+            disk_write(fs_ctx.drive, root_buf, fs_ctx.data_lba + (fs_ctx.root_cluster - 2) * fs_ctx.sectors_per_cluster, 1);
+            return FR_OK;
+        }
+    }
     return FR_DENIED;
 }
+
 FRESULT f_unlink(const TCHAR* path) {
-    (void)path;
-    if (safe_mode) {
-        vga_print("[FS] UNLINK DENIED: Safe Mode Active.\n");
-        return FR_DENIED;
+    if (safe_mode) { vga_print("[FS] UNLINK DENIED: Safe Mode Active.\n"); return FR_DENIED; }
+    uint32_t ss = fs_ctx.sector_size ? fs_ctx.sector_size : 512;
+    uint8_t root_buf[ss];
+    disk_read(fs_ctx.drive, root_buf, fs_ctx.data_lba + (fs_ctx.root_cluster - 2) * fs_ctx.sectors_per_cluster, 1);
+    fat_dir_entry_t* entries = (fat_dir_entry_t*)root_buf;
+    uint8_t sfn[11];
+    to_sfn(path, sfn);
+    for(int i=0; i<16; i++) {
+        bool match = true;
+        for(int k=0; k<11; k++) if(entries[i].name[k] != sfn[k]) match = false;
+        if (match) {
+            entries[i].name[0] = 0xE5;
+            disk_write(fs_ctx.drive, root_buf, fs_ctx.data_lba + (fs_ctx.root_cluster - 2) * fs_ctx.sectors_per_cluster, 1);
+            return FR_OK;
+        }
     }
-    vga_print("[FS] UNLINK ERROR: Logical deletion not implemented in this build.\n");
-    return FR_DENIED;
+    return FR_NO_FILE;
 }
 FRESULT f_stat(const TCHAR* path, FILINFO* fno) { (void)fno; if(path[0]=='/') return FR_OK; return FR_NO_PATH; }
 FRESULT f_close(FIL* fp) { (void)fp; return FR_OK; }

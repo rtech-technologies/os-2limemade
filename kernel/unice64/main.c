@@ -32,15 +32,37 @@ void _start(void) {
     }
 
     int boot_drive = -1;
+    int install_drive = -1;
+    bool vdisk_is_atapi(int hw_id);
+
     int hw_count = get_hw_disk_count();
     vga_print("[BOOT] Scanning %d detected hardware volumes...\n", hw_count);
 
+    /* Phase 1: Identify the Limine Boot Device (The CD-ROM / ISO) */
+    struct limine_boot_volume_response* bv = get_boot_volume();
+    if (bv) {
+        vga_print("[BOOT] Limine Boot Device: %x\n", (uint64_t)bv->boot_volume);
+    }
+
     for (int i = 0; i < hw_count; i++) {
         uint8_t sector[512];
+        /* Skip signature check if it's an ATAPI device that isn't the boot device */
+        if (vdisk_is_atapi(i)) {
+            if (disk_read(i, sector, 0, 1) == RES_OK) {
+                if (*(uint32_t*)sector == 0xEFBEADDE) {
+                    vga_print("[BOOT] Sovereign Installation Media found (Drive %d).\n", i);
+                    install_drive = i;
+                    continue;
+                }
+            }
+            vga_print("[BOOT] Skipping Generic CD-ROM (Drive %d).\n", i);
+            continue;
+        }
+
         if (disk_read(i, sector, 0, 1) == RES_OK) {
             uint32_t sig = *(uint32_t*)sector;
             if (sig == 0xEFBEADDE) {
-                vga_print("[BOOT] Sovereign Volume found on Drive %d.\n", i);
+                vga_print("[BOOT] Sovereign HDD found (Drive %d).\n", i);
                 boot_drive = i;
                 break;
             } else if (sig == 0 && boot_drive == -1) {
@@ -49,16 +71,24 @@ void _start(void) {
         }
     }
 
+    /* Fallback to install drive if no HDD boot found */
+    if (boot_drive == -1 && install_drive != -1) {
+        vga_print("[BOOT] Starting system from Installation Media (Drive %d).\n", install_drive);
+        boot_drive = install_drive;
+    }
+
     if (boot_drive == -1) {
         set_color(YELLOW, BLACK);
         print("\n[BOOT] NO SOVEREIGN DISK FOUND.\n");
-        void* choice = input("Would you like to search for empty disks and install? (y/n): ");
+        void* choice = input("Would you like to search for non-FAT disks and install? (y/n): ");
         if (choice && str_match(choice, "y")) {
             for (int i = 0; i < hw_count; i++) {
+                if (vdisk_is_atapi(i)) continue;
                 uint8_t sector[512];
                 if (disk_read(i, sector, 0, 1) == RES_OK) {
-                    if (*(uint32_t*)sector == 0) {
-                        vga_print("OSx2: Installing to Drive %d...\n", i);
+                    uint32_t sig = *(uint32_t*)sector;
+                    if (sig == 0 || sig != 0xEFBEADDE) {
+                        vga_print("OSx2: Installing to Drive %d (Signature: 0x%x)...\n", i, sig);
                         uint8_t stamp[512] = {0};
                         stamp[0] = 0xEF; stamp[1] = 0xBE; stamp[2] = 0xAD; stamp[3] = 0xDE;
                         disk_write(i, stamp, 0, 1);

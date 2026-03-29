@@ -36,6 +36,12 @@ static volatile struct limine_kernel_address_request kernel_address_request = {
     .revision = 0
 };
 
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_boot_volume_request boot_volume_request = {
+    .id = LIMINE_BOOT_VOLUME_REQUEST,
+    .revision = 0
+};
+
 /* Provide access functions for other kernel parts */
 struct limine_memmap_response* get_memmap(void) {
     return memmap_request.response;
@@ -55,4 +61,27 @@ struct limine_framebuffer_response* get_framebuffer(void) {
 
 struct limine_kernel_address_response* get_kernel_address(void) {
     return kernel_address_request.response;
+}
+
+struct limine_boot_volume_response* get_boot_volume(void) {
+    return boot_volume_request.response;
+}
+
+uint64_t vmm_get_phys(void* virt) {
+    uint64_t v = (uint64_t)virt;
+    uint64_t hhdm = hhdm_request.response ? hhdm_request.response->offset : 0;
+    struct limine_kernel_address_response* ka = kernel_address_request.response;
+
+    /* Limine HHDM range check */
+    if (hhdm != 0 && v >= hhdm && v < 0xffffffff80000000) {
+        return v - hhdm;
+    }
+
+    /* Kernel range check */
+    if (ka && v >= ka->virtual_base) {
+        return v - ka->virtual_base + ka->physical_base;
+    }
+
+    /* Fallback for low-memory addresses if HHDM isn't available */
+    return v;
 }

@@ -1,6 +1,7 @@
 #include <kernel/libs/services.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 void serial_write_str(const char* s);
 uint32_t pci_config_read(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset);
@@ -11,6 +12,7 @@ typedef struct {
     void* private_data;
     int (*read_lba)(void* priv, uint64_t lba, uint32_t count, void* buffer);
     int (*write_lba)(void* priv, uint64_t lba, uint32_t count, void* buffer);
+    bool is_atapi;
 } vdisk_node_t;
 
 void register_hardware_disk(vdisk_node_t node);
@@ -193,6 +195,10 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     if (!(hba_base->pi & (1 << p))) return -1;
     hba_port_t* port = &hba_base->ports[p];
     uint64_t hhdm = get_hhdm_offset();
+    uint64_t vmm_get_phys(void* virt);
+
+    /* THE FIX: Convert 'buffer' (Virtual) to 'phys_buffer' (Physical) */
+    uint64_t phys_buffer = vmm_get_phys(buffer);
 
     /* 1. Command Header Setup */
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)(hhdm + (uint64_t)port->clb);
@@ -202,8 +208,8 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 
     /* 2. Command Table / PRDT Setup */
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)(hhdm + (uint64_t)cmdhdr->ctba);
-    cmdtbl->prdt_entry[0].dba = (uint32_t)((uint64_t)buffer - hhdm);
-    cmdtbl->prdt_entry[0].dbau = (uint32_t)(((uint64_t)buffer - hhdm) >> 32);
+    cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
+    cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
     cmdtbl->prdt_entry[0].dbc = (count * 512) - 1;
     cmdtbl->prdt_entry[0].i = 1;
 
@@ -240,6 +246,10 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     if (!(hba_base->pi & (1 << p))) return -1;
     hba_port_t* port = &hba_base->ports[p];
     uint64_t hhdm = get_hhdm_offset();
+    uint64_t vmm_get_phys(void* virt);
+
+    /* THE FIX: Convert 'buffer' (Virtual) to 'phys_buffer' (Physical) */
+    uint64_t phys_buffer = vmm_get_phys(buffer);
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)(hhdm + (uint64_t)port->clb);
     cmdhdr->cfl = 5;
@@ -247,8 +257,8 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     cmdhdr->prdtl = 1;
 
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)(hhdm + (uint64_t)cmdhdr->ctba);
-    cmdtbl->prdt_entry[0].dba = (uint32_t)((uint64_t)buffer - hhdm);
-    cmdtbl->prdt_entry[0].dbau = (uint32_t)(((uint64_t)buffer - hhdm) >> 32);
+    cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
+    cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
     cmdtbl->prdt_entry[0].dbc = (count * 512) - 1;
     cmdtbl->prdt_entry[0].i = 1;
 
@@ -318,7 +328,8 @@ void ahci_service(kernel_event_t event) {
                                         .total_lba = 1024 * 1024 * 10,
                                         .read_lba = ahci_read_sectors,
                                         .write_lba = ahci_write_sectors,
-                                        .private_data = (void*)(uint64_t)p
+                                    .private_data = (void*)(uint64_t)p,
+                                    .is_atapi = false
                                     };
                                     register_hardware_disk(sata_disk);
                                 }
@@ -329,7 +340,8 @@ void ahci_service(kernel_event_t event) {
                                     .total_lba = 1024 * 1024,
                                     .read_lba = atapi_read_sectors,
                                     .write_lba = NULL,
-                                    .private_data = (void*)(uint64_t)p
+                                    .private_data = (void*)(uint64_t)p,
+                                    .is_atapi = true
                                 };
                                 register_hardware_disk(cdrom);
                             }

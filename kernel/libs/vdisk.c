@@ -1,6 +1,7 @@
 #include <kernel/libs/services.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 /* VDISK Node Structure */
 typedef struct {
@@ -9,6 +10,7 @@ typedef struct {
     void* private_data;
     int (*read_lba)(void* priv, uint64_t lba, uint32_t count, void* buffer);
     int (*write_lba)(void* priv, uint64_t lba, uint32_t count, void* buffer);
+    bool is_atapi;
 } vdisk_node_t;
 
 #define MAX_DISKS 16
@@ -77,6 +79,11 @@ int vdisk_write_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer) {
     if (hw_id < 0 || hw_id >= hw_count) return -1;
     if (!hw_registry[hw_id].write_lba) return -1;
     return hw_registry[hw_id].write_lba(hw_registry[hw_id].private_data, lba, count, buffer);
+}
+
+bool vdisk_is_atapi(int hw_id) {
+    if (hw_id < 0 || hw_id >= hw_count) return false;
+    return hw_registry[hw_id].is_atapi;
 }
 
 #include <include/vfs.h>

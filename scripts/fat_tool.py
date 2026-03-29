@@ -25,8 +25,18 @@ def main():
         f.write(b'\0')
         f.seek(0)
 
-        # 2. LBA 0: Sovereign Signature (MBR Protected)
+        # 2. LBA 0: Sovereign Signature & MBR Partition Table
+        # Signature
         f.write(struct.pack("<I", 0xEFBEADDE))
+        # Fill until partition table offset (446)
+        f.seek(446)
+        # Entry 1: Bootable, Type 0x0C (FAT32 LBA), Start LBA 2048
+        f.write(b'\x80\x00\x00\x00\x0C\x00\x00\x00')
+        f.write(struct.pack("<I", 2048)) # Start LBA
+        f.write(struct.pack("<I", part_sectors)) # Size
+        # MBR Boot Signature
+        f.seek(510)
+        f.write(b'\x55\xAA')
 
         # 3. LBA 1: GPT Placeholder
         f.seek(1 * sector_size)

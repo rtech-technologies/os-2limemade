@@ -38,7 +38,8 @@ limine-setup:
 run: iso $(SATA_DISK)
 	qemu-system-x86_64 -M q35 -m 512M -serial stdio -cdrom $(ISO_IMAGE) \
 		-drive file=$(SATA_DISK),if=none,id=d0,format=raw \
-		-device ahci,id=ahci0 -device ide-hd,bus=ahci0.0,drive=d0
+		-device ich9-ahci,id=ahci \
+		-device ide-hd,drive=d0,bus=ahci.0
 
 $(SATA_DISK):
 	@# Generate an empty truly empty disk to test OS internal installer
