@@ -3,9 +3,9 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include "vdisk.h"
+#include "pci.h"
 
 void serial_write_str(const char* s);
-uint32_t pci_config_read(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset);
 
 /* AHCI HBA Structures (Physical) */
 typedef struct {
@@ -122,6 +122,9 @@ void vga_print(const char* fmt, ...);
 void pit_wait_ms(uint32_t ms);
 
 void ahci_force_port_reset(hba_port_t *port, int port_no) {
+    /* 0. GLOBAL RESET: If port_no is 0, let's ensure HBA is in a known state */
+    /* GHC.HR is usually handled in ahci_service but we could kick it here if needed */
+
     /* 1. CLEAR: Purge the Error register at the very start to acknowledge noise */
     /* In AHCI, writing 1 to these bits CLEARS them. */
     port->serr = 0xFFFFFFFF;
@@ -360,20 +363,28 @@ void ahci_service(kernel_event_t event) {
         vga_print("[INIT] Scanning PCI for SATA/AHCI controllers...\n");
         for (int bus = 0; bus < 256; bus++) {
             for (int slot = 0; slot < 32; slot++) {
-                uint32_t vendor_device = pci_config_read(bus, slot, 0, 0);
+                for (int func = 0; func < 8; func++) {
+                uint32_t vendor_device = pci_config_read(bus, slot, func, 0);
                 if ((vendor_device & 0xFFFF) == 0xFFFF) continue;
 
-                uint32_t class_info = pci_config_read(bus, slot, 0, 0x08);
+                uint32_t class_info = pci_config_read(bus, slot, func, 0x08);
                 uint8_t base_class = (class_info >> 24) & 0xFF;
                 uint8_t sub_class = (class_info >> 16) & 0xFF;
 
                 if (base_class == 0x01 && sub_class == 0x06) { /* Mass Storage, SATA */
-                    vga_print("[INIT] Found AHCI Controller.\n");
-                    pci_enable_master(bus, slot, 0);
+                    vga_print("[INIT] Found AHCI Controller at %d:%d:%d\n", bus, slot, func);
+                    pci_enable_master(bus, slot, func);
 
-                    uint32_t bar5 = pci_config_read(bus, slot, 0, 0x24);
+                    uint32_t bar5 = pci_config_read(bus, slot, func, 0x24);
                     uint64_t hhdm = get_hhdm_offset();
                     hba_base = (hba_mem_t*)(hhdm + (uint64_t)(bar5 & 0xFFFFFFF0));
+
+                    /* GLOBAL RESET: Acknowledge noise and clear state */
+                    hba_base->ghc |= (1 << 31); /* AE: AHCI Enable */
+                    hba_base->ghc |= (1 << 0);  /* HR: HBA Reset */
+                    pit_wait_ms(1);
+                    while (hba_base->ghc & (1 << 0)) __asm__ volatile("pause");
+                    hba_base->ghc |= (1 << 31); /* AE must be re-enabled after HR */
 
                     vga_print("[AHCI] ABAR: 0x%x, PI Mask: 0x%x\n", (uint64_t)hba_base, hba_base->pi);
                     vga_print("[AHCI] Port 0 SSTS Addr: 0x%x, Port 2 SSTS Addr: 0x%x\n", (uint64_t)&hba_base->ports[0].ssts, (uint64_t)&hba_base->ports[2].ssts);
@@ -424,6 +435,8 @@ void ahci_service(kernel_event_t event) {
                             }
                         }
                     }
+                }
+                if (func == 0 && !(pci_config_read(bus, slot, 0, 0x0C) & 0x800000)) break;
                 }
             }
         }

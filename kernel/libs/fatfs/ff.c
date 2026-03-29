@@ -8,6 +8,7 @@ void serial_write_str(const char* s);
 void serial_print_hex(const char* label, uint16_t val);
 
 bool safe_mode = true;
+static FATFS* drive_table[16] = {0};
 
 typedef struct {
     uint8_t name[11];
@@ -45,15 +46,12 @@ static int get_drive_id(const char* path) {
 FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
     (void)opt;
     int drive = get_drive_id(path);
+    if (drive < 0 || drive >= 16) return FR_INVALID_DRIVE;
     uint8_t sector[512];
 
     if (disk_read(drive, sector, 0, 1) != RES_OK) {
         vga_print("[FS] ERROR: Physical read failed on drive %d\n", drive);
         return FR_DISK_ERR;
-    }
-    if (*(uint32_t*)sector != 0xEFBEADDE) {
-        vga_print("[FS] ERROR: Sovereign Signature Mismatch on drive %d\n", drive);
-        return FR_NO_FILESYSTEM;
     }
 
     uint32_t part_lba = 0;
@@ -104,6 +102,7 @@ FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
 
     fs->active = true;
     safe_mode = false;
+    drive_table[drive] = fs;
     serial_write_str("[FS] Mechanical FAT32 Mount Successful.\n");
     return FR_OK;
 }
@@ -158,7 +157,10 @@ static uint32_t find_entry(FATFS* fs, uint32_t dir_cluster, const char* name, fa
 }
 
 FRESULT f_open(FIL* fp, const TCHAR* path, BYTE mode) {
-    FATFS* fs = fp->obj;
+    int drive = get_drive_id(path);
+    FATFS* fs = drive_table[drive];
+    if (!fs) return FR_NOT_ENABLED;
+    fp->obj = fs;
     if (safe_mode && (mode & FA_WRITE)) {
         vga_print("[FS] ERROR: Denied (Safe Mode is ACTIVE)\n");
         return FR_DENIED;
@@ -218,25 +220,60 @@ FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
     return FR_DISK_ERR;
 }
 
+static uint32_t find_free_cluster(FATFS* fs);
+
+static FRESULT set_cluster_link(FATFS* fs, uint32_t cluster, uint32_t next) {
+    uint32_t ss = fs->sector_size ? fs->sector_size : 512;
+    uint32_t fat_sector = fs->partition_lba + fs->reserved_sectors + (cluster * 4 / ss);
+    uint8_t fat_buf[ss];
+    if (disk_read(fs->drv, fat_buf, fat_sector, 1) != RES_OK) return FR_DISK_ERR;
+    ((uint32_t*)fat_buf)[(cluster * 4 % ss) / 4] = next & 0x0FFFFFFF;
+    if (disk_write(fs->drv, fat_buf, fat_sector, 1) != RES_OK) return FR_DISK_ERR;
+    return FR_OK;
+}
+
 FRESULT f_write(FIL* fp, const void* buff, uint32_t btw, uint32_t* bw) {
     FATFS* fs = fp->obj;
     if (safe_mode || !fs->active) return FR_DENIED;
     uint32_t ss = fs->sector_size ? fs->sector_size : 512;
-    uint32_t sector_in_cluster = (fp->fptr / ss) % fs->sectors_per_cluster;
-    uint32_t lba = fs->data_lba + (fp->clust - 2) * fs->sectors_per_cluster + sector_in_cluster;
+    uint32_t bytes_left = btw;
+    const uint8_t* p = (const uint8_t*)buff;
 
-    if (disk_write(fs->drv, (BYTE*)buff, lba, 1) == RES_OK) {
-        if (bw) *bw = btw;
-        fp->fptr += btw;
-        /* Simple write: No auto-expansion of clusters for now */
-        return FR_OK;
+    while (bytes_left > 0) {
+        uint32_t sector_in_cluster = (fp->fptr / ss) % fs->sectors_per_cluster;
+        uint32_t cluster_offset = fp->fptr % (ss * fs->sectors_per_cluster);
+
+        /* If we are at the start of a new cluster (except the first one), allocate if necessary */
+        if (fp->fptr > 0 && cluster_offset == 0) {
+            uint32_t next = get_next_cluster(fs, fp->clust);
+            if (next >= 0x0FFFFFF8) {
+                /* Allocate new cluster */
+                next = find_free_cluster(fs);
+                if (!next) return FR_DENIED;
+                set_cluster_link(fs, fp->clust, next);
+                set_cluster_link(fs, next, 0x0FFFFFFF);
+            }
+            fp->clust = next;
+        }
+
+        uint32_t lba = fs->data_lba + (fp->clust - 2) * fs->sectors_per_cluster + sector_in_cluster;
+        if (disk_write(fs->drv, p, lba, 1) != RES_OK) break;
+
+        p += ss;
+        fp->fptr += ss;
+        if (bytes_left > ss) bytes_left -= ss; else bytes_left = 0;
     }
-    vga_print("[FS] WRITE ERROR: Drive %d, LBA %d\n", fs->drv, lba);
-    return FR_DISK_ERR;
+
+    if (bw) *bw = btw - bytes_left;
+    /* Update file size in directory entry would happen on close */
+    return FR_OK;
 }
 
 FRESULT f_opendir(DIR* dp, const TCHAR* path) {
-    FATFS* fs = dp->obj;
+    int drive = get_drive_id(path);
+    FATFS* fs = drive_table[drive];
+    if (!fs) return FR_NOT_ENABLED;
+    dp->obj = fs;
     if (safe_mode || !fs->active) return FR_DENIED;
     dp->sclust = fs->root_cluster;
 
@@ -309,6 +346,7 @@ FRESULT f_readdir(DIR* dp, FILINFO* fno) {
 FRESULT f_mkfs(const TCHAR* path, BYTE opt, DWORD au) {
     (void)opt; (void)au;
     int drive = get_drive_id(path);
+    if (drive < 0 || drive >= 16) return FR_INVALID_DRIVE;
     vga_print("[FS] Physical FAT32 Format Initiated on Drive %d...\n", drive);
     uint8_t boot[512] = {0};
     boot[0] = 0xEB; boot[1] = 0x58; boot[2] = 0x90;
@@ -371,16 +409,19 @@ static uint32_t parse_path_and_get_parent(FATFS* fs, const char* path, char* las
     return 0;
 }
 
-static FATFS* global_fs_context = NULL;
-
 FRESULT f_mkdir(const TCHAR* path) {
     if (safe_mode) { vga_print("[FS] MKDIR DENIED: Safe Mode Active.\n"); return FR_DENIED; }
-    if (!global_fs_context) return FR_DENIED;
-    FATFS* fs = global_fs_context;
+    int drive = get_drive_id(path);
+    if (drive < 0 || drive >= 16) return FR_INVALID_DRIVE;
+    FATFS* fs = drive_table[drive];
+    if (!fs) return FR_NOT_ENABLED;
 
     char name[256];
     uint32_t parent_cluster = parse_path_and_get_parent(fs, path, name);
     if (!parent_cluster) return FR_NO_PATH;
+
+    /* Collision Check */
+    if (find_entry(fs, parent_cluster, name, NULL) != 0) return FR_EXIST;
 
     /* 1. Find free cluster for new directory */
     uint32_t new_cluster = find_free_cluster(fs);
@@ -394,11 +435,7 @@ FRESULT f_mkdir(const TCHAR* path) {
     disk_write(fs->drv, zero, lba, 1);
 
     /* 3. Mark cluster as EOC in FAT */
-    uint32_t fat_sector = fs->partition_lba + fs->reserved_sectors + (new_cluster * 4 / ss);
-    uint8_t fat_buf[ss];
-    disk_read(fs->drv, fat_buf, fat_sector, 1);
-    ((uint32_t*)fat_buf)[(new_cluster * 4 % ss) / 4] = 0x0FFFFFFF;
-    disk_write(fs->drv, fat_buf, fat_sector, 1);
+    set_cluster_link(fs, new_cluster, 0x0FFFFFFF);
 
     /* 4. Add entry to parent */
     fat_dir_entry_t entry = {0};
@@ -423,8 +460,10 @@ FRESULT f_mkdir(const TCHAR* path) {
 
 FRESULT f_unlink(const TCHAR* path) {
     if (safe_mode) { vga_print("[FS] UNLINK DENIED: Safe Mode Active.\n"); return FR_DENIED; }
-    if (!global_fs_context) return FR_DENIED;
-    FATFS* fs = global_fs_context;
+    int drive = get_drive_id(path);
+    if (drive < 0 || drive >= 16) return FR_INVALID_DRIVE;
+    FATFS* fs = drive_table[drive];
+    if (!fs) return FR_NOT_ENABLED;
 
     char name[256];
     uint32_t parent_cluster = parse_path_and_get_parent(fs, path, name);

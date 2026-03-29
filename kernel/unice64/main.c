@@ -1,5 +1,6 @@
 #include <kernel/libs/services.h>
 #include <kernel/libs/vdisk.h>
+#include <kernel/libs/pci.h>
 #include <include/rsl.h>
 #include <limine.h>
 #include <stddef.h>
@@ -11,8 +12,15 @@ void shell_main(void);
 #include <kernel/libs/fatfs/ff.h>
 void forensic_panic(const char* message, void* state);
 
+void gdt_init(void);
+void pmm_init(void);
+
 /* The Ritual: Entry Point */
 void _start(void) {
+    /* Sovereign Silicon Foundation */
+    gdt_init();
+    pmm_init();
+
     /* Initialize Hardware and Core Memory */
     dispatch_event(EVENT_INIT);
 
@@ -46,27 +54,25 @@ void _start(void) {
 
     for (int i = 0; i < hw_count; i++) {
         uint8_t sector[512];
-        /* Skip signature check if it's an ATAPI device that isn't the boot device */
-        if (vdisk_is_atapi(i)) {
-            if (disk_read(i, sector, 0, 1) == RES_OK) {
-                if (*(uint32_t*)sector == 0xEFBEADDE) {
-                    vga_print("[BOOT] Sovereign Installation Media found (Drive %d).\n", i);
-                    install_drive = i;
-                    continue;
-                }
-            }
-            vga_print("[BOOT] Skipping Generic CD-ROM (Drive %d).\n", i);
-            continue;
-        }
-
         if (disk_read(i, sector, 0, 1) == RES_OK) {
             uint32_t sig = *(uint32_t*)sector;
             if (sig == 0xEFBEADDE) {
-                vga_print("[BOOT] Sovereign HDD found (Drive %d).\n", i);
-                boot_drive = i;
-                break;
-            } else if (sig == 0 && boot_drive == -1) {
-                vga_print("[BOOT] Drive %d is empty. Candidate for installation.\n", i);
+                if (vdisk_is_atapi(i)) {
+                    vga_print("[BOOT] Sovereign Installation Media found (Drive %d).\n", i);
+                    install_drive = i;
+                } else {
+                    vga_print("[BOOT] Sovereign HDD found (Drive %d).\n", i);
+                    boot_drive = i;
+                    break;
+                }
+            } else {
+                if (!vdisk_is_atapi(i)) {
+                    if (sig == 0) {
+                        vga_print("[BOOT] Drive %d is empty. Candidate for installation.\n", i);
+                    } else {
+                        vga_print("[BOOT] Drive %d has unknown signature 0x%x.\n", i, sig);
+                    }
+                }
             }
         }
     }

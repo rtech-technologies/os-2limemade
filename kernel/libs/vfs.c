@@ -16,6 +16,16 @@ void vfs_register_node(vfs_node_t node) {
     }
 }
 
+static bool path_starts_with(void* path, const char* prefix) {
+    const char* p = str_to_cstr(path);
+    int i = 0;
+    while (prefix[i]) {
+        if (p[i] != prefix[i]) return false;
+        i++;
+    }
+    return true;
+}
+
 void vfs_ls(void* path) {
     const char* p = str_to_cstr(path);
     /* Global Root: Only route to the first node (which is vdisk) to avoid duplicates */
@@ -27,20 +37,12 @@ void vfs_ls(void* path) {
     }
 
     for (int i = 0; i < vfs_node_count; i++) {
-        if (vfs_registry[i].ls) vfs_registry[i].ls(path);
+        if (path_starts_with(path, vfs_registry[i].name)) {
+            if (vfs_registry[i].ls) vfs_registry[i].ls(path);
+            return;
+        }
     }
 }
-
-static bool path_starts_with(void* path, const char* prefix) {
-    const char* p = str_to_cstr(path);
-    int i = 0;
-    while (prefix[i]) {
-        if (p[i] != prefix[i]) return false;
-        i++;
-    }
-    return true;
-}
-
 void vfs_cat(void* path) {
     for (int i = 0; i < vfs_node_count; i++) {
         if (path_starts_with(path, vfs_registry[i].name)) {
