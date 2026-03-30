@@ -122,11 +122,7 @@ void vga_print(const char* fmt, ...);
 void pit_wait_ms(uint32_t ms);
 
 void ahci_force_port_reset(hba_port_t *port, int port_no) {
-    /* 0. GLOBAL RESET: If port_no is 0, let's ensure HBA is in a known state */
-    /* GHC.HR is usually handled in ahci_service but we could kick it here if needed */
-
     /* 1. CLEAR: Purge the Error register at the very start to acknowledge noise */
-    /* In AHCI, writing 1 to these bits CLEARS them. */
     port->serr = 0xFFFFFFFF;
     port->is = 0xFFFFFFFF;
 
@@ -141,16 +137,18 @@ void ahci_force_port_reset(hba_port_t *port, int port_no) {
     }
 
     /* 3. KICK: The COMRESET (SCTL) */
-    /* Bit 0-3 = 1 (Perform Reset), Bit 4-7 = 3 (No Power Management) */
     /* 0x301 Forces 1.5/3.0 Gbps handshake + Reset */
     port->sctl = (port->sctl & ~0x0F) | 0x301;
 
-    /* Hardware Delay: Give the hardware 1ms to physically reset */
-    pit_wait_ms(1);
+    /* Hardware Delay: Give the hardware 10ms to physically reset as requested */
+    pit_wait_ms(10);
 
     port->sctl = (port->sctl & ~0x0F) | 0x300; /* End Reset (Back to normal Operation) */
 
-    /* 4. WAIT: The 1-Second Negotiation Loop */
+    /* 4. WAIT: Settle Delay (50ms as requested) */
+    pit_wait_ms(50);
+
+    /* 5. POLL: The Negotiation Loop */
     int timeout = 1000;
     while ((port->ssts & 0x0F) != 0x03 && timeout--) {
         pit_wait_ms(1);

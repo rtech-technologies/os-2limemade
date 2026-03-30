@@ -62,11 +62,9 @@ FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
             break;
         }
         if (p[4] == 0xEE) {
-            /* GPT Detected - Looking for partition at LBA 2048 */
             uint8_t gpt[512];
             if (disk_read(drive, gpt, 1, 1) == RES_OK) {
-                if (*(uint64_t*)gpt == 0x5452415020494645ULL) { /* "EFI PART" */
-                    /* Read first partition entry from LBA 2 */
+                if (*(uint64_t*)gpt == 0x5452415020494645ULL) {
                     if (disk_read(drive, gpt, 2, 1) == RES_OK) {
                         part_lba = (uint32_t)*(uint64_t*)&gpt[32];
                         vga_print("[FS] GPT Sovereign Partition detected at LBA %d.\n", part_lba);
@@ -76,19 +74,10 @@ FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt) {
             }
         }
     }
-    if (part_lba == 0) {
-        vga_print("[FS] ERROR: No valid partition (FAT32 or GPT) found.\n");
-        return FR_NO_FILESYSTEM;
-    }
+    if (part_lba == 0) return FR_NO_FILESYSTEM;
 
-    if (disk_read(drive, sector, part_lba, 1) != RES_OK) {
-        vga_print("[FS] ERROR: Failed to read BPB at LBA %d\n", part_lba);
-        return FR_DISK_ERR;
-    }
-    if (sector[510] != 0x55 || sector[511] != 0xAA) {
-        vga_print("[FS] ERROR: Invalid Boot Sector Signature (Expected 0xAA55)\n");
-        return FR_NO_FILESYSTEM;
-    }
+    if (disk_read(drive, sector, part_lba, 1) != RES_OK) return FR_DISK_ERR;
+    if (sector[510] != 0x55 || sector[511] != 0xAA) return FR_NO_FILESYSTEM;
 
     fs->partition_lba = part_lba;
     fs->reserved_sectors = *(uint16_t*)&sector[14];
@@ -243,11 +232,9 @@ FRESULT f_write(FIL* fp, const void* buff, uint32_t btw, uint32_t* bw) {
         uint32_t sector_in_cluster = (fp->fptr / ss) % fs->sectors_per_cluster;
         uint32_t cluster_offset = fp->fptr % (ss * fs->sectors_per_cluster);
 
-        /* If we are at the start of a new cluster (except the first one), allocate if necessary */
         if (fp->fptr > 0 && cluster_offset == 0) {
             uint32_t next = get_next_cluster(fs, fp->clust);
             if (next >= 0x0FFFFFF8) {
-                /* Allocate new cluster */
                 next = find_free_cluster(fs);
                 if (!next) return FR_DENIED;
                 set_cluster_link(fs, fp->clust, next);
@@ -265,7 +252,6 @@ FRESULT f_write(FIL* fp, const void* buff, uint32_t btw, uint32_t* bw) {
     }
 
     if (bw) *bw = btw - bytes_left;
-    /* Update file size in directory entry would happen on close */
     return FR_OK;
 }
 
@@ -285,7 +271,6 @@ FRESULT f_opendir(DIR* dp, const TCHAR* path) {
     if (path[i] == '/') i++;
 
     if (path[i]) {
-        /* Basic path traversal for opendir */
         uint32_t cluster = fs->root_cluster;
         char name[256];
         while (path[i]) {
@@ -397,7 +382,6 @@ static uint32_t parse_path_and_get_parent(FATFS* fs, const char* path, char* las
         if (path[i] == '/') i++;
 
         if (!path[i]) {
-            /* This is the last component */
             for(int k=0; k<j+1; k++) last_name[k] = name[k];
             return cluster;
         }
@@ -419,25 +403,19 @@ FRESULT f_mkdir(const TCHAR* path) {
     char name[256];
     uint32_t parent_cluster = parse_path_and_get_parent(fs, path, name);
     if (!parent_cluster) return FR_NO_PATH;
-
-    /* Collision Check */
     if (find_entry(fs, parent_cluster, name, NULL) != 0) return FR_EXIST;
 
-    /* 1. Find free cluster for new directory */
     uint32_t new_cluster = find_free_cluster(fs);
     if (!new_cluster) return FR_DENIED;
 
-    /* 2. Write empty directory sector */
     uint32_t ss = fs->sector_size ? fs->sector_size : 512;
     uint8_t zero[ss];
     for(uint32_t i=0; i<ss; i++) zero[i] = 0;
     uint32_t lba = fs->data_lba + (new_cluster - 2) * fs->sectors_per_cluster;
     disk_write(fs->drv, zero, lba, 1);
 
-    /* 3. Mark cluster as EOC in FAT */
     set_cluster_link(fs, new_cluster, 0x0FFFFFFF);
 
-    /* 4. Add entry to parent */
     fat_dir_entry_t entry = {0};
     to_sfn(name, entry.name);
     entry.attr = AM_DIR;

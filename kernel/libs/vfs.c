@@ -43,6 +43,7 @@ void vfs_ls(void* path) {
         }
     }
 }
+
 void vfs_cat(void* path) {
     for (int i = 0; i < vfs_node_count; i++) {
         if (path_starts_with(path, vfs_registry[i].name)) {
