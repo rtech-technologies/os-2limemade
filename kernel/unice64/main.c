@@ -32,13 +32,7 @@ void _start(void) {
     bool mount_success = false;
 
     /* 1. Sovereign Discovery: Scan ALL registered hardware for a bootable volume */
-    void ahci_hardware_audit(int p);
     void vga_print(const char* fmt, ...);
-
-    /* First, ensure all AHCI ports are audited and linked */
-    for (int p = 0; p < 32; p++) {
-        ahci_hardware_audit(p);
-    }
 
     int boot_drive = -1;
     int hw_count = get_hw_disk_count();

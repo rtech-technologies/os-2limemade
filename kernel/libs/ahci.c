@@ -103,6 +103,7 @@ typedef struct {
 static hba_mem_t* hba_base = NULL;
 static void* port_clb_virt[32];
 static void* port_fb_virt[32];
+static void* port_ctba_virt[32];
 
 void serial_print_hex(const char* label, uint16_t val);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
@@ -174,13 +175,7 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     cmdhdr->w = 0;
     cmdhdr->prdtl = 1;
 
-    static void* cmdtbl_virt = NULL;
-    if (!cmdtbl_virt) cmdtbl_virt = bump_alloc(4096);
-    uint64_t cmdtbl_phys = vmm_get_phys(cmdtbl_virt);
-    cmdhdr->ctba = (uint32_t)(cmdtbl_phys & 0xFFFFFFFF);
-    cmdhdr->ctbau = (uint32_t)(cmdtbl_phys >> 32);
-
-    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)cmdtbl_virt;
+    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)port_ctba_virt[p];
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
     cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
     cmdtbl->prdt_entry[0].dbc = (count * 512) - 1;
@@ -219,13 +214,7 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     cmdhdr->w = 1;
     cmdhdr->prdtl = 1;
 
-    static void* cmdtbl_virt = NULL;
-    if (!cmdtbl_virt) cmdtbl_virt = bump_alloc(4096);
-    uint64_t cmdtbl_phys = vmm_get_phys(cmdtbl_virt);
-    cmdhdr->ctba = (uint32_t)(cmdtbl_phys & 0xFFFFFFFF);
-    cmdhdr->ctbau = (uint32_t)(cmdtbl_phys >> 32);
-
-    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)cmdtbl_virt;
+    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)port_ctba_virt[p];
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
     cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
     cmdtbl->prdt_entry[0].dbc = (count * 512) - 1;
@@ -265,12 +254,7 @@ int atapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     cmdhdr->a = 1;
     cmdhdr->prdtl = 1;
 
-    static void* cmdtbl_virt = NULL;
-    if (!cmdtbl_virt) cmdtbl_virt = bump_alloc(4096);
-    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)cmdtbl_virt;
-    uint64_t cmdtbl_phys = vmm_get_phys(cmdtbl_virt);
-    cmdhdr->ctba = (uint32_t)(cmdtbl_phys & 0xFFFFFFFF);
-    cmdhdr->ctbau = (uint32_t)(cmdtbl_phys >> 32);
+    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)port_ctba_virt[p];
 
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
     cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
@@ -298,6 +282,8 @@ int atapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 
 void ahci_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
+        if (hba_base != NULL) return; /* Shield: Already Initialized */
+
         vga_print("[INIT] Scanning PCI for SATA/AHCI controllers...\n");
         for (int bus = 0; bus < 256; bus++) {
             for (int slot = 0; slot < 32; slot++) {
@@ -326,32 +312,27 @@ void ahci_service(kernel_event_t event) {
                             uint64_t clb_phys = vmm_get_phys(port_clb_virt[p]);
                             hba_base->ports[p].clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
                             hba_base->ports[p].clbu = (uint32_t)(clb_phys >> 32);
+
                             port_fb_virt[p] = bump_alloc(256);
                             uint64_t fb_phys = vmm_get_phys(port_fb_virt[p]);
                             hba_base->ports[p].fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
                             hba_base->ports[p].fbu = (uint32_t)(fb_phys >> 32);
 
+                            port_ctba_virt[p] = bump_alloc(4096);
+                            uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
+                            hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
+                            cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
+                            cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
+
                             ahci_force_port_reset(&hba_base->ports[p], p);
 
                             if ((hba_base->ports[p].ssts & 0x0F) == 0x03) {
                                 uint32_t sig = hba_base->ports[p].sig;
-                                bool registered_sata = false;
-
                                 if (sig == 0x00000101) { /* SATA */
-                                    /* HARDEN: Verification Read to ensure hardware is truly responsive */
-                                    uint8_t probe[512];
-                                    if (ahci_read_sectors((void*)(uint64_t)p, 0, 1, probe) == 0) {
-                                        vdisk_node_t sata_disk = { .sector_size = 512, .total_lba = 1024 * 1024 * 10, .read_lba = ahci_read_sectors, .write_lba = ahci_write_sectors, .private_data = (void*)(uint64_t)p, .is_atapi = false };
-                                        register_hardware_disk(sata_disk);
-                                        registered_sata = true;
-                                        vga_print("[AHCI] Port %d: SATA Verification Success.\n", p);
-                                    } else {
-                                        vga_print("[AHCI] Port %d: SATA Verification FAILED. Ignoring.\n", p);
-                                    }
-                                }
-
-                                /* If SATA was not found/functional on this port, only then check for ATAPI */
-                                if (!registered_sata && sig == 0xEB140101) { /* ATAPI */
+                                    vdisk_node_t sata_disk = { .sector_size = 512, .total_lba = 1024 * 1024 * 10, .read_lba = ahci_read_sectors, .write_lba = ahci_write_sectors, .private_data = (void*)(uint64_t)p, .is_atapi = false };
+                                    register_hardware_disk(sata_disk);
+                                    vga_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
+                                } else if (sig == 0xEB140101) { /* ATAPI */
                                     vdisk_node_t cdrom = { .sector_size = 2048, .total_lba = 1024 * 1024, .read_lba = atapi_read_sectors, .write_lba = NULL, .private_data = (void*)(uint64_t)p, .is_atapi = true };
                                     register_hardware_disk(cdrom);
                                     vga_print("[AHCI] Port %d: Registered as ATAPI CD-ROM.\n", p);
@@ -359,6 +340,7 @@ void ahci_service(kernel_event_t event) {
                             }
                         }
                     }
+                    return; /* Success: Controller found and initialized */
                 }
                 if (func == 0 && !(pci_config_read(bus, slot, 0, 0x0C) & 0x800000)) break;
                 }
