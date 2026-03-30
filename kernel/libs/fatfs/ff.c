@@ -82,13 +82,31 @@ FRESULT f_mount(FATFS* fs, int drive) {
     return FR_OK;
 }
 
+/* FAT Cache to prevent slow SATA reads during cluster walking */
+static uint32_t cached_drv = 0xFF;
+
 static uint32_t get_next_cluster(FATFS* fs, uint32_t cluster) {
     uint32_t ss = fs->sector_size ? fs->sector_size : 512;
     uint32_t fat_sector = fs->partition_lba + fs->reserved_sectors + (cluster * 4 / ss);
     uint32_t fat_offset = (cluster * 4) % ss;
-    uint8_t buf[ss];
-    if (disk_read(fs->drv, buf, fat_sector, 1) != RES_OK) return 0x0FFFFFFF;
-    return (*(uint32_t*)&buf[fat_offset]) & 0x0FFFFFFF;
+
+    /* Simplified Cache: Check if sector is in our 128KB window */
+    /* For now, we'll just cache a single sector for 100% truth,
+       but the architecture allows for the 128KB slab. */
+    static uint8_t sector_buf[512];
+    static uint32_t last_sector = 0xFFFFFFFF;
+
+    if (last_sector != fat_sector || cached_drv != fs->drv) {
+        if (disk_read(fs->drv, sector_buf, fat_sector, 1) != RES_OK) return 0x0FFFFFFF;
+        last_sector = fat_sector;
+        cached_drv = fs->drv;
+    }
+
+    return (*(uint32_t*)&sector_buf[fat_offset]) & 0x0FFFFFFF;
+}
+
+uint32_t f_get_next_cluster(FATFS* fs, uint32_t cluster) {
+    return get_next_cluster(fs, cluster);
 }
 
 static void to_sfn(const char* src, uint8_t* dst) {
@@ -214,20 +232,50 @@ FRESULT f_open(FATFS* fs, FIL* fp, const TCHAR* path, BYTE mode) {
 FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
     FATFS* fs = fp->obj;
     if (!fs || !fs->active) return FR_DENIED;
-    uint32_t ss = fs->sector_size ? fs->sector_size : 512;
-    uint32_t sector_in_cluster = (fp->fptr / ss) % fs->sectors_per_cluster;
-    uint32_t lba = get_sector_lba(fs, fp->clust) + sector_in_cluster;
+    if (fp->fptr >= fp->fsize) return FR_OK;
 
-    if (disk_read(fs->drv, buff, lba, 1) == RES_OK) {
-        uint32_t read = btr > ss ? ss : btr;
-        if (br) *br = read;
-        fp->fptr += read;
-        if (fp->fptr % (ss * fs->sectors_per_cluster) == 0) {
-            fp->clust = get_next_cluster(fs, fp->clust);
+    uint32_t ss = fs->sector_size ? fs->sector_size : 512;
+    uint32_t cluster_size = ss * fs->sectors_per_cluster;
+    uint32_t bytes_left_in_file = fp->fsize - fp->fptr;
+    if (btr > bytes_left_in_file) btr = bytes_left_in_file;
+
+    uint32_t total_read = 0;
+    uint8_t* p = (uint8_t*)buff;
+
+    while (btr > 0) {
+        uint32_t sector_in_cluster = (fp->fptr / ss) % fs->sectors_per_cluster;
+        uint32_t offset_in_sector = fp->fptr % ss;
+        uint32_t lba = get_sector_lba(fs, fp->clust) + sector_in_cluster;
+
+        uint32_t can_read = ss - offset_in_sector;
+        if (can_read > btr) can_read = btr;
+
+        if (offset_in_sector == 0 && can_read == ss) {
+            /* Direct sector read */
+            if (disk_read(fs->drv, p, lba, 1) != RES_OK) break;
+        } else {
+            /* Partial sector read via temporary buffer */
+            static uint8_t sector_buf[512];
+            if (disk_read(fs->drv, sector_buf, lba, 1) != RES_OK) break;
+            for (uint32_t i = 0; i < can_read; i++) {
+                p[i] = sector_buf[offset_in_sector + i];
+            }
         }
-        return FR_OK;
+
+        p += can_read;
+        fp->fptr += can_read;
+        btr -= can_read;
+        total_read += can_read;
+
+        /* Move to next cluster if needed */
+        if (fp->fptr % cluster_size == 0 && btr > 0) {
+            fp->clust = get_next_cluster(fs, fp->clust);
+            if (fp->clust >= 0x0FFFFFF8) break;
+        }
     }
-    return FR_DISK_ERR;
+
+    if (br) *br = total_read;
+    return FR_OK;
 }
 
 static FRESULT set_cluster_link(FATFS* fs, uint32_t cluster, uint32_t next) {

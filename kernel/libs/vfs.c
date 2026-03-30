@@ -163,8 +163,23 @@ vfs_handle_t* vfs_open(void* path, const char* mode) {
 }
 
 int vfs_read(vfs_handle_t* h, void* buf, int len) {
+    FATFS* fs = (FATFS*)h->obj;
+    uint32_t cluster_size = fs->sector_size * fs->sectors_per_cluster;
+
+    /* Calculate clusters to skip */
+    uint32_t clusters_to_skip = h->pos / cluster_size;
+    uint32_t current_cluster = h->sclust;
+
+    /* The "Walk": Follow the chain to the correct cluster */
+    for (uint32_t i = 0; i < clusters_to_skip; i++) {
+        current_cluster = f_get_next_cluster(fs, current_cluster);
+        if (current_cluster >= 0x0FFFFFF8) return -1; /* EOF */
+    }
+
+    h->clust = current_cluster;
+
     FIL fil;
-    fil.obj = (FATFS*)h->obj;
+    fil.obj = fs;
     fil.sclust = h->sclust;
     fil.clust = h->clust;
     fil.fptr = h->pos;
@@ -179,6 +194,10 @@ int vfs_read(vfs_handle_t* h, void* buf, int len) {
         return (int)br;
     }
     return -1;
+}
+
+uint32_t vfs_tell(vfs_handle_t* h) {
+    return h->pos;
 }
 
 void vfs_close(vfs_handle_t* h) {

@@ -29,12 +29,12 @@ bool vfs_exists(void* path);
 /* Sovereign File Access Bridge */
 typedef struct {
     void* obj; /* FATFS* */
-    uint32_t sclust;
-    uint32_t clust;
-    uint32_t size;
-    uint32_t pos;
-    uint32_t entry_lba;
-    uint32_t entry_idx;
+    uint32_t sclust;    /* Start cluster */
+    uint32_t clust;     /* Current cluster */
+    uint32_t pos;       /* Current byte position */
+    uint32_t size;      /* Total file size */
+    uint32_t entry_lba; /* Directory entry LBA */
+    uint32_t entry_idx; /* Directory entry index */
 } vfs_handle_t;
 
 bool vfs_is_safe_mode(void);
@@ -42,6 +42,7 @@ void vfs_set_safe_mode(bool active);
 
 vfs_handle_t* vfs_open(void* path, const char* mode);
 int vfs_read(vfs_handle_t* h, void* buf, int len);
+uint32_t vfs_tell(vfs_handle_t* h);
 void vfs_close(vfs_handle_t* h);
 
 #endif

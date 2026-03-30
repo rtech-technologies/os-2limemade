@@ -109,8 +109,10 @@ void _start(void) {
     }
 
     if (boot_drive != -1) {
+        bool boot_mounted = false;
         for (int retry = 0; retry < 3; retry++) {
             if (f_mount(&boot_fs, boot_drive) == FR_OK) {
+                boot_mounted = true;
                 /* Register the boot volume with VFS as "BOOT" or "INITRD" */
                 void internal_fs_ls(void* path, void* priv);
                 void internal_fs_cat(void* path, void* priv);
@@ -143,6 +145,7 @@ void _start(void) {
             }
             vga_print("[FS] Mount failed on Drive %d, retry %d...\n", boot_drive, retry + 1);
         }
+        if (!boot_mounted) boot_drive = -1; /* Reset if mount actually failed after retries */
     }
 
     if (!mount_success) {

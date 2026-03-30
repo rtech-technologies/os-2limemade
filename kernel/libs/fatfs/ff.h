@@ -131,6 +131,7 @@ FRESULT f_readdir(DIR* dp, FILINFO* fno);
 FRESULT f_mkdir(FATFS* fs, const TCHAR* path);
 FRESULT f_unlink(FATFS* fs, const TCHAR* path);
 FRESULT f_stat(FATFS* fs, const TCHAR* path, FILINFO* fno);
+uint32_t f_get_next_cluster(FATFS* fs, uint32_t cluster);
 
 /* diskio.h equivalent */
 typedef BYTE DSTATUS;
