@@ -1,0 +1,8 @@
+*.o
+*.a
+*.elf
+limine/
+sata_disk.img
+ramdisk.img
+iso_root/
+os.iso

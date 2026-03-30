@@ -34,11 +34,11 @@ OSx2 Limemade memory is strictly managed using reference counting.
 ## 4. Storage Architecture: /CONNECT & VDISK
 Storage is managed through a Virtual Disk abstraction.
 
-- **VDISK Bridge (`kernel/libs/vdisk.c`):** The `/CONNECT` registry is an array of `vdisk_node_t` structures. Each node defines `sector_size`, `total_lba`, and function pointers for `read_lba` and `write_lba`. The shell exposes these as `disk_id:/partition_id/` under a virtual global root (`/`).
-- **Signature Check (`kernel/libs/signature_check.c`):** Implements `is_sovereign_disk(int disk_id)`. It reads LBA 0 of a disk and verifies the presence of the `0xDEADBEEF` signature.
-- **PCI XHCI Scanning (`kernel/libs/usb_xhci.c`):** Scans the PCI bus and registers any found XHCI controllers to the VDISK layer. In the QEMU environment, the `xhci_disk_read` function is mapped to the Limine ramdisk module memory address for high-speed file operations.
-- **SATA/AHCI & NVMe Drivers:** Specialized services scan the PCI bus for mass storage controllers, registering them as physical nodes in the `/CONNECT` registry.
-- **VFS Layer (`kernel/libs/vfs.c`):** Provides a unified interface for file operations, routing calls from the RSL API to specific driver or filesystem nodes based on the mount path.
+- **VDISK Bridge (`kernel/libs/vdisk.c`):** The `/CONNECT` registry is an array of `vdisk_node_t` structures. Each node defines `sector_size`, `total_lba`, and function pointers for `read_lba` and `write_lba`.
+- **Sovereign Handshake:** Implements `is_sovereign_disk(int disk_id)` in `vdisk.c`. It reads LBA 0 of a disk and verifies the presence of the `0xEFBEADDE` signature.
+- **PCI XHCI Scanning (`kernel/libs/usb_xhci.c`):** Scans the PCI bus for XHCI controllers and implements the **BIOS Handover Protocol**. It ensures the OS takes control of the controller registers from the BIOS.
+- **SATA/AHCI Driver (`kernel/libs/ahci.c`):** Implements the **SATA Force Reset** protocol. It stops DMA engines, clears error registers, and performs a mechanical handshake (COMRESET) to establish a link (SSTS 0x03) before registering the device.
+- **VFS Layer (`kernel/libs/vfs.c`):** Provides a unified interface for file operations using **Prefix-Based Routing** (e.g., `BOOT:/`, `INITRD:/`, `SATA0:/`). It dispatches requests to the appropriate filesystem handler with specific volume context (`void* priv`).
 
 ## 5. RSL (RTECH Standard Library)
 The RSL is the native interface for userspace (`programs/shell.c`).
@@ -48,9 +48,8 @@ The RSL is the native interface for userspace (`programs/shell.c`).
 - **Console API (`kernel/libs/console.c`):**
     - `set_color(color_t fg, color_t bg)`: Sets the global console colors using a predefined `color_t` set.
     - `print(const char* s)`: Writes text to both VGA and Serial.
-    - `input(const char* prompt)`: Displays the prompt and returns an ARC-managed `void*` string. This call implements **Unified Input Polling**, checking for input from the PS/2 Keyboard, Serial COM1, and USB controllers.
-    - **Input Break:** Pressing **Escape** during input triggers a break, returning `NULL` to the caller.
-- **RSL Shell Commands (`kernel/libs/rsl_commands.c`):** Implements high-level filesystem operations bridged to FatFS. The shell supports multi-argument parsing (`argc`/`argv`) for commands like `echo`, `cat`, and `color`.
+    - `input(const char* prompt)`: Displays the prompt and returns an ARC-managed `void*` string. This call implements **Unified Input Polling**, checking for input from the PS/2 Keyboard and Serial COM1.
+- **RSL Shell Commands (`kernel/libs/rsl_commands.c`):** Implements high-level filesystem operations bridged to FatFS. The shell supports commands like `ls`, `cat`, `write`, `mkdir`, `rmdir`, `mount`, `format`, `stamp`, `run`, and `draw_rrif`.
 
 ## 6. Forensic Panic System
 If a fatal error occurs, the system triggers an **Autopsy**.
@@ -64,20 +63,15 @@ If a fatal error occurs, the system triggers an **Autopsy**.
 ## 7. Build System & Tools
 - **Makefile:** Primary targets are `kernel`, `iso`, and `run`.
 - **`scripts/menuconfig.py`:** Configures `.config` parameters.
-- **`scripts/fat_tool.py`:** Generates sparse `ramdisk.img` files and injects the `0xDEADBEEF` signature at LBA 0.
-- **The Xorriso Ritual:** The `make iso` target performs a three-stage boot deployment:
-    1. **Limine Bootstrapping:** The Makefile automatically clones and builds the Limine v7.x-binary branch into the `limine/` folder before proceeding.
-    2. **Xorriso:** Packages the kernel and configuration into an ISO and marks the boot code location.
-    3. **Bios-Install:** Modifies the first few bytes of the `.iso` file to include the Limine MBR, ensuring SeaBIOS recognizes the disk as a bootable OS device rather than just storage.
+- **`scripts/fat_tool.py`:** Generates FAT32 disk images with the Sovereign Signature (0xEFBEADDE) at LBA 0 and a primary partition at LBA 2048.
 
 ## 8. Verification & Execution
 To verify that the OSx2 Limemade OS is functioning correctly:
 
-1. **Build the Kernel:** Run `make kernel`. This should produce a `kernel.elf` from source with no errors.
-2. **Build the ISO:** Run `make iso`. This should generate a `ramdisk.img` with the `0xDEADBEEF` signature and package it into `osx2.iso`.
-3. **Run in QEMU:** Run `make run`.
-   - **Expected Output:** The system should boot via Limine, mirror "Serial initialized" and "--- [ LIMEMADE OS v0.1 ] ---" to the terminal, and display the `os2> ` prompt in Emerald Green on the VGA buffer. Interactivity is achieved through the Pythonic `input()` call.
-4. **RSL Enforcement:** Open `programs/shell.c`. It must **ONLY** include `<rsl.h>`. Any inclusion of kernel headers (e.g., `services.h`) is a violation of the tiered architecture.
+1. **Build the Kernel:** Run `make kernel`. This should compile all source files into `kernel.elf`. Binary artifacts are explicitly excluded and managed via `.gitignore`.
+2. **Launch System:** Run `make run`.
+   - **Expected Output:** The system should boot via Limine, scan AHCI ports for linked drives, discover the Sovereign partition at LBA 2048, mount it as `BOOT:/`, and launch the RSL Shell.
+3. **Mechanical Truth:** Use the `write` command to create a file on `BOOT:/`. The system implements cluster allocation, and the file will persist across reboots.
 
 ## 9. Modern Standard: Serial Forensics
 All VGA output is mirrored to Serial COM1. This ensures that even if the hardware display fails, the kernel's state and RSL shell interactions are captured for analysis.

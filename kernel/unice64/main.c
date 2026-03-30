@@ -41,40 +41,37 @@ void _start(void) {
     }
 
     int boot_drive = -1;
-    int install_drive = -1;
-
     int hw_count = get_hw_disk_count();
     vga_print("[BOOT] Scanning %d detected hardware volumes...\n", hw_count);
 
+    /* Phase 1: SATA Sovereign Check */
     for (int i = 0; i < hw_count; i++) {
+        if (vdisk_is_atapi(i)) continue;
         uint8_t sector[512];
         if (disk_read(i, sector, 0, 1) == RES_OK) {
             uint32_t sig = *(uint32_t*)sector;
             if (sig == 0xEFBEADDE) {
-                if (vdisk_is_atapi(i)) {
-                    vga_print("[BOOT] Sovereign Installation Media found (Drive %d).\n", i);
-                    install_drive = i;
-                } else {
-                    vga_print("[BOOT] Sovereign HDD found (Drive %d).\n", i);
-                    boot_drive = i;
-                    break;
-                }
-            } else {
-                if (!vdisk_is_atapi(i)) {
-                    if (sig == 0) {
-                        vga_print("[BOOT] Drive %d is empty. Candidate for installation.\n", i);
-                    } else {
-                        vga_print("[BOOT] Drive %d has unknown signature 0x%x.\n", i, sig);
-                    }
-                }
+                vga_print("[BOOT] Sovereign HDD found (Drive %d).\n", i);
+                boot_drive = i;
+                break;
             }
         }
     }
 
-    /* Fallback to install drive if no HDD boot found */
-    if (boot_drive == -1 && install_drive != -1) {
-        vga_print("[BOOT] Starting system from Installation Media (Drive %d).\n", install_drive);
-        boot_drive = install_drive;
+    /* Phase 2: INITRD/CDROM Check (Only if no SATA found) */
+    if (boot_drive == -1) {
+        for (int i = 0; i < hw_count; i++) {
+            if (!vdisk_is_atapi(i)) continue;
+            uint8_t sector[512];
+            if (disk_read(i, sector, 0, 1) == RES_OK) {
+                uint32_t sig = *(uint32_t*)sector;
+                if (sig == 0xEFBEADDE) {
+                    vga_print("[BOOT] Sovereign Installation Media found (Drive %d).\n", i);
+                    boot_drive = i;
+                    break;
+                }
+            }
+        }
     }
 
     if (boot_drive == -1) {
@@ -112,15 +109,16 @@ void _start(void) {
     if (boot_drive != -1) {
         for (int retry = 0; retry < 3; retry++) {
             if (f_mount(&boot_fs, boot_drive) == FR_OK) {
-                /* Register the boot volume with VFS as "BOOT" */
-                void internal_fs_ls(void* path);
-                void internal_fs_cat(void* path);
-                void internal_fs_write(void* path, void* content);
-                void internal_fs_mkdir(void* path);
-                void internal_fs_rmdir(void* path);
-                bool internal_fs_exists(void* path);
+                /* Register the boot volume with VFS as "BOOT" or "INITRD" */
+                void internal_fs_ls(void* path, void* priv);
+                void internal_fs_cat(void* path, void* priv);
+                void internal_fs_write(void* path, void* content, void* priv);
+                void internal_fs_mkdir(void* path, void* priv);
+                void internal_fs_rmdir(void* path, void* priv);
+                bool internal_fs_exists(void* path, void* priv);
 
                 vfs_node_t boot_node = {
+                    .private_data = &boot_fs,
                     .ls = internal_fs_ls,
                     .cat = internal_fs_cat,
                     .write = internal_fs_write,
@@ -129,7 +127,8 @@ void _start(void) {
                     .exists = internal_fs_exists
                 };
                 /* strcpy-like hack for name */
-                const char* bname = "BOOT"; int bk = 0;
+                const char* bname = vdisk_is_atapi(boot_drive) ? "INITRD" : "BOOT";
+                int bk = 0;
                 while(bname[bk]) { boot_node.name[bk] = bname[bk]; bk++; } boot_node.name[bk] = '\0';
 
                 vfs_register_node(boot_node);
@@ -137,7 +136,7 @@ void _start(void) {
                 void vdisk_connect(int hw_id);
                 vdisk_connect(boot_drive);
                 mount_success = true;
-                vga_print("[FS] Sovereign Volume (Drive %d) Mounted as BOOT.\n", boot_drive);
+                vga_print("[FS] Sovereign Volume (Drive %d) Mounted as %s.\n", boot_drive, bname);
                 break;
             }
             vga_print("[FS] Mount failed on Drive %d, retry %d...\n", boot_drive, retry + 1);
@@ -155,7 +154,8 @@ void _start(void) {
     /* Automated Sovereignty: Try to execute BOOT.RSL */
     void rsl_execute_stream(const char* path);
     if (mount_success) {
-        rsl_execute_stream("BOOT:/BOOT.RSL");
+        const char* script_path = vdisk_is_atapi(boot_drive) ? "INITRD:/BOOT.RSL" : "BOOT:/BOOT.RSL";
+        rsl_execute_stream(script_path);
     }
 
     /* Launch the RSL Shell */

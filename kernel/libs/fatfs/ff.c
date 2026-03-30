@@ -39,25 +39,28 @@ FRESULT f_mount(FATFS* fs, int drive) {
     }
 
     uint32_t part_lba = 0;
-    for (int i = 0; i < 4; i++) {
-        uint8_t* p = &sector[446 + (i * 16)];
-        if (p[4] == 0x0C) {
-            part_lba = *(uint32_t*)&p[8];
-            break;
+    /* GPT Discovery: Check for Sovereign Partition at LBA 2048 */
+    uint8_t gpt_header[512];
+    if (disk_read(drive, gpt_header, 1, 1) == RES_OK && *(uint64_t*)gpt_header == 0x5452415020494645ULL) {
+        uint8_t gpt_entry[512];
+        if (disk_read(drive, gpt_entry, 2, 1) == RES_OK) {
+            part_lba = (uint32_t)*(uint64_t*)&gpt_entry[32];
+            vga_print("[FS] Sovereign GPT Partition found at LBA %d.\n", part_lba);
         }
-        if (p[4] == 0xEE) {
-            uint8_t gpt[512];
-            if (disk_read(drive, gpt, 1, 1) == RES_OK) {
-                if (*(uint64_t*)gpt == 0x5452415020494645ULL) {
-                    if (disk_read(drive, gpt, 2, 1) == RES_OK) {
-                        part_lba = (uint32_t)*(uint64_t*)&gpt[32];
-                        vga_print("[FS] GPT Sovereign Partition detected at LBA %d.\n", part_lba);
-                        break;
-                    }
-                }
+    }
+
+    /* Fallback to MBR if no GPT partition found */
+    if (part_lba == 0) {
+        for (int i = 0; i < 4; i++) {
+            uint8_t* p = &sector[446 + (i * 16)];
+            if (p[4] == 0x0C) {
+                part_lba = *(uint32_t*)&p[8];
+                vga_print("[FS] FAT32 Partition found at LBA %d.\n", part_lba);
+                break;
             }
         }
     }
+
     if (part_lba == 0) return FR_NO_FILESYSTEM;
 
     if (disk_read(drive, sector, part_lba, 1) != RES_OK) return FR_DISK_ERR;
@@ -140,10 +143,6 @@ static FRESULT set_cluster_link(FATFS* fs, uint32_t cluster, uint32_t next);
 FRESULT f_open(FATFS* fs, FIL* fp, const TCHAR* path, BYTE mode) {
     if (!fs || !fs->active) return FR_NOT_ENABLED;
     fp->obj = fs;
-    if (fs->ro && (mode & FA_WRITE)) {
-        vga_print("[FS] ERROR: Denied (Read-Only Mode)\n");
-        return FR_DENIED;
-    }
 
     uint32_t cluster = fs->root_cluster;
     char name[256];
@@ -162,7 +161,7 @@ FRESULT f_open(FATFS* fs, FIL* fp, const TCHAR* path, BYTE mode) {
         uint32_t next_cluster = find_entry(fs, cluster, name, &entry, &entry_lba, &entry_idx);
 
         if (!next_cluster) {
-            if ((mode & FA_CREATE_ALWAYS) && !path[i]) {
+            if ((mode & (FA_CREATE_ALWAYS | FA_CREATE_NEW | FA_OPEN_ALWAYS)) && !path[i]) {
                 /* Create the file */
                 uint32_t new_cluster = find_free_cluster(fs);
                 if (!new_cluster) return FR_DENIED;
@@ -178,7 +177,6 @@ FRESULT f_open(FATFS* fs, FIL* fp, const TCHAR* path, BYTE mode) {
                 /* Write to parent directory */
                 uint8_t dir_buf[512];
                 uint32_t parent_lba = get_sector_lba(fs, cluster);
-                /* Assuming parent fits in 1st sector of cluster for now */
                 disk_read(fs->drv, dir_buf, parent_lba, 1);
                 fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
                 for(int k=0; k<16; k++) {
@@ -244,7 +242,7 @@ static FRESULT set_cluster_link(FATFS* fs, uint32_t cluster, uint32_t next) {
 
 FRESULT f_write(FIL* fp, const void* buff, uint32_t btw, uint32_t* bw) {
     FATFS* fs = fp->obj;
-    if (!fs || fs->ro || !fs->active) return FR_DENIED;
+    if (!fs || !fs->active) return FR_DENIED;
     uint32_t ss = fs->sector_size ? fs->sector_size : 512;
     uint32_t bytes_left = btw;
     const uint8_t* p = (const uint8_t*)buff;
@@ -404,7 +402,7 @@ static uint32_t parse_path_and_get_parent(FATFS* fs, const char* path, char* las
 }
 
 FRESULT f_mkdir(FATFS* fs, const TCHAR* path) {
-    if (!fs || fs->ro || !fs->active) return FR_DENIED;
+    if (!fs || !fs->active) return FR_DENIED;
     char name[256];
     uint32_t parent_cluster = parse_path_and_get_parent(fs, path, name);
     if (!parent_cluster) return FR_NO_PATH;
@@ -435,7 +433,7 @@ FRESULT f_mkdir(FATFS* fs, const TCHAR* path) {
 }
 
 FRESULT f_unlink(FATFS* fs, const TCHAR* path) {
-    if (!fs || fs->ro || !fs->active) return FR_DENIED;
+    if (!fs || !fs->active) return FR_DENIED;
     char name[256];
     uint32_t parent_cluster = parse_path_and_get_parent(fs, path, name);
     if (!parent_cluster) return FR_NO_PATH;

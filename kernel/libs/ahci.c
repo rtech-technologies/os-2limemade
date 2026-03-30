@@ -82,7 +82,8 @@ typedef struct {
     uint32_t sntf;
     uint32_t fbs;
     uint32_t devslp;
-    uint32_t rsv1[14]; /* Pad to 128 bytes (0x80) */
+    uint32_t rsv1[11]; /* (18 * 4) = 72 bytes. 128 - 72 = 56 bytes. 56 / 4 = 14. */
+    uint32_t rsv2[3]; /* More Padding */
 } hba_port_t;
 
 typedef struct {
@@ -109,58 +110,41 @@ void* bump_alloc(size_t size);
 uint64_t vmm_get_phys(void* virt);
 
 void ahci_port_start(hba_port_t *port) {
-    /* 1. Wait for bit 15 (Command List Running) to clear */
     while (port->cmd & (1 << 15));
-
-    /* 2. Set bit 4 (FIS Receive Enable) and bit 0 (Start) */
     port->cmd |= (1 << 4);
     port->cmd |= (1 << 0);
 }
 
 void vga_print(const char* fmt, ...);
-
 void pit_wait_ms(uint32_t ms);
 
 void ahci_force_port_reset(hba_port_t *port, int port_no) {
-    /* 1. CLEAR: Purge the Error register at the very start to acknowledge noise */
     port->serr = 0xFFFFFFFF;
     port->is = 0xFFFFFFFF;
+    port->cmd &= ~0x0001;
+    port->cmd &= ~0x0010;
 
-    /* 2. STOP: Kill the DMA engines (ST and FRE) */
-    port->cmd &= ~0x0001; /* Bit 0: ST (Start) */
-    port->cmd &= ~0x0010; /* Bit 4: FRE (FIS Receive Enable) */
-
-    /* Wait for the engines to actually stop (CR and FR bits) */
     int engine_timeout = 1000;
     while ((port->cmd & 0x8000 || port->cmd & 0x4000) && engine_timeout--) {
         pit_wait_ms(1);
     }
 
-    /* 3. KICK: The COMRESET (SCTL) */
-    /* 0x301 Forces 1.5/3.0 Gbps handshake + Reset */
     port->sctl = (port->sctl & ~0x0F) | 0x301;
-
-    /* Hardware Delay: Give the hardware 10ms to physically reset as requested */
     pit_wait_ms(10);
-
-    port->sctl = (port->sctl & ~0x0F) | 0x300; /* End Reset (Back to normal Operation) */
-
-    /* 4. WAIT: Settle Delay (50ms as requested) */
+    port->sctl = (port->sctl & ~0x0F) | 0x300;
     pit_wait_ms(50);
 
-    /* 5. POLL: The Negotiation Loop */
     int timeout = 1000;
     while ((port->ssts & 0x0F) != 0x03 && timeout--) {
         pit_wait_ms(1);
     }
 
     if ((port->ssts & 0x0F) == 0x03) {
-        vga_print("[AHCI] PORT %d: LINK ESTABLISHED (SSTS: 0x%x, SERR: 0x%x)\n", port_no, port->ssts, port->serr);
-        /* Now it's safe to set the Command List and FIS addresses */
-        port->cmd |= 0x0010; /* FRE */
-        port->cmd |= 0x0001; /* ST */
+        vga_print("[AHCI] PORT %d: LINK ESTABLISHED\n", port_no);
+        port->cmd |= 0x0010;
+        port->cmd |= 0x0001;
     } else {
-        vga_print("[AHCI] PORT %d: MECHANICAL FAILURE (SSTS: 0x%x, SERR: 0x%x)\n", port_no, port->ssts, port->serr);
+        vga_print("[AHCI] PORT %d: MECHANICAL FAILURE\n", port_no);
     }
 }
 
@@ -169,24 +153,11 @@ void ahci_hardware_audit(int p) {
     if (!(hba_base->pi & (1 << p))) return;
     hba_port_t* port = &hba_base->ports[p];
 
-    /* Audit GHC (Global Host Control) */
-    uint32_t ghc = hba_base->ghc;
-    serial_print_hex("[AHCI] GHC Status: ", (uint16_t)(ghc >> 16));
-    serial_print_hex("", (uint16_t)ghc);
-
-    /* Audit Port SSTS (SATA Status) */
     uint32_t ssts = port->ssts;
-    serial_print_hex("[AHCI] Port SSTS: ", (uint16_t)ssts);
-
     if ((ssts & 0x0F) == 0x03) {
-        vga_print("[AHCI] SATA Hardware Online. Link Established.\n");
         ahci_port_start(port);
-    } else if ((ssts & 0x0F) == 0x01 || (ssts & 0x0F) == 0x00) {
-        /* If SSTS 0x01 (detected but no link) or even 0x00 (in case it's just stuck), try handshake */
-        vga_print("[AHCI] Port %d: Attempting Hardware Handshake...\n", p);
-        ahci_force_port_reset(port, p);
     } else {
-        vga_print("[AHCI] MECHANICAL ERROR: Port %d SSTS: 0x%x\n", p, ssts);
+        ahci_force_port_reset(port, p);
     }
 }
 
@@ -195,79 +166,16 @@ uint64_t get_hhdm_offset(void);
 int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     if (!hba_base) return -1;
     int p = (int)(uint64_t)priv;
-    if (!(hba_base->pi & (1 << p))) return -1;
     hba_port_t* port = &hba_base->ports[p];
-    uint64_t vmm_get_phys(void* virt);
-
-    /* THE FIX: Convert 'buffer' (Virtual) to 'phys_buffer' (Physical) */
-    uint64_t phys_buffer = vmm_get_phys(buffer);
-
-    /* 1. Command Header Setup */
-    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
-    cmdhdr->cfl = 5; /* 5 DWORDs */
-    cmdhdr->w = 0;   /* Read */
-    cmdhdr->prdtl = 1;
-
-    /* 2. Command Table / PRDT Setup */
-    /* For simplicity, we'll reuse a fixed area or allocate one */
-    static void* cmdtbl_virt = NULL;
-    if (!cmdtbl_virt) cmdtbl_virt = bump_alloc(4096);
-
-    uint64_t cmdtbl_phys = vmm_get_phys(cmdtbl_virt);
-    cmdhdr->ctba = (uint32_t)(cmdtbl_phys & 0xFFFFFFFF);
-    cmdhdr->ctbau = (uint32_t)(cmdtbl_phys >> 32);
-
-    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)cmdtbl_virt;
-    cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
-    cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
-    cmdtbl->prdt_entry[0].dbc = (count * 512) - 1;
-    cmdtbl->prdt_entry[0].i = 1;
-
-    /* 3. Setup Command FIS (H2D) */
-    fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
-    fis->fis_type = 0x27; /* H2D */
-    fis->c = 1;
-    fis->command = 0x25; /* READ DMA EXT */
-    fis->lba0 = (uint8_t)lba;
-    fis->lba1 = (uint8_t)(lba >> 8);
-    fis->lba2 = (uint8_t)(lba >> 16);
-    fis->device = 1 << 6; /* LBA mode */
-    fis->lba3 = (uint8_t)(lba >> 24);
-    fis->lba4 = (uint8_t)(lba >> 32);
-    fis->lba5 = (uint8_t)(lba >> 40);
-    fis->countl = (uint8_t)count;
-    fis->counth = (uint8_t)(count >> 8);
-
-    /* 4. Issue Command */
-    port->ci = (1 << 0);
-    while (port->ci & (1 << 0)) {
-        if (port->tfd & (1 << 0)) {
-            vga_print("[AHCI] PORT %d READ ERROR: TFD 0x%x (LBA %d)\n", p, port->tfd, (uint32_t)lba);
-            return -1;
-        }
-        __asm__ volatile ("pause");
-    }
-    return 0;
-}
-
-int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
-    if (!hba_base) return -1;
-    int p = (int)(uint64_t)priv;
-    if (!(hba_base->pi & (1 << p))) return -1;
-    hba_port_t* port = &hba_base->ports[p];
-    uint64_t vmm_get_phys(void* virt);
-
-    /* THE FIX: Convert 'buffer' (Virtual) to 'phys_buffer' (Physical) */
     uint64_t phys_buffer = vmm_get_phys(buffer);
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
     cmdhdr->cfl = 5;
-    cmdhdr->w = 1; /* Write */
+    cmdhdr->w = 0;
     cmdhdr->prdtl = 1;
 
     static void* cmdtbl_virt = NULL;
     if (!cmdtbl_virt) cmdtbl_virt = bump_alloc(4096);
-
     uint64_t cmdtbl_phys = vmm_get_phys(cmdtbl_virt);
     cmdhdr->ctba = (uint32_t)(cmdtbl_phys & 0xFFFFFFFF);
     cmdhdr->ctbau = (uint32_t)(cmdtbl_phys >> 32);
@@ -281,7 +189,7 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
     fis->fis_type = 0x27;
     fis->c = 1;
-    fis->command = 0x35; /* WRITE DMA EXT */
+    fis->command = 0x25;
     fis->lba0 = (uint8_t)lba;
     fis->lba1 = (uint8_t)(lba >> 8);
     fis->lba2 = (uint8_t)(lba >> 16);
@@ -294,10 +202,52 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 
     port->ci = (1 << 0);
     while (port->ci & (1 << 0)) {
-        if (port->tfd & (1 << 0)) {
-            vga_print("[AHCI] PORT %d WRITE ERROR: TFD 0x%x (LBA %d)\n", p, port->tfd, (uint32_t)lba);
-            return -1;
-        }
+        if (port->tfd & (1 << 0)) return -1;
+        __asm__ volatile ("pause");
+    }
+    return 0;
+}
+
+int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
+    if (!hba_base) return -1;
+    int p = (int)(uint64_t)priv;
+    hba_port_t* port = &hba_base->ports[p];
+    uint64_t phys_buffer = vmm_get_phys(buffer);
+
+    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
+    cmdhdr->cfl = 5;
+    cmdhdr->w = 1;
+    cmdhdr->prdtl = 1;
+
+    static void* cmdtbl_virt = NULL;
+    if (!cmdtbl_virt) cmdtbl_virt = bump_alloc(4096);
+    uint64_t cmdtbl_phys = vmm_get_phys(cmdtbl_virt);
+    cmdhdr->ctba = (uint32_t)(cmdtbl_phys & 0xFFFFFFFF);
+    cmdhdr->ctbau = (uint32_t)(cmdtbl_phys >> 32);
+
+    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)cmdtbl_virt;
+    cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
+    cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
+    cmdtbl->prdt_entry[0].dbc = (count * 512) - 1;
+    cmdtbl->prdt_entry[0].i = 1;
+
+    fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
+    fis->fis_type = 0x27;
+    fis->c = 1;
+    fis->command = 0x35;
+    fis->lba0 = (uint8_t)lba;
+    fis->lba1 = (uint8_t)(lba >> 8);
+    fis->lba2 = (uint8_t)(lba >> 16);
+    fis->device = 1 << 6;
+    fis->lba3 = (uint8_t)(lba >> 24);
+    fis->lba4 = (uint8_t)(lba >> 32);
+    fis->lba5 = (uint8_t)(lba >> 40);
+    fis->countl = (uint8_t)count;
+    fis->counth = (uint8_t)(count >> 8);
+
+    port->ci = (1 << 0);
+    while (port->ci & (1 << 0)) {
+        if (port->tfd & (1 << 0)) return -1;
         __asm__ volatile ("pause");
     }
     return 0;
@@ -306,34 +256,28 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 int atapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     if (!hba_base) return -1;
     int p = (int)(uint64_t)priv;
-    if (!(hba_base->pi & (1 << p))) return -1;
     hba_port_t* port = &hba_base->ports[p];
-    uint64_t vmm_get_phys(void* virt);
-
     uint64_t phys_buffer = vmm_get_phys(buffer);
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
     cmdhdr->cfl = 5;
     cmdhdr->w = 0;
-    cmdhdr->a = 1; /* ATAPI */
+    cmdhdr->a = 1;
     cmdhdr->prdtl = 1;
 
     static void* cmdtbl_virt = NULL;
     if (!cmdtbl_virt) cmdtbl_virt = bump_alloc(4096);
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)cmdtbl_virt;
-
     uint64_t cmdtbl_phys = vmm_get_phys(cmdtbl_virt);
     cmdhdr->ctba = (uint32_t)(cmdtbl_phys & 0xFFFFFFFF);
     cmdhdr->ctbau = (uint32_t)(cmdtbl_phys >> 32);
 
-    /* PRDT Setup: ATAPI uses 2048-byte sectors usually */
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
     cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
     cmdtbl->prdt_entry[0].dbc = (count * 2048) - 1;
     cmdtbl->prdt_entry[0].i = 1;
 
-    /* ATAPI Packet: SCSI READ(10) */
-    cmdtbl->acmd[0] = 0x28; /* GPCMD_READ_10 */
+    cmdtbl->acmd[0] = 0x28;
     cmdtbl->acmd[1] = 0;
     cmdtbl->acmd[2] = (uint8_t)(lba >> 24);
     cmdtbl->acmd[3] = (uint8_t)(lba >> 16);
@@ -344,13 +288,9 @@ int atapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     cmdtbl->acmd[8] = (uint8_t)count;
     cmdtbl->acmd[9] = 0;
 
-    /* Issue Command */
     port->ci = (1 << 0);
     while (port->ci & (1 << 0)) {
-        if (port->tfd & (1 << 0)) {
-            vga_print("[AHCI] ATAPI PORT %d READ ERROR: TFD 0x%x\n", p, port->tfd);
-            return -1;
-        }
+        if (port->tfd & (1 << 0)) return -1;
         __asm__ volatile ("pause");
     }
     return 0;
@@ -364,77 +304,43 @@ void ahci_service(kernel_event_t event) {
                 for (int func = 0; func < 8; func++) {
                 uint32_t vendor_device = pci_config_read(bus, slot, func, 0);
                 if ((vendor_device & 0xFFFF) == 0xFFFF) continue;
-
                 uint32_t class_info = pci_config_read(bus, slot, func, 0x08);
                 uint8_t base_class = (class_info >> 24) & 0xFF;
                 uint8_t sub_class = (class_info >> 16) & 0xFF;
 
-                if (base_class == 0x01 && sub_class == 0x06) { /* Mass Storage, SATA */
-                    vga_print("[INIT] Found AHCI Controller at %d:%d:%d\n", bus, slot, func);
+                if (base_class == 0x01 && sub_class == 0x06) {
                     pci_enable_master(bus, slot, func);
-
                     uint32_t bar5 = pci_config_read(bus, slot, func, 0x24);
                     uint64_t hhdm = get_hhdm_offset();
                     hba_base = (hba_mem_t*)(hhdm + (uint64_t)(bar5 & 0xFFFFFFF0));
 
-                    /* GLOBAL RESET: Acknowledge noise and clear state */
-                    hba_base->ghc |= (1 << 31); /* AE: AHCI Enable */
-                    hba_base->ghc |= (1 << 0);  /* HR: HBA Reset */
-
-                    /* Wait for HBA Reset to finish (usually very fast, but 1ms safety) */
+                    hba_base->ghc |= (1 << 31);
+                    hba_base->ghc |= (1 << 0);
                     int ghc_timeout = 1000;
-                    while ((hba_base->ghc & (1 << 0)) && ghc_timeout--) {
-                        pit_wait_ms(1);
-                    }
+                    while ((hba_base->ghc & (1 << 0)) && ghc_timeout--) pit_wait_ms(1);
+                    hba_base->ghc |= (1 << 31);
 
-                    hba_base->ghc |= (1 << 31); /* AE must be re-enabled after HR */
-
-                    vga_print("[AHCI] ABAR: 0x%x, PI Mask: 0x%x\n", (uint64_t)hba_base, hba_base->pi);
-                    vga_print("[AHCI] Port 0 SSTS Addr: 0x%x, Port 2 SSTS Addr: 0x%x\n", (uint64_t)&hba_base->ports[0].ssts, (uint64_t)&hba_base->ports[2].ssts);
-
-                    /* Scan HBA Ports */
                     for (int p = 0; p < 32; p++) {
                         if (hba_base->pi & (1 << p)) {
-                            /* Initial setup of addresses must be physical */
                             port_clb_virt[p] = bump_alloc(1024);
                             uint64_t clb_phys = vmm_get_phys(port_clb_virt[p]);
                             hba_base->ports[p].clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
                             hba_base->ports[p].clbu = (uint32_t)(clb_phys >> 32);
-
                             port_fb_virt[p] = bump_alloc(256);
                             uint64_t fb_phys = vmm_get_phys(port_fb_virt[p]);
                             hba_base->ports[p].fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
                             hba_base->ports[p].fbu = (uint32_t)(fb_phys >> 32);
 
-                            /* Perform Aggressive Handshake before checking signature */
                             ahci_force_port_reset(&hba_base->ports[p], p);
 
                             if ((hba_base->ports[p].ssts & 0x0F) == 0x03) {
                                 uint32_t sig = hba_base->ports[p].sig;
                                 if (sig == 0x00000101) { /* SATA */
-                                    vga_print("[INIT] Port %d: SATA Hard Disk Online.\n", p);
-                                    vdisk_node_t sata_disk = {
-                                        .sector_size = 512,
-                                        .total_lba = 1024 * 1024 * 10,
-                                        .read_lba = ahci_read_sectors,
-                                        .write_lba = ahci_write_sectors,
-                                        .private_data = (void*)(uint64_t)p,
-                                        .is_atapi = false
-                                    };
+                                    vdisk_node_t sata_disk = { .sector_size = 512, .total_lba = 1024 * 1024 * 10, .read_lba = ahci_read_sectors, .write_lba = ahci_write_sectors, .private_data = (void*)(uint64_t)p, .is_atapi = false };
                                     register_hardware_disk(sata_disk);
                                 } else if (sig == 0xEB140101) { /* ATAPI */
-                                    vga_print("[INIT] Port %d: ATAPI CD-ROM Online.\n", p);
-                                    vdisk_node_t cdrom = {
-                                        .sector_size = 2048,
-                                        .total_lba = 1024 * 1024,
-                                        .read_lba = atapi_read_sectors,
-                                        .write_lba = NULL,
-                                        .private_data = (void*)(uint64_t)p,
-                                        .is_atapi = true
-                                    };
+                                    vdisk_node_t cdrom = { .sector_size = 2048, .total_lba = 1024 * 1024, .read_lba = atapi_read_sectors, .write_lba = NULL, .private_data = (void*)(uint64_t)p, .is_atapi = true };
                                     register_hardware_disk(cdrom);
-                                } else {
-                                    vga_print("[INIT] Port %d: Unknown Signature 0x%x\n", p, sig);
                                 }
                             }
                         }

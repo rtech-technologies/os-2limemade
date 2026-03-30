@@ -5,34 +5,9 @@
 #include "vdisk.h"
 #include "pci.h"
 
-/* Forward declarations */
 void serial_write_str(const char* s);
-struct limine_module_response* get_modules(void);
-int is_sovereign_disk(int disk_id);
-
-/* Actual Ramdisk-backed Read for XHCI/USB Simulation */
-int xhci_disk_read(void* priv, uint64_t lba, uint32_t count, void* buffer) {
-    (void)priv;
-    struct limine_module_response* resp = get_modules();
-    if (!resp || resp->module_count == 0) return -1;
-
-    struct limine_file* ramdisk = resp->modules[0];
-    uint8_t* base = (uint8_t*)ramdisk->address;
-
-    size_t offset = lba * 512;
-    size_t size = count * 512;
-
-    if (offset + size > ramdisk->size) return -1;
-
-    uint8_t* src = base + offset;
-    uint8_t* dst = (uint8_t*)buffer;
-
-    for (size_t i = 0; i < size; i++) {
-        dst[i] = src[i];
-    }
-
-    return 0;
-}
+void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
+uint64_t get_hhdm_offset(void);
 
 static void* xhci_base = NULL;
 
@@ -40,10 +15,46 @@ void* get_xhci_base(void) {
     return xhci_base;
 }
 
-/* USB / XHCI Registry and Scanning */
+void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
+    uint64_t hhdm = get_hhdm_offset();
+    uint32_t cap_length = *(volatile uint8_t*)base;
+    uint32_t hccparams1 = *(volatile uint32_t*)((uint8_t*)base + 0x10);
+    uint32_t xecp = (hccparams1 >> 16) & 0xFFFF;
+
+    if (xecp == 0) return;
+
+    volatile uint32_t* ext_cap = (volatile uint32_t*)((uint8_t*)base + (xecp << 2));
+
+    while (ext_cap) {
+        uint32_t cap_id = *ext_cap & 0xFF;
+        if (cap_id == 1) { /* USB Legacy Support */
+            serial_write_str("[XHCI] USB Legacy Support found. Requesting Handover...\n");
+            *ext_cap |= (1 << 24); /* OS Owned Semaphore */
+
+            int timeout = 1000;
+            while ((*ext_cap & (1 << 16)) && timeout--) { /* BIOS Owned Semaphore */
+                /* Wait for BIOS to release */
+                for(volatile int i=0; i<10000; i++);
+            }
+
+            if (timeout <= 0) {
+                serial_write_str("[XHCI] Handover TIMEOUT. Forcing Control.\n");
+                *ext_cap &= ~(1 << 16);
+            } else {
+                serial_write_str("[XHCI] Handover Successful.\n");
+            }
+            break;
+        }
+
+        uint32_t next = (*ext_cap >> 8) & 0xFF;
+        if (next == 0) break;
+        ext_cap += next;
+    }
+}
+
 void usb_xhci_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
-        serial_write_str("[INIT] Scanning PCI bus for USB controllers...\n");
+        serial_write_str("[INIT] Scanning PCI bus for XHCI controllers...\n");
 
         for (int bus = 0; bus < 256; bus++) {
             for (int slot = 0; slot < 32; slot++) {
@@ -56,24 +67,15 @@ void usb_xhci_service(kernel_event_t event) {
                     uint8_t sub_class = (class_info >> 16) & 0xFF;
                     uint8_t prog_if = (class_info >> 8) & 0xFF;
 
-                    if (base_class == 0x0C && sub_class == 0x03) { /* USB */
-                        if (prog_if == 0x30) { /* XHCI */
-                            serial_write_str("[INIT] Found XHCI Controller.\n");
-                            uint32_t bar0 = pci_config_read(bus, slot, func, 0x10);
-                            xhci_base = (void*)(uint64_t)(bar0 & 0xFFFFFFF0);
+                    if (base_class == 0x0C && sub_class == 0x03 && prog_if == 0x30) {
+                        serial_write_str("[INIT] Found XHCI Controller.\n");
+                        pci_enable_master(bus, slot, func);
 
-                            vdisk_node_t usb_disk = {
-                                .sector_size = 512,
-                                .total_lba = 1024 * 1024,
-                                .read_lba = xhci_disk_read,
-                                .write_lba = NULL
-                            };
-                            register_hardware_disk(usb_disk);
+                        uint32_t bar0 = pci_config_read(bus, slot, func, 0x10);
+                        uint64_t hhdm = get_hhdm_offset();
+                        xhci_base = (void*)(hhdm + (uint64_t)(bar0 & 0xFFFFFFF0));
 
-                            if (is_sovereign_disk(0)) {
-                                serial_write_str("[CONNECT] USB Handshake Successful.\n");
-                            }
-                        }
+                        xhci_bios_handover(bus, slot, func, xhci_base);
                     }
                     if (func == 0 && !(pci_config_read(bus, slot, 0, 0x0C) & 0x800000)) break;
                 }
