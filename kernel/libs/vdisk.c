@@ -16,7 +16,6 @@ static vdisk_node_t connect_registry[MAX_DISKS];
 static int connect_count = 0;
 
 void serial_write_str(const char* s);
-
 void vga_print(const char* fmt, ...);
 
 void register_hardware_disk(vdisk_node_t node) {
@@ -44,13 +43,8 @@ int vdisk_write(int disk_id, uint64_t lba, uint32_t count, void* buffer) {
     return hw_registry[disk_id].write_lba(hw_registry[disk_id].private_data, lba, count, buffer);
 }
 
-int get_hw_disk_count(void) {
-    return hw_count;
-}
-
-int get_connect_disk_count(void) {
-    return connect_count;
-}
+int get_hw_disk_count(void) { return hw_count; }
+int get_connect_disk_count(void) { return connect_count; }
 
 int vdisk_read_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer) {
     if (hw_id < 0 || hw_id >= hw_count) return -1;
@@ -70,48 +64,19 @@ bool vdisk_is_atapi(int hw_id) {
 
 int is_sovereign_disk(int disk_id) {
     uint32_t buffer[128]; /* 512 bytes */
-    if (vdisk_read_hw(disk_id, 0, 1, buffer) != 0) {
-        return 0;
-    }
-
+    if (vdisk_read_hw(disk_id, 0, 1, buffer) != 0) return 0;
     if (buffer[0] == 0xEFBEADDE) {
         vga_print("[VDISK] OSx2 Limemade signature 0xEFBEADDE found!\n");
         return 1;
     }
-
     return 0;
 }
 
 #include <include/vfs.h>
-void internal_rsl_ls(void* path);
-void internal_rsl_cat(void* path);
-void internal_rsl_write(void* path, void* content);
-void internal_rsl_cd(void* path);
-void internal_rsl_mkdir(void* path);
-void internal_rsl_rmdir(void* path);
-bool internal_rsl_exists(void* path);
 
 void vdisk_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
         serial_write_str("[INIT] /CONNECT registry (VDISK) initialized.\n");
         vfs_init();
-        vfs_node_t root_node = {
-            .name = "/",
-            .ls = internal_rsl_ls,
-            .cat = internal_rsl_cat,
-            .write = internal_rsl_write,
-            .cd = internal_rsl_cd,
-            .mkdir = internal_rsl_mkdir,
-            .rmdir = internal_rsl_rmdir,
-            .exists = internal_rsl_exists
-        };
-        vfs_register_node(root_node);
-
-        vfs_node_t connect_node = {
-            .name = "/CONNECT",
-            .ls = internal_rsl_ls,
-            .exists = internal_rsl_exists
-        };
-        vfs_register_node(connect_node);
     }
 }

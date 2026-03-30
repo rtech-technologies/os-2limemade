@@ -380,8 +380,13 @@ void ahci_service(kernel_event_t event) {
                     /* GLOBAL RESET: Acknowledge noise and clear state */
                     hba_base->ghc |= (1 << 31); /* AE: AHCI Enable */
                     hba_base->ghc |= (1 << 0);  /* HR: HBA Reset */
-                    pit_wait_ms(1);
-                    while (hba_base->ghc & (1 << 0)) __asm__ volatile("pause");
+
+                    /* Wait for HBA Reset to finish (usually very fast, but 1ms safety) */
+                    int ghc_timeout = 1000;
+                    while ((hba_base->ghc & (1 << 0)) && ghc_timeout--) {
+                        pit_wait_ms(1);
+                    }
+
                     hba_base->ghc |= (1 << 31); /* AE must be re-enabled after HR */
 
                     vga_print("[AHCI] ABAR: 0x%x, PI Mask: 0x%x\n", (uint64_t)hba_base, hba_base->pi);
@@ -401,35 +406,36 @@ void ahci_service(kernel_event_t event) {
                             hba_base->ports[p].fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
                             hba_base->ports[p].fbu = (uint32_t)(fb_phys >> 32);
 
-                            uint32_t sig = hba_base->ports[p].sig;
-                            if (sig == 0x00000101) { /* SATA */
-                                vga_print("[INIT] Port %d detected: SATA Hard Disk.\n", p);
+                            /* Perform Aggressive Handshake before checking signature */
+                            ahci_force_port_reset(&hba_base->ports[p], p);
 
-                                /* Aggressive Reset to ensure Link 0x3 */
-                                ahci_force_port_reset(&hba_base->ports[p], p);
-
-                                if ((hba_base->ports[p].ssts & 0x0F) == 0x03) {
+                            if ((hba_base->ports[p].ssts & 0x0F) == 0x03) {
+                                uint32_t sig = hba_base->ports[p].sig;
+                                if (sig == 0x00000101) { /* SATA */
+                                    vga_print("[INIT] Port %d: SATA Hard Disk Online.\n", p);
                                     vdisk_node_t sata_disk = {
                                         .sector_size = 512,
                                         .total_lba = 1024 * 1024 * 10,
                                         .read_lba = ahci_read_sectors,
                                         .write_lba = ahci_write_sectors,
-                                    .private_data = (void*)(uint64_t)p,
-                                    .is_atapi = false
+                                        .private_data = (void*)(uint64_t)p,
+                                        .is_atapi = false
                                     };
                                     register_hardware_disk(sata_disk);
+                                } else if (sig == 0xEB140101) { /* ATAPI */
+                                    vga_print("[INIT] Port %d: ATAPI CD-ROM Online.\n", p);
+                                    vdisk_node_t cdrom = {
+                                        .sector_size = 2048,
+                                        .total_lba = 1024 * 1024,
+                                        .read_lba = atapi_read_sectors,
+                                        .write_lba = NULL,
+                                        .private_data = (void*)(uint64_t)p,
+                                        .is_atapi = true
+                                    };
+                                    register_hardware_disk(cdrom);
+                                } else {
+                                    vga_print("[INIT] Port %d: Unknown Signature 0x%x\n", p, sig);
                                 }
-                            } else if (sig == 0xEB140101) { /* ATAPI */
-                                vga_print("[INIT] Port %d detected: ATAPI CD-ROM.\n", p);
-                                vdisk_node_t cdrom = {
-                                    .sector_size = 2048,
-                                    .total_lba = 1024 * 1024,
-                                    .read_lba = atapi_read_sectors,
-                                    .write_lba = NULL,
-                                    .private_data = (void*)(uint64_t)p,
-                                    .is_atapi = true
-                                };
-                                register_hardware_disk(cdrom);
                             }
                         }
                     }

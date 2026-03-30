@@ -2,6 +2,7 @@
 #include <kernel/libs/vdisk.h>
 #include <kernel/libs/pci.h>
 #include <include/rsl.h>
+#include <include/vfs.h>
 #include <limine.h>
 #include <stddef.h>
 
@@ -27,7 +28,7 @@ void _start(void) {
     /* Start the Shell and Main System Logic */
     serial_write_str("[EVENT] Entering EVENT_MAIN...\n");
 
-    FATFS fs;
+    static FATFS boot_fs;
     bool mount_success = false;
 
     /* 1. Sovereign Discovery: Scan ALL registered hardware for a bootable volume */
@@ -44,13 +45,6 @@ void _start(void) {
 
     int hw_count = get_hw_disk_count();
     vga_print("[BOOT] Scanning %d detected hardware volumes...\n", hw_count);
-
-    /* Phase 1: Identify the Bootloader */
-    struct limine_bootloader_info_response* get_bootloader_info(void);
-    struct limine_bootloader_info_response* bi = get_bootloader_info();
-    if (bi) {
-        vga_print("[BOOT] Bootloader: %s %s\n", bi->name, bi->version);
-    }
 
     for (int i = 0; i < hw_count; i++) {
         uint8_t sector[512];
@@ -99,15 +93,8 @@ void _start(void) {
                         stamp[0] = 0xEF; stamp[1] = 0xBE; stamp[2] = 0xAD; stamp[3] = 0xDE;
                         disk_write(i, stamp, 0, 1);
 
-                        FRESULT f_fdisk(int drive);
                         if (f_fdisk(i) == FR_OK) {
-                            char drv_path[16];
-                            int k = 0;
-                            if (i >= 10) drv_path[k++] = '0' + (i / 10);
-                            drv_path[k++] = '0' + (i % 10);
-                            drv_path[k++] = ':'; drv_path[k++] = '\0';
-
-                            if (f_mkfs(drv_path, 0, 0) == FR_OK) {
+                            if (f_mkfs(i) == FR_OK) {
                                 vga_print("OSx2: Installation Complete on Drive %d.\n", i);
                                 boot_drive = i;
                                 break;
@@ -123,21 +110,37 @@ void _start(void) {
     }
 
     if (boot_drive != -1) {
-        char drv_path[16];
-        int k = 0;
-        if (boot_drive >= 10) drv_path[k++] = '0' + (boot_drive / 10);
-        drv_path[k++] = '0' + (boot_drive % 10);
-        drv_path[k++] = ':'; drv_path[k++] = '\0';
-
         for (int retry = 0; retry < 3; retry++) {
-            if (f_mount(&fs, drv_path, 1) == FR_OK) {
+            if (f_mount(&boot_fs, boot_drive) == FR_OK) {
+                /* Register the boot volume with VFS as "BOOT" */
+                void internal_fs_ls(void* path);
+                void internal_fs_cat(void* path);
+                void internal_fs_write(void* path, void* content);
+                void internal_fs_mkdir(void* path);
+                void internal_fs_rmdir(void* path);
+                bool internal_fs_exists(void* path);
+
+                vfs_node_t boot_node = {
+                    .ls = internal_fs_ls,
+                    .cat = internal_fs_cat,
+                    .write = internal_fs_write,
+                    .mkdir = internal_fs_mkdir,
+                    .rmdir = internal_fs_rmdir,
+                    .exists = internal_fs_exists
+                };
+                /* strcpy-like hack for name */
+                const char* bname = "BOOT"; int bk = 0;
+                while(bname[bk]) { boot_node.name[bk] = bname[bk]; bk++; } boot_node.name[bk] = '\0';
+
+                vfs_register_node(boot_node);
+
                 void vdisk_connect(int hw_id);
                 vdisk_connect(boot_drive);
                 mount_success = true;
-                vga_print("[FS] Sovereign Volume %s Mounted.\n", drv_path);
+                vga_print("[FS] Sovereign Volume (Drive %d) Mounted as BOOT.\n", boot_drive);
                 break;
             }
-            vga_print("[FS] Mount failed on %s, retry %d...\n", drv_path, retry + 1);
+            vga_print("[FS] Mount failed on Drive %d, retry %d...\n", boot_drive, retry + 1);
         }
     }
 
@@ -145,8 +148,6 @@ void _start(void) {
         set_color(LIGHT_RED, BLACK);
         print("\n[CRITICAL] SYSTEM CANNOT FIND BOOT DISK.\n");
         print("[CRITICAL] ENTERING SAFE MODE.\n");
-        void enter_safe_mode(void);
-        enter_safe_mode();
     }
 
     dispatch_event(EVENT_MAIN);
@@ -154,7 +155,7 @@ void _start(void) {
     /* Automated Sovereignty: Try to execute BOOT.RSL */
     void rsl_execute_stream(const char* path);
     if (mount_success) {
-        rsl_execute_stream("0:/BOOT.RSL");
+        rsl_execute_stream("BOOT:/BOOT.RSL");
     }
 
     /* Launch the RSL Shell */

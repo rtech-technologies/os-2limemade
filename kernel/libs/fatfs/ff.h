@@ -62,6 +62,7 @@ typedef struct {
     uint32_t partition_lba;
     uint16_t sector_size;
     bool active;
+    bool ro;            /* Read-only (Safe Mode) */
 } FATFS;
 
 typedef struct {
@@ -74,6 +75,8 @@ typedef struct {
     DWORD   sclust;     /* File start cluster */
     DWORD   clust;      /* Current cluster */
     LBA_t   dsect;      /* Current data sector */
+    uint32_t entry_lba;
+    uint32_t entry_idx;
 } FIL;
 
 typedef struct {
@@ -116,18 +119,18 @@ typedef struct {
 #define AM_DIR  0x10    /* Directory */
 #define AM_ARC  0x20    /* Archive */
 
-FRESULT f_mount(FATFS* fs, const TCHAR* path, BYTE opt);
+FRESULT f_mount(FATFS* fs, int drive);
 FRESULT f_fdisk(int drive);
-FRESULT f_mkfs(const TCHAR* path, BYTE opt, DWORD au);
-FRESULT f_open(FIL* fp, const TCHAR* path, BYTE mode);
+FRESULT f_mkfs(int drive);
+FRESULT f_open(FATFS* fs, FIL* fp, const TCHAR* path, BYTE mode);
 FRESULT f_close(FIL* fp);
 FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br);
 FRESULT f_write(FIL* fp, const void* buff, uint32_t btw, uint32_t* bw);
-FRESULT f_opendir(DIR* dp, const TCHAR* path);
+FRESULT f_opendir(FATFS* fs, DIR* dp, const TCHAR* path);
 FRESULT f_readdir(DIR* dp, FILINFO* fno);
-FRESULT f_mkdir(const TCHAR* path);
-FRESULT f_unlink(const TCHAR* path);
-FRESULT f_stat(const TCHAR* path, FILINFO* fno);
+FRESULT f_mkdir(FATFS* fs, const TCHAR* path);
+FRESULT f_unlink(FATFS* fs, const TCHAR* path);
+FRESULT f_stat(FATFS* fs, const TCHAR* path, FILINFO* fno);
 
 /* diskio.h equivalent */
 typedef BYTE DSTATUS;

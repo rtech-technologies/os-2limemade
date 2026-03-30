@@ -5,180 +5,77 @@
 int get_hw_disk_count(void);
 int get_connect_disk_count(void);
 
-void rsl_ls(void* path) {
-    vfs_ls(path);
-}
+#define MAX_MOUNTS 16
+static FATFS mount_table[MAX_MOUNTS];
+static int mount_count = 0;
 
-void internal_rsl_ls(void* path) {
-    const char* p = str_to_cstr(path);
-
-    /* Global Root Case: List all physical hardware (mounted or not) */
-    if (p[0] == '/' && p[1] == '\0') {
-        int count = get_hw_disk_count();
-        for (int i = 0; i < count; i++) {
-            char buf[32];
-            uint8_t sector[512];
-            bool sovereign = false;
-            int vdisk_read_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer);
-            if (vdisk_read_hw(i, 0, 1, sector) == 0) {
-                if (sector[0] == 0xEF && sector[1] == 0xBE && sector[2] == 0xAD && sector[3] == 0xDE) {
-                    sovereign = true;
-                }
-            }
-
-            int k = 0;
-            buf[k++] = '0' + i; buf[k++] = ':'; buf[k++] = '/'; buf[k++] = ' ';
-            if (sovereign) {
-                const char* tag = "[SOVEREIGN]";
-                while(*tag) buf[k++] = *tag++;
-            } else {
-                const char* tag = "[RAW DISK]";
-                while(*tag) buf[k++] = *tag++;
-            }
-            buf[k++] = '\n'; buf[k++] = '\0';
-            print(buf);
+/* Internal FS Bridge for VFS */
+void internal_fs_ls(void* path, void* priv) {
+    DIR dp; FILINFO fno;
+    FATFS* fs = (FATFS*)priv;
+    if (f_opendir(fs, &dp, str_to_cstr(path)) == FR_OK) {
+        while (f_readdir(&dp, &fno) == FR_OK && fno.fname[0] != 0) {
+            print(fno.fname); print("\n");
         }
-        return;
-    }
-
-    /* /CONNECT Case: List only mounted/connected disks */
-    if (str_match(path, "/CONNECT")) {
-        int count = get_connect_disk_count();
-        if (count == 0) {
-            print("No disks currently connected to /CONNECT.\n");
-        } else {
-            for (int i = 0; i < count; i++) {
-                char buf[16];
-                buf[0] = '0' + i; buf[1] = ':'; buf[2] = '/'; buf[3] = '\n'; buf[4] = '\0';
-                print(buf);
-            }
-        }
-        return;
-    }
-
-    /* Disk Root Case: List Partitions */
-    /* Check for format "N:/" where N is a digit */
-    if (p[0] >= '0' && p[0] <= '9' && p[1] == ':' && p[2] == '/' && p[3] == '\0') {
-        int drive = p[0] - '0';
-        if (drive < get_hw_disk_count()) {
-            char buf[8];
-            buf[0] = p[0]; buf[1] = ':'; buf[2] = '/'; buf[3] = '0'; buf[4] = '/'; buf[5] = '\n'; buf[6] = '\0';
-            print(buf);
-        } else {
-            print("Error: Disk not found.\n");
-        }
-        return;
-    }
-
-    DIR dp;
-    FILINFO fno;
-    FRESULT res;
-
-    res = f_opendir(&dp, p);
-    if (res == FR_OK) {
-        while (1) {
-            res = f_readdir(&dp, &fno);
-            if (res != FR_OK || fno.fname[0] == 0) break;
-            print(fno.fname);
-            print("\n");
-        }
-    } else {
-        print("Error: Could not open directory.\n");
     }
 }
 
-void rsl_cat(void* path) {
-    vfs_cat(path);
-}
-
-void internal_rsl_cat(void* path) {
-    FIL fp;
-    FRESULT res;
-    char buffer[512];
-    uint32_t br;
-
-    res = f_open(&fp, str_to_cstr(path), FA_READ);
-    if (res == FR_OK) {
-        while (f_read(&fp, buffer, sizeof(buffer)-1, &br) == FR_OK && br > 0) {
-            buffer[br] = '\0';
-            print(buffer);
+void internal_fs_cat(void* path, void* priv) {
+    FIL fp; uint32_t br; char buf[512];
+    FATFS* fs = (FATFS*)priv;
+    if (f_open(fs, &fp, str_to_cstr(path), FA_READ) == FR_OK) {
+        while (f_read(&fp, buf, 511, &br) == FR_OK && br > 0) {
+            buf[br] = '\0'; print(buf);
         }
         f_close(&fp);
-    } else {
-        print("Error: Could not open file for reading.\n");
     }
 }
 
-void rsl_write(void* path, void* content) {
-    vfs_write(path, content);
-}
-
-void internal_rsl_write(void* path, void* content) {
-    FIL fp;
-    FRESULT res;
-    uint32_t bw;
-
-    res = f_open(&fp, str_to_cstr(path), FA_WRITE | FA_CREATE_ALWAYS);
-    if (res == FR_OK) {
+void internal_fs_write(void* path, void* content, void* priv) {
+    FIL fp; uint32_t bw;
+    FATFS* fs = (FATFS*)priv;
+    if (f_open(fs, &fp, str_to_cstr(path), FA_WRITE|FA_CREATE_ALWAYS) == FR_OK) {
         f_write(&fp, str_to_cstr(content), (uint32_t)str_len(content), &bw);
         f_close(&fp);
-        print("Successfully wrote to disk.\n");
-    } else {
-        print("Error: Could not open file for writing.\n");
     }
 }
 
-void rsl_cd(void* path) {
-    vfs_cd(path);
+void internal_fs_mkdir(void* path, void* priv) {
+    FATFS* fs = (FATFS*)priv;
+    f_mkdir(fs, str_to_cstr(path));
 }
 
-void internal_rsl_cd(void* path) {
-    print("Changed directory context to: ");
-    print(str_to_cstr(path));
-    print("\n");
+void internal_fs_rmdir(void* path, void* priv) {
+    FATFS* fs = (FATFS*)priv;
+    f_unlink(fs, str_to_cstr(path));
 }
 
-void rsl_mkdir(void* path) {
-    vfs_mkdir(path);
-}
-
-void rsl_rmdir(void* path) {
-    vfs_rmdir(path);
-}
-
-bool rsl_exists(void* path) {
-    return vfs_exists(path);
-}
-
-void internal_rsl_mkdir(void* path) {
-    if (f_mkdir(str_to_cstr(path)) == FR_OK) {
-        print("Directory created.\n");
-    } else {
-        print("Error: Could not create directory.\n");
-    }
-}
-
-void internal_rsl_rmdir(void* path) {
-    if (f_unlink(str_to_cstr(path)) == FR_OK) {
-        print("Directory removed.\n");
-    } else {
-        print("Error: Could not remove directory.\n");
-    }
-}
-
-bool internal_rsl_exists(void* path) {
+bool internal_fs_exists(void* path, void* priv) {
     FILINFO fno;
-    return f_stat(str_to_cstr(path), &fno) == FR_OK;
+    FATFS* fs = (FATFS*)priv;
+    return f_stat(fs, str_to_cstr(path), &fno) == FR_OK;
 }
 
-void vdisk_connect(int hw_id);
+void rsl_ls(void* path) { vfs_ls(path); }
+void rsl_cat(void* path) { vfs_cat(path); }
+void rsl_write(void* path, void* content) { vfs_write(path, content); }
+void rsl_cd(void* path) { vfs_cd(path); }
+void rsl_mkdir(void* path) { vfs_mkdir(path); }
+void rsl_rmdir(void* path) { vfs_rmdir(path); }
+bool rsl_exists(void* path) { return vfs_exists(path); }
+
+bool rsl_safe_mode(void) { return false; }
 
 void rsl_mount(void* path) {
-    FATFS fs;
     const char* p = str_to_cstr(path);
-    if (f_mount(&fs, p, 1) == FR_OK) {
-        int drive = p[0] - '0';
-        vdisk_connect(drive);
+    int drive = p[0] - '0';
+    if (mount_count >= MAX_MOUNTS) return;
+
+    if (f_mount(&mount_table[mount_count], drive) == FR_OK) {
+        vfs_node_t node = { .private_data = &mount_table[mount_count], .ls = internal_fs_ls, .cat = internal_fs_cat, .write = internal_fs_write, .mkdir = internal_fs_mkdir, .rmdir = internal_fs_rmdir, .exists = internal_fs_exists };
+        int k = 0; if (drive >= 10) node.name[k++] = '0' + (drive / 10); node.name[k++] = '0' + (drive % 10); node.name[k] = '\0';
+        vfs_register_node(node);
+        mount_count++;
         print("Mount successful.\n");
     } else {
         print("Error: Mount failed.\n");
@@ -186,11 +83,9 @@ void rsl_mount(void* path) {
 }
 
 void rsl_format(void* path) {
-    if (f_mkfs(str_to_cstr(path), 0, 0) == FR_OK) {
-        print("Format successful.\n");
-    } else {
-        print("Error: Format failed.\n");
-    }
+    const char* p = str_to_cstr(path);
+    int drive = p[0] - '0';
+    if (f_mkfs(drive) == FR_OK) print("Format successful.\n");
 }
 
 void rsl_stamp(void* path) {
@@ -198,50 +93,21 @@ void rsl_stamp(void* path) {
     int drive = p[0] - '0';
     uint8_t sector[512] = {0};
     sector[0] = 0xEF; sector[1] = 0xBE; sector[2] = 0xAD; sector[3] = 0xDE;
-    if (disk_write(drive, sector, 0, 1) == RES_OK) {
-        print("Sovereign Stamp applied to LBA 0.\n");
-    } else {
-        print("Error: Stamp failed.\n");
-    }
-}
-
-bool rsl_safe_mode(void) {
-    extern bool safe_mode;
-    return safe_mode;
+    if (disk_write(drive, sector, 0, 1) == RES_OK) print("Sovereign Stamp applied.\n");
 }
 
 void draw_pixel(int x, int y, uint32_t color);
-
 void rsl_draw_rrif(void* path, int x, int y) {
-    const char* p = str_to_cstr(path);
-    FIL fp;
-    if (f_open(&fp, p, FA_READ) != FR_OK) return;
-
-    /* RRIF Header: 4 bytes 'RRIF', 2 bytes width, 2 bytes height */
+    vfs_handle_t* h = vfs_open(path, "r");
+    if (!h) return;
     uint8_t header[8];
-    uint32_t br;
-    if (f_read(&fp, header, 8, &br) != FR_OK || br < 8) {
-        f_close(&fp);
-        return;
-    }
-
-    if (header[0] != 'R' || header[1] != 'R' || header[2] != 'I' || header[3] != 'F') {
-        f_close(&fp);
-        return;
-    }
-
-    uint16_t w = *(uint16_t*)&header[4];
-    uint16_t h = *(uint16_t*)&header[6];
-
-    /* Draw pixel by pixel (32-bit ARGB/XRGB assumed) */
+    if (vfs_read(h, header, 8) < 8) { vfs_close(h); return; }
+    uint16_t w = *(uint16_t*)&header[4]; uint16_t h_img = *(uint16_t*)&header[6];
     uint32_t pixel;
-
-    for (int j = 0; j < h; j++) {
+    for (int j = 0; j < h_img; j++) {
         for (int i = 0; i < w; i++) {
-            if (f_read(&fp, &pixel, 4, &br) == FR_OK && br == 4) {
-                draw_pixel(x + i, y + j, pixel);
-            }
+            if (vfs_read(h, &pixel, 4) == 4) draw_pixel(x + i, y + j, pixel);
         }
     }
-    f_close(&fp);
+    vfs_close(h);
 }

@@ -1,4 +1,5 @@
 #include <include/rsl.h>
+#include <include/vfs.h>
 #include <kernel/libs/fatfs/ff.h>
 #include <stdint.h>
 #include <stddef.h>
@@ -39,9 +40,11 @@ int64_t rsl_get_var(const char* name) {
 }
 
 void rsl_execute_stream(const char* path) {
-    FIL fp;
-    if (f_open(&fp, path, FA_READ) != FR_OK) {
+    void* pstr = str_create(path);
+    vfs_handle_t* h = vfs_open(pstr, "r");
+    if (!h) {
         print("Error: Could not open RSL script.\n");
+        release(pstr);
         return;
     }
 
@@ -50,14 +53,15 @@ void rsl_execute_stream(const char* path) {
     serial_write_str("\n");
 
     char line[128];
-    uint32_t br;
-    while (f_read(&fp, line, sizeof(line)-1, &br) == FR_OK && br > 0) {
+    int br;
+    while ((br = vfs_read(h, line, sizeof(line)-1)) > 0) {
         line[br] = '\0';
         /* Logic Gate Evaluator and Streamer loop would go here */
         /* For now, we simulate execution by printing the bytecode stream */
         print(line);
     }
 
-    f_close(&fp);
+    vfs_close(h);
+    release(pstr);
     print("\nRSL Execution Finished.\n");
 }
