@@ -87,14 +87,11 @@ static uint32_t cached_drv = 0xFF;
 
 static uint32_t get_next_cluster(FATFS* fs, uint32_t cluster) {
     uint32_t ss = fs->sector_size ? fs->sector_size : 512;
-    uint32_t fat_sector = fs->partition_lba + fs->reserved_sectors + (cluster * 4 / ss);
+    uint64_t fat_sector = fs->partition_lba + fs->reserved_sectors + (cluster * 4 / ss);
     uint32_t fat_offset = (cluster * 4) % ss;
 
-    /* Simplified Cache: Check if sector is in our 128KB window */
-    /* For now, we'll just cache a single sector for 100% truth,
-       but the architecture allows for the 128KB slab. */
     static uint8_t sector_buf[512];
-    static uint32_t last_sector = 0xFFFFFFFF;
+    static uint64_t last_sector = 0xFFFFFFFFFFFFFFFFULL;
 
     if (last_sector != fat_sector || cached_drv != fs->drv) {
         if (disk_read(fs->drv, sector_buf, fat_sector, 1) != RES_OK) return 0x0FFFFFFF;
@@ -122,18 +119,18 @@ static void to_sfn(const char* src, uint8_t* dst) {
     for (int k = 0; k < 11; k++) if (dst[k] >= 'a' && dst[k] <= 'z') dst[k] -= 32;
 }
 
-static uint32_t get_sector_lba(FATFS* fs, uint32_t cluster) {
-    return fs->data_lba + (cluster - 2) * fs->sectors_per_cluster;
+static uint64_t get_sector_lba(FATFS* fs, uint32_t cluster) {
+    return fs->data_lba + (uint64_t)(cluster - 2) * fs->sectors_per_cluster;
 }
 
-static uint32_t find_entry(FATFS* fs, uint32_t dir_cluster, const char* name, fat_dir_entry_t* out_entry, uint32_t* out_lba, uint32_t* out_idx) {
+static uint32_t find_entry(FATFS* fs, uint32_t dir_cluster, const char* name, fat_dir_entry_t* out_entry, uint64_t* out_lba, uint32_t* out_idx) {
     if (!fs->active) return 0;
     uint32_t cluster = dir_cluster;
     uint8_t sfn[11];
     to_sfn(name, sfn);
 
     while (cluster < 0x0FFFFFF8) {
-        uint32_t lba = get_sector_lba(fs, cluster);
+        uint64_t lba = get_sector_lba(fs, cluster);
         fat_dir_entry_t entries[16];
         for (uint8_t s = 0; s < fs->sectors_per_cluster; s++) {
             if (disk_read(fs->drv, (BYTE*)entries, lba + s, 1) != RES_OK) return 0;
@@ -175,7 +172,8 @@ FRESULT f_open(FATFS* fs, FIL* fp, const TCHAR* path, BYTE mode) {
         if (path[i] == '/') i++;
 
         fat_dir_entry_t entry;
-        uint32_t entry_lba, entry_idx;
+        uint64_t entry_lba;
+        uint32_t entry_idx;
         uint32_t next_cluster = find_entry(fs, cluster, name, &entry, &entry_lba, &entry_idx);
 
         if (!next_cluster) {
@@ -194,7 +192,7 @@ FRESULT f_open(FATFS* fs, FIL* fp, const TCHAR* path, BYTE mode) {
 
                 /* Write to parent directory */
                 uint8_t dir_buf[512];
-                uint32_t parent_lba = get_sector_lba(fs, cluster);
+                uint64_t parent_lba = get_sector_lba(fs, cluster);
                 disk_read(fs->drv, dir_buf, parent_lba, 1);
                 fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
                 for(int k=0; k<16; k++) {
@@ -245,16 +243,14 @@ FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
     while (btr > 0) {
         uint32_t sector_in_cluster = (fp->fptr / ss) % fs->sectors_per_cluster;
         uint32_t offset_in_sector = fp->fptr % ss;
-        uint32_t lba = get_sector_lba(fs, fp->clust) + sector_in_cluster;
+        uint64_t lba = get_sector_lba(fs, fp->clust) + sector_in_cluster;
 
         uint32_t can_read = ss - offset_in_sector;
         if (can_read > btr) can_read = btr;
 
         if (offset_in_sector == 0 && can_read == ss) {
-            /* Direct sector read */
             if (disk_read(fs->drv, p, lba, 1) != RES_OK) break;
         } else {
-            /* Partial sector read via temporary buffer */
             static uint8_t sector_buf[512];
             if (disk_read(fs->drv, sector_buf, lba, 1) != RES_OK) break;
             for (uint32_t i = 0; i < can_read; i++) {
@@ -267,7 +263,6 @@ FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
         btr -= can_read;
         total_read += can_read;
 
-        /* Move to next cluster if needed */
         if (fp->fptr % cluster_size == 0 && btr > 0) {
             fp->clust = get_next_cluster(fs, fp->clust);
             if (fp->clust >= 0x0FFFFFF8) break;
@@ -280,7 +275,7 @@ FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
 
 static FRESULT set_cluster_link(FATFS* fs, uint32_t cluster, uint32_t next) {
     uint32_t ss = fs->sector_size ? fs->sector_size : 512;
-    uint32_t fat_sector = fs->partition_lba + fs->reserved_sectors + (cluster * 4 / ss);
+    uint64_t fat_sector = fs->partition_lba + fs->reserved_sectors + (cluster * 4 / ss);
     uint8_t fat_buf[ss];
     if (disk_read(fs->drv, fat_buf, fat_sector, 1) != RES_OK) return FR_DISK_ERR;
     ((uint32_t*)fat_buf)[(cluster * 4 % ss) / 4] = next & 0x0FFFFFFF;
@@ -290,14 +285,15 @@ static FRESULT set_cluster_link(FATFS* fs, uint32_t cluster, uint32_t next) {
 
 FRESULT f_write(FIL* fp, const void* buff, uint32_t btw, uint32_t* bw) {
     FATFS* fs = fp->obj;
-    if (!fs || !fs->active) return FR_DENIED;
+    if (!fs || fs->ro || !fs->active) return FR_DENIED;
     uint32_t ss = fs->sector_size ? fs->sector_size : 512;
+    uint32_t cluster_size = ss * fs->sectors_per_cluster;
     uint32_t bytes_left = btw;
     const uint8_t* p = (const uint8_t*)buff;
 
     while (bytes_left > 0) {
         uint32_t sector_in_cluster = (fp->fptr / ss) % fs->sectors_per_cluster;
-        uint32_t cluster_offset = fp->fptr % (ss * fs->sectors_per_cluster);
+        uint32_t cluster_offset = fp->fptr % cluster_size;
 
         if (fp->fptr > 0 && cluster_offset == 0) {
             uint32_t next = get_next_cluster(fs, fp->clust);
@@ -310,7 +306,7 @@ FRESULT f_write(FIL* fp, const void* buff, uint32_t btw, uint32_t* bw) {
             fp->clust = next;
         }
 
-        uint32_t lba = get_sector_lba(fs, fp->clust) + sector_in_cluster;
+        uint64_t lba = get_sector_lba(fs, fp->clust) + sector_in_cluster;
         if (disk_write(fs->drv, p, lba, 1) != RES_OK) break;
 
         p += ss;
@@ -318,13 +314,6 @@ FRESULT f_write(FIL* fp, const void* buff, uint32_t btw, uint32_t* bw) {
         if (fp->fptr > fp->fsize) fp->fsize = fp->fptr;
         if (bytes_left > ss) bytes_left -= ss; else bytes_left = 0;
     }
-
-    /* Update File Size in Directory */
-    uint8_t dir_buf[512];
-    disk_read(fs->drv, dir_buf, fp->entry_lba, 1);
-    fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
-    entries[fp->entry_idx].size = fp->fsize;
-    disk_write(fs->drv, dir_buf, fp->entry_lba, 1);
 
     if (bw) *bw = btw - bytes_left;
     return FR_OK;
@@ -362,7 +351,7 @@ FRESULT f_readdir(DIR* dp, FILINFO* fno) {
     if (!fs || !fs->active) return FR_DENIED;
 
     while (dp->clust < 0x0FFFFFF8) {
-        uint32_t lba = get_sector_lba(fs, dp->clust);
+        uint64_t lba = get_sector_lba(fs, dp->clust);
         fat_dir_entry_t entries[16];
 
         uint32_t sector_idx = (dp->index / 16);
@@ -418,10 +407,11 @@ static uint32_t find_free_cluster(FATFS* fs) {
     uint32_t ss = fs->sector_size ? fs->sector_size : 512;
     uint8_t buf[ss];
     for (uint32_t s = 0; s < fs->sectors_per_fat; s++) {
-        if (disk_read(fs->drv, buf, fs->partition_lba + fs->reserved_sectors + s, 1) == RES_OK) {
+        uint64_t lba = fs->partition_lba + fs->reserved_sectors + s;
+        if (disk_read(fs->drv, buf, lba, 1) == RES_OK) {
             uint32_t* fat = (uint32_t*)buf;
             for (uint32_t i = 0; i < ss/4; i++) {
-                if ((fat[i] & 0x0FFFFFFF) == 0) return (s * (ss/4)) + i;
+                if ((fat[i] & 0x0FFFFFFF) == 0) return (s * (ss/4)) + i + 2;
             }
         }
     }
@@ -458,7 +448,7 @@ FRESULT f_mkdir(FATFS* fs, const TCHAR* path) {
     uint32_t new_cluster = find_free_cluster(fs);
     if (!new_cluster) return FR_DENIED;
     uint8_t zero[512] = {0};
-    uint32_t lba = get_sector_lba(fs, new_cluster);
+    uint64_t lba = get_sector_lba(fs, new_cluster);
     disk_write(fs->drv, zero, lba, 1);
     set_cluster_link(fs, new_cluster, 0x0FFFFFFF);
     fat_dir_entry_t entry = {0};
@@ -466,15 +456,18 @@ FRESULT f_mkdir(FATFS* fs, const TCHAR* path) {
     entry.attr = AM_DIR;
     entry.first_cluster_low = new_cluster & 0xFFFF;
     entry.first_cluster_high = (new_cluster >> 16) & 0xFFFF;
+
     uint8_t dir_buf[512];
-    uint32_t parent_lba = get_sector_lba(fs, parent_cluster);
-    disk_read(fs->drv, dir_buf, parent_lba, 1);
-    fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
-    for(int i=0; i<16; i++) {
-        if (entries[i].name[0] == 0 || entries[i].name[0] == 0xE5) {
-            entries[i] = entry;
-            disk_write(fs->drv, dir_buf, parent_lba, 1);
-            return FR_OK;
+    for (uint32_t s = 0; s < fs->sectors_per_cluster; s++) {
+        uint64_t parent_lba = get_sector_lba(fs, parent_cluster) + s;
+        disk_read(fs->drv, dir_buf, parent_lba, 1);
+        fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
+        for(int k=0; k<16; k++) {
+            if (entries[k].name[0] == 0 || entries[k].name[0] == 0xE5) {
+                entries[k] = entry;
+                disk_write(fs->drv, dir_buf, parent_lba, 1);
+                return FR_OK;
+            }
         }
     }
     return FR_DENIED;
@@ -485,22 +478,18 @@ FRESULT f_unlink(FATFS* fs, const TCHAR* path) {
     char name[256];
     uint32_t parent_cluster = parse_path_and_get_parent(fs, path, name);
     if (!parent_cluster) return FR_NO_PATH;
+
+    fat_dir_entry_t entry;
+    uint64_t entry_lba;
+    uint32_t entry_idx;
+    if (!find_entry(fs, parent_cluster, name, &entry, &entry_lba, &entry_idx)) return FR_NO_FILE;
+
     uint8_t dir_buf[512];
-    uint32_t parent_lba = get_sector_lba(fs, parent_cluster);
-    disk_read(fs->drv, dir_buf, parent_lba, 1);
+    disk_read(fs->drv, dir_buf, entry_lba, 1);
     fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
-    uint8_t sfn[11];
-    to_sfn(name, sfn);
-    for(int i=0; i<16; i++) {
-        bool match = true;
-        for(int k=0; k<11; k++) if(entries[i].name[k] != sfn[k]) match = false;
-        if (match) {
-            entries[i].name[0] = 0xE5;
-            disk_write(fs->drv, dir_buf, parent_lba, 1);
-            return FR_OK;
-        }
-    }
-    return FR_NO_FILE;
+    entries[entry_idx].name[0] = 0xE5;
+    disk_write(fs->drv, dir_buf, entry_lba, 1);
+    return FR_OK;
 }
 
 FRESULT f_stat(FATFS* fs, const TCHAR* path, FILINFO* fno) {
@@ -517,4 +506,14 @@ FRESULT f_stat(FATFS* fs, const TCHAR* path, FILINFO* fno) {
     return FR_NO_PATH;
 }
 
-FRESULT f_close(FIL* fp) { (void)fp; return FR_OK; }
+FRESULT f_close(FIL* fp) {
+    if (!fp || !fp->obj) return FR_INVALID_OBJECT;
+    uint8_t dir_buf[512];
+    if (disk_read(fp->obj->drv, dir_buf, fp->entry_lba, 1) != RES_OK) return FR_DISK_ERR;
+    fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
+    entries[fp->entry_idx].size = fp->fsize;
+    entries[fp->entry_idx].first_cluster_low = fp->sclust & 0xFFFF;
+    entries[fp->entry_idx].first_cluster_high = (fp->sclust >> 16) & 0xFFFF;
+    if (disk_write(fp->obj->drv, dir_buf, fp->entry_lba, 1) != RES_OK) return FR_DISK_ERR;
+    return FR_OK;
+}

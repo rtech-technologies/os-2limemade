@@ -9,7 +9,7 @@ typedef uint32_t DWORD;
 typedef uint16_t WORD;
 typedef uint8_t BYTE;
 typedef uint32_t FSIZE_t;
-typedef uint32_t LBA_t;
+typedef uint64_t LBA_t;
 
 typedef enum {
     FR_OK = 0,

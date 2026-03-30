@@ -201,5 +201,14 @@ uint32_t vfs_tell(vfs_handle_t* h) {
 }
 
 void vfs_close(vfs_handle_t* h) {
-    (void)h;
+    if (!h) return;
+    FIL fil;
+    fil.obj = (FATFS*)h->obj;
+    fil.sclust = h->sclust;
+    fil.clust = h->clust;
+    fil.fptr = h->pos;
+    fil.fsize = h->size;
+    fil.entry_lba = h->entry_lba;
+    fil.entry_idx = h->entry_idx;
+    f_close(&fil);
 }
