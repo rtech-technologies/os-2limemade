@@ -335,12 +335,26 @@ void ahci_service(kernel_event_t event) {
 
                             if ((hba_base->ports[p].ssts & 0x0F) == 0x03) {
                                 uint32_t sig = hba_base->ports[p].sig;
+                                bool registered_sata = false;
+
                                 if (sig == 0x00000101) { /* SATA */
-                                    vdisk_node_t sata_disk = { .sector_size = 512, .total_lba = 1024 * 1024 * 10, .read_lba = ahci_read_sectors, .write_lba = ahci_write_sectors, .private_data = (void*)(uint64_t)p, .is_atapi = false };
-                                    register_hardware_disk(sata_disk);
-                                } else if (sig == 0xEB140101) { /* ATAPI */
+                                    /* HARDEN: Verification Read to ensure hardware is truly responsive */
+                                    uint8_t probe[512];
+                                    if (ahci_read_sectors((void*)(uint64_t)p, 0, 1, probe) == 0) {
+                                        vdisk_node_t sata_disk = { .sector_size = 512, .total_lba = 1024 * 1024 * 10, .read_lba = ahci_read_sectors, .write_lba = ahci_write_sectors, .private_data = (void*)(uint64_t)p, .is_atapi = false };
+                                        register_hardware_disk(sata_disk);
+                                        registered_sata = true;
+                                        vga_print("[AHCI] Port %d: SATA Verification Success.\n", p);
+                                    } else {
+                                        vga_print("[AHCI] Port %d: SATA Verification FAILED. Ignoring.\n", p);
+                                    }
+                                }
+
+                                /* If SATA was not found/functional on this port, only then check for ATAPI */
+                                if (!registered_sata && sig == 0xEB140101) { /* ATAPI */
                                     vdisk_node_t cdrom = { .sector_size = 2048, .total_lba = 1024 * 1024, .read_lba = atapi_read_sectors, .write_lba = NULL, .private_data = (void*)(uint64_t)p, .is_atapi = true };
                                     register_hardware_disk(cdrom);
+                                    vga_print("[AHCI] Port %d: Registered as ATAPI CD-ROM.\n", p);
                                 }
                             }
                         }

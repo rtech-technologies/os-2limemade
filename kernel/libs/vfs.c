@@ -6,10 +6,15 @@
 #define MAX_VFS_NODES 16
 static vfs_node_t vfs_registry[MAX_VFS_NODES];
 static int vfs_node_count = 0;
+static bool safe_mode_active = true;
 
 void vfs_init(void) {
     vfs_node_count = 0;
+    safe_mode_active = true;
 }
+
+bool vfs_is_safe_mode(void) { return safe_mode_active; }
+void vfs_set_safe_mode(bool active) { safe_mode_active = active; }
 
 void vfs_register_node(vfs_node_t node) {
     if (vfs_node_count < MAX_VFS_NODES) {
@@ -144,9 +149,12 @@ vfs_handle_t* vfs_open(void* path, const char* mode) {
             if (f_open(fs, &fil, subpath_cstr, m) == FR_OK) {
                 vfs_handle_t* h = bump_alloc(sizeof(vfs_handle_t));
                 h->obj = fs;
-                h->cluster = fil.sclust;
+                h->sclust = fil.sclust;
+                h->clust = fil.clust;
                 h->size = fil.fsize;
-                h->pos = 0;
+                h->pos = fil.fptr;
+                h->entry_lba = fil.entry_lba;
+                h->entry_idx = fil.entry_idx;
                 return h;
             }
         }
@@ -157,17 +165,17 @@ vfs_handle_t* vfs_open(void* path, const char* mode) {
 int vfs_read(vfs_handle_t* h, void* buf, int len) {
     FIL fil;
     fil.obj = (FATFS*)h->obj;
-    fil.sclust = h->cluster;
-    fil.clust = h->cluster; /* This is a limitation: f_read expects current cluster */
+    fil.sclust = h->sclust;
+    fil.clust = h->clust;
     fil.fptr = h->pos;
     fil.fsize = h->size;
-
-    /* Fast-forward to the correct cluster based on pos */
-    /* (Omitted for brevity in this tier-3 bridge) */
+    fil.entry_lba = h->entry_lba;
+    fil.entry_idx = h->entry_idx;
 
     uint32_t br;
     if (f_read(&fil, buf, (uint32_t)len, &br) == FR_OK) {
-        h->pos += br;
+        h->pos = fil.fptr;
+        h->clust = fil.clust;
         return (int)br;
     }
     return -1;

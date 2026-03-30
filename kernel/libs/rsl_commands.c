@@ -64,7 +64,7 @@ void rsl_mkdir(void* path) { vfs_mkdir(path); }
 void rsl_rmdir(void* path) { vfs_rmdir(path); }
 bool rsl_exists(void* path) { return vfs_exists(path); }
 
-bool rsl_safe_mode(void) { return false; }
+bool rsl_safe_mode(void) { return vfs_is_safe_mode(); }
 
 void rsl_mount(void* path) {
     const char* p = str_to_cstr(path);

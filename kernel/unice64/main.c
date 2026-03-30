@@ -44,11 +44,13 @@ void _start(void) {
     int hw_count = get_hw_disk_count();
     vga_print("[BOOT] Scanning %d detected hardware volumes...\n", hw_count);
 
+    bool sata_found = false;
     /* Phase 1: SATA Sovereign Check */
     for (int i = 0; i < hw_count; i++) {
         if (vdisk_is_atapi(i)) continue;
         uint8_t sector[512];
         if (disk_read(i, sector, 0, 1) == RES_OK) {
+            sata_found = true; /* At least one functional SATA disk detected */
             uint32_t sig = *(uint32_t*)sector;
             if (sig == 0xEFBEADDE) {
                 vga_print("[BOOT] Sovereign HDD found (Drive %d).\n", i);
@@ -58,8 +60,8 @@ void _start(void) {
         }
     }
 
-    /* Phase 2: INITRD/CDROM Check (Only if no SATA found) */
-    if (boot_drive == -1) {
+    /* Phase 2: INITRD/CDROM Check (Only if no functional SATA found) */
+    if (!sata_found && boot_drive == -1) {
         for (int i = 0; i < hw_count; i++) {
             if (!vdisk_is_atapi(i)) continue;
             uint8_t sector[512];
@@ -147,6 +149,9 @@ void _start(void) {
         set_color(LIGHT_RED, BLACK);
         print("\n[CRITICAL] SYSTEM CANNOT FIND BOOT DISK.\n");
         print("[CRITICAL] ENTERING SAFE MODE.\n");
+        vfs_set_safe_mode(true);
+    } else {
+        vfs_set_safe_mode(false);
     }
 
     dispatch_event(EVENT_MAIN);
