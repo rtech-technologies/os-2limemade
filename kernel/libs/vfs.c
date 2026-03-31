@@ -144,6 +144,8 @@ vfs_handle_t* vfs_open(void* path, const char* mode) {
         if (path_starts_with(path, vfs_registry[i].name)) {
             const char* subpath_cstr = strip_prefix(path, vfs_registry[i].name);
             FATFS* fs = (FATFS*)vfs_registry[i].private_data;
+            if (!fs) return NULL;
+
             FIL fil;
             BYTE m = (mode[0] == 'w') ? (FA_WRITE | FA_CREATE_ALWAYS) : FA_READ;
             if (f_open(fs, &fil, subpath_cstr, m) == FR_OK) {

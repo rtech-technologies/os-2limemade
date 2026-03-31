@@ -201,15 +201,17 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis->counth = (uint8_t)(count >> 8);
 
     port->ci = (1 << 0);
-    while (port->ci & (1 << 0)) {
+    int timeout = 1000000;
+    while ((port->ci & (1 << 0)) && timeout--) {
         if (port->tfd & (1 << 0)) { /* ERR bit */
             vga_print("[AHCI] Port %d READ ERROR: TFD 0x%x\n", p, port->tfd);
             return -1;
         }
-        if (port->tfd & (1 << 7)) { /* BSY bit */
-            /* Still busy, keep waiting */
-        }
         __asm__ volatile ("pause");
+    }
+    if (timeout <= 0) {
+        vga_print("[AHCI] Port %d READ TIMEOUT\n", p);
+        return -1;
     }
     return 0;
 }
@@ -251,12 +253,17 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis->counth = (uint8_t)(count >> 8);
 
     port->ci = (1 << 0);
-    while (port->ci & (1 << 0)) {
+    int timeout = 1000000;
+    while ((port->ci & (1 << 0)) && timeout--) {
         if (port->tfd & (1 << 0)) {
             vga_print("[AHCI] Port %d WRITE ERROR: TFD 0x%x\n", p, port->tfd);
             return -1;
         }
         __asm__ volatile ("pause");
+    }
+    if (timeout <= 0) {
+        vga_print("[AHCI] Port %d WRITE TIMEOUT\n", p);
+        return -1;
     }
     return 0;
 }
@@ -297,12 +304,17 @@ int atapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     cmdtbl->acmd[9] = 0;
 
     port->ci = (1 << 0);
-    while (port->ci & (1 << 0)) {
+    int timeout = 1000000;
+    while ((port->ci & (1 << 0)) && timeout--) {
         if (port->tfd & (1 << 0)) {
             vga_print("[AHCI] Port %d ATAPI ERROR: TFD 0x%x\n", p, port->tfd);
             return -1;
         }
         __asm__ volatile ("pause");
+    }
+    if (timeout <= 0) {
+        vga_print("[AHCI] Port %d ATAPI TIMEOUT\n", p);
+        return -1;
     }
     return 0;
 }
