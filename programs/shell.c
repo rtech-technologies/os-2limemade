@@ -9,6 +9,25 @@ static bool cstr_match(const char* s1, const char* s2) {
     return s1[i] == s2[i];
 }
 
+static bool is_absolute(const char* path) {
+    /* Check if it has a ':' (SATA0:/) or starts with '/' */
+    int i = 0;
+    while (path[i]) {
+        if (path[i] == ':') return true;
+        i++;
+    }
+    return path[0] == '/';
+}
+
+static void* resolve_path(void* curdir, const char* arg) {
+    if (is_absolute(arg)) return str_create(arg);
+
+    const char* cd = str_to_cstr(curdir);
+    if (cstr_match(cd, "/")) return str_create(arg); /* Cannot prepend / to relative path easily here */
+
+    return str_concat(curdir, str_create(arg));
+}
+
 static color_t name_to_color(const char* name) {
     if (cstr_match(name, "black")) return BLACK;
     if (cstr_match(name, "blue")) return BLUE;
@@ -69,7 +88,13 @@ void shell_main(void) {
         }
 
         if (cstr_match(argv[0], "ls")) {
-            rsl_ls(curdir);
+            if (argc > 1) {
+                void* path = resolve_path(curdir, argv[1]);
+                rsl_ls(path);
+                release(path);
+            } else {
+                rsl_ls(curdir);
+            }
         }
         else if (cstr_match(argv[0], "echo")) {
             for (int i = 1; i < argc; i++) {
@@ -80,7 +105,7 @@ void shell_main(void) {
         }
         else if (cstr_match(argv[0], "cat")) {
             if (argc > 1) {
-                void* path = str_create(argv[1]);
+                void* path = resolve_path(curdir, argv[1]);
                 rsl_cat(path);
                 release(path);
             } else {
@@ -89,8 +114,9 @@ void shell_main(void) {
         }
         else if (cstr_match(argv[0], "write")) {
             if (is_safe) { print("Error: Write commands disabled in Safe Mode.\n"); release(cmd_line); continue; }
+            if (cstr_match(str_to_cstr(curdir), "/")) { print("Error: Access Denied at root.\n"); release(cmd_line); continue; }
             if (argc > 1) {
-                void* path = str_create(argv[1]);
+                void* path = resolve_path(curdir, argv[1]);
                 void* content = input("Enter Content: ");
                 if (content) {
                     rsl_write(path, content);
@@ -98,14 +124,16 @@ void shell_main(void) {
                 }
                 release(path);
             } else {
-                void* filename = input("Enter Filename: ");
-                if (filename) {
+                void* arg_name = input("Enter Filename: ");
+                if (arg_name) {
+                    void* path = resolve_path(curdir, str_to_cstr(arg_name));
                     void* content = input("Enter Content: ");
                     if (content) {
-                        rsl_write(filename, content);
+                        rsl_write(path, content);
                         release(content);
                     }
-                    release(filename);
+                    release(path);
+                    release(arg_name);
                 }
             }
         }
@@ -128,10 +156,21 @@ void shell_main(void) {
                         new_path = str_create("/");
                     }
                 } else {
-                    new_path = str_create(argv[1]);
+                    new_path = resolve_path(curdir, argv[1]);
                 }
 
                 if (rsl_exists(new_path)) {
+                    /* Ensure directories end with / */
+                    const char* nps = str_to_cstr(new_path);
+                    int len = 0; while(nps[len]) len++;
+                    if (len > 0 && nps[len-1] != '/') {
+                        void* slash = str_create("/");
+                        void* fixed = str_concat(new_path, slash);
+                        release(slash);
+                        release(new_path);
+                        new_path = fixed;
+                    }
+
                     release(curdir);
                     curdir = new_path;
                     rsl_cd(curdir);
@@ -145,8 +184,9 @@ void shell_main(void) {
         }
         else if (cstr_match(argv[0], "mkdir")) {
             if (is_safe) { print("Error: Directory commands disabled in Safe Mode.\n"); release(cmd_line); continue; }
+            if (cstr_match(str_to_cstr(curdir), "/")) { print("Error: Access Denied at root.\n"); release(cmd_line); continue; }
             if (argc > 1) {
-                void* path = str_create(argv[1]);
+                void* path = resolve_path(curdir, argv[1]);
                 rsl_mkdir(path);
                 release(path);
             } else {
@@ -182,8 +222,9 @@ void shell_main(void) {
         }
         else if (cstr_match(argv[0], "rmdir")) {
             if (is_safe) { print("Error: Directory commands disabled in Safe Mode.\n"); release(cmd_line); continue; }
+            if (cstr_match(str_to_cstr(curdir), "/")) { print("Error: Access Denied at root.\n"); release(cmd_line); continue; }
             if (argc > 1) {
-                void* path = str_create(argv[1]);
+                void* path = resolve_path(curdir, argv[1]);
                 rsl_rmdir(path);
                 release(path);
             } else {
