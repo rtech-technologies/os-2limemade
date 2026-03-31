@@ -78,7 +78,7 @@ static uint32_t get_next_cluster(FATFS* fs, uint32_t cluster) {
     uint64_t fat_sector = fs->partition_lba + (uint64_t)fs->reserved_sectors + ((uint64_t)cluster * 4 / ss);
     uint32_t fat_offset = (cluster * 4) % ss;
 
-    /* Buffer Isolation: Removed static to prevent collision */
+    /* Buffer Isolation: Remove static to prevent corruption */
     uint8_t sector_buf[512];
     if (disk_read(fs->drv, sector_buf, fat_sector, 1) != RES_OK) return 0x0FFFFFFF;
 
@@ -87,7 +87,7 @@ static uint32_t get_next_cluster(FATFS* fs, uint32_t cluster) {
 uint32_t f_get_next_cluster(FATFS* fs, uint32_t cluster) { return get_next_cluster(fs, cluster); }
 
 static void to_sfn(const char* src, uint8_t* dst) {
-    /* Sanitize the SFN: Clear with 0x20 (spaces) */
+    /* Sanitize the SFN: Explicitly clear with 0x20 (spaces) */
     for (int i = 0; i < 11; i++) dst[i] = 0x20;
     int i = 0, j = 0;
     while (src[i] && src[i] != '.' && src[i] != '/' && j < 8) {
@@ -142,10 +142,11 @@ static uint32_t resolve_path_to_cluster(FATFS* fs, const char* path, fat_dir_ent
     if (out_lba) *out_lba = 0;
     if (out_idx) *out_idx = 0;
 
-    /* Drain leading slashes - Use while to avoid redundant separator hang */
+    /* Drain leading slashes */
     while (path[i] == '/') i++;
 
-    if (path[i] == '\0') {
+    /* Root or current relative dir case */
+    if (path[i] == '\0' || (path[i] == '.' && path[i+1] == '\0')) {
         if (out_entry) {
             for(int k=0; k<11; k++) out_entry->name[k] = ' ';
             out_entry->attr = AM_DIR;
@@ -163,7 +164,7 @@ static uint32_t resolve_path_to_cluster(FATFS* fs, const char* path, fat_dir_ent
         }
         name[j] = '\0';
 
-        /* Drain redundant slashes */
+        /* Drain redundant slashes - MUST advance i to avoid infinite loop */
         while (path[i] == '/') i++;
 
         uint32_t next = find_entry(fs, cluster, name, out_entry, out_lba, out_idx);
@@ -196,7 +197,7 @@ FRESULT f_open(FATFS* fs, FIL* fp, const TCHAR* path, BYTE mode) {
                 for(k=0; k<last_slash; k++) {
                     dir_path[k] = path[k];
                 }
-                dir_path[last_slash] = '\0';
+                dir_path[k] = '\0';
                 parent_cluster = resolve_path_to_cluster(fs, dir_path, NULL, NULL, NULL);
                 filename = &path[last_slash+1];
             }
@@ -211,15 +212,15 @@ FRESULT f_open(FATFS* fs, FIL* fp, const TCHAR* path, BYTE mode) {
             new_entry.first_cluster_high = (new_cluster >> 16) & 0xFFFF;
             new_entry.size = 0;
             uint8_t dir_buf[512];
-            uint64_t parent_lba = get_sector_lba(fs, parent_cluster);
-            disk_read(fs->drv, dir_buf, parent_lba, 1);
+            uint64_t p_lba = get_sector_lba(fs, parent_cluster);
+            disk_read(fs->drv, dir_buf, p_lba, 1);
             fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
             for(int k=0; k<16; k++) {
                 if (entries[k].name[0] == 0 || entries[k].name[0] == 0xE5) {
                     entries[k] = new_entry;
-                    disk_write(fs->drv, dir_buf, parent_lba, 1);
+                    disk_write(fs->drv, dir_buf, p_lba, 1);
                     fp->sclust = new_cluster; fp->clust = new_cluster; fp->fptr = 0; fp->fsize = 0;
-                    fp->entry_lba = parent_lba; fp->entry_idx = k;
+                    fp->entry_lba = p_lba; fp->entry_idx = k;
                     return FR_OK;
                 }
             }
@@ -255,7 +256,7 @@ FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
         if (offset_in_sector == 0 && can_read == ss) {
             if (disk_read(fs->drv, p, lba, 1) != RES_OK) break;
         } else {
-            /* Buffer Isolation: Removed static to prevent corruption */
+            /* Buffer Isolation: Use stack instead of static to prevent corruption */
             uint8_t sector_buf[512];
             if (disk_read(fs->drv, sector_buf, lba, 1) != RES_OK) break;
             for (uint32_t i = 0; i < can_read; i++) p[i] = sector_buf[offset_in_sector + i];
@@ -338,11 +339,17 @@ FRESULT f_readdir(DIR* dp, FILINFO* fno) {
             dp->index++;
             if (e->name[0] == 0x00) return FR_NO_FILE;
             if (e->name[0] == 0xE5 || e->attr == 0x0F) continue;
+
             int k = 0;
             if (e->attr & AM_DIR) { fno->fname[k++] = '['; fno->fname[k++] = 'D'; fno->fname[k++] = 'I'; fno->fname[k++] = 'R'; fno->fname[k++] = ']'; fno->fname[k++] = ' '; }
             for (int i=0; i<8; i++) if(e->name[i]!=' ') fno->fname[k++] = e->name[i];
-            if (!(e->attr & AM_DIR)) { fno->fname[k++] = '.'; for (int i=8; i<11; i++) if(e->name[i]!=' ') fno->fname[k++] = e->name[i]; }
-            fno->fname[k] = '\0'; fno->fattrib = e->attr; fno->fsize = e->size;
+            if (!(e->attr & AM_DIR)) {
+                fno->fname[k++] = '.';
+                for (int i=8; i<11; i++) if(e->name[i]!=' ') fno->fname[k++] = e->name[i];
+            }
+            fno->fname[k] = '\0';
+            fno->fattrib = e->attr;
+            fno->fsize = e->size;
             return FR_OK;
         }
     }
@@ -357,9 +364,11 @@ FRESULT f_mkfs(int drive) {
     *(uint32_t*)&boot[36] = 128; *(uint32_t*)&boot[44] = 2;
     boot[510] = 0x55; boot[511] = 0xAA;
     disk_write(drive, boot, 2048, 1);
+
     uint8_t fat[512] = {0};
     *(uint32_t*)&fat[0] = 0x0FFFFFF8; *(uint32_t*)&fat[4] = 0xFFFFFFFF; *(uint32_t*)&fat[8] = 0x0FFFFFFF;
     disk_write(drive, fat, 2048 + 32, 1);
+
     uint8_t zero[512] = {0};
     disk_write(drive, zero, 2048 + 32 + 256, 1);
     return FR_OK;
@@ -392,10 +401,7 @@ FRESULT f_mkdir(FATFS* fs, const TCHAR* path) {
     if (last_slash == -1) { parent_cluster = fs->root_cluster; filename = path; }
     else {
         int k;
-        for(k=0; k<last_slash; k++) {
-            dir_path[k] = path[k];
-        }
-        dir_path[k] = '\0';
+        for(k=0; k<last_slash; k++) dir_path[k] = path[k]; dir_path[k] = '\0';
         parent_cluster = resolve_path_to_cluster(fs, dir_path, NULL, NULL, NULL);
         filename = &path[last_slash+1];
     }
@@ -415,13 +421,13 @@ FRESULT f_mkdir(FATFS* fs, const TCHAR* path) {
 
     uint8_t dir_buf[512];
     for (uint32_t s = 0; s < fs->sectors_per_cluster; s++) {
-        uint64_t parent_lba = get_sector_lba(fs, parent_cluster) + s;
-        disk_read(fs->drv, dir_buf, parent_lba, 1);
+        uint64_t p_lba = get_sector_lba(fs, parent_cluster) + s;
+        disk_read(fs->drv, dir_buf, p_lba, 1);
         fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
         for(int k=0; k<16; k++) {
             if (entries[k].name[0] == 0 || entries[k].name[0] == 0xE5) {
                 entries[k] = entry;
-                disk_write(fs->drv, dir_buf, parent_lba, 1);
+                disk_write(fs->drv, dir_buf, p_lba, 1);
                 return FR_OK;
             }
         }
@@ -456,7 +462,7 @@ FRESULT f_stat(FATFS* fs, const TCHAR* path, FILINFO* fno) {
 FRESULT f_close(FIL* fp) {
     if (!fp || !fp->obj) return FR_INVALID_OBJECT;
     /* Protect LBA 0: Cannot sync metadata if entry_lba is 0 (MBR or Root) */
-    if (fp->entry_lba == 0) return FR_OK;
+    if (fp->entry_lba == 0) return FR_INVALID_OBJECT;
     uint8_t dir_buf[512];
     if (disk_read(fp->obj->drv, dir_buf, fp->entry_lba, 1) != RES_OK) return FR_DISK_ERR;
     fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
