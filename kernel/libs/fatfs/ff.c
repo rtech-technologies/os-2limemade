@@ -33,7 +33,7 @@ FRESULT f_fdisk(int drive) {
 void pit_wait_ms(uint32_t ms);
 
 FRESULT f_mount(FATFS* fs, int drive) {
-    uint8_t sector[512];
+    uint8_t sector[2048];
     /* 50ms Sovereign Timeout */
     int timeout = 50;
     while (disk_read(drive, sector, 0, 1) != RES_OK && timeout--) {
@@ -42,9 +42,9 @@ FRESULT f_mount(FATFS* fs, int drive) {
     if (timeout <= 0) return FR_TIMEOUT;
 
     uint32_t part_lba = 0;
-    uint8_t gpt_header[512];
+    uint8_t gpt_header[2048];
     if (disk_read(drive, gpt_header, 1, 1) == RES_OK && *(uint64_t*)gpt_header == 0x5452415020494645ULL) {
-        uint8_t gpt_entry[512];
+        uint8_t gpt_entry[2048];
         if (disk_read(drive, gpt_entry, 2, 1) == RES_OK) {
             part_lba = (uint32_t)*(uint64_t*)&gpt_entry[32];
         }
@@ -79,7 +79,7 @@ static uint32_t get_next_cluster(FATFS* fs, uint32_t cluster) {
     uint32_t fat_offset = (cluster * 4) % ss;
 
     /* Buffer Isolation: Remove static to prevent corruption */
-    uint8_t sector_buf[512];
+    uint8_t sector_buf[2048];
     if (disk_read(fs->drv, sector_buf, fat_sector, 1) != RES_OK) return 0x0FFFFFFF;
 
     return (*(uint32_t*)&sector_buf[fat_offset]) & 0x0FFFFFFF;
@@ -211,7 +211,7 @@ FRESULT f_open(FATFS* fs, FIL* fp, const TCHAR* path, BYTE mode) {
             new_entry.first_cluster_low = new_cluster & 0xFFFF;
             new_entry.first_cluster_high = (new_cluster >> 16) & 0xFFFF;
             new_entry.size = 0;
-            uint8_t dir_buf[512];
+            uint8_t dir_buf[2048];
             uint64_t p_lba = get_sector_lba(fs, parent_cluster);
             disk_read(fs->drv, dir_buf, p_lba, 1);
             fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
@@ -257,7 +257,7 @@ FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
             if (disk_read(fs->drv, p, lba, 1) != RES_OK) break;
         } else {
             /* Buffer Isolation: Use stack instead of static to prevent corruption */
-            uint8_t sector_buf[512];
+            uint8_t sector_buf[2048];
             if (disk_read(fs->drv, sector_buf, lba, 1) != RES_OK) break;
             for (uint32_t i = 0; i < can_read; i++) p[i] = sector_buf[offset_in_sector + i];
         }
@@ -419,7 +419,7 @@ FRESULT f_mkdir(FATFS* fs, const TCHAR* path) {
     entry.first_cluster_low = new_cluster & 0xFFFF;
     entry.first_cluster_high = (new_cluster >> 16) & 0xFFFF;
 
-    uint8_t dir_buf[512];
+    uint8_t dir_buf[2048];
     for (uint32_t s = 0; s < fs->sectors_per_cluster; s++) {
         uint64_t p_lba = get_sector_lba(fs, parent_cluster) + s;
         disk_read(fs->drv, dir_buf, p_lba, 1);
@@ -441,7 +441,7 @@ FRESULT f_unlink(FATFS* fs, const TCHAR* path) {
     uint64_t entry_lba;
     uint32_t entry_idx;
     if (!resolve_path_to_cluster(fs, path, &entry, &entry_lba, &entry_idx)) return FR_NO_FILE;
-    uint8_t dir_buf[512];
+    uint8_t dir_buf[2048];
     disk_read(fs->drv, dir_buf, entry_lba, 1);
     fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
     entries[entry_idx].name[0] = 0xE5;
@@ -463,7 +463,7 @@ FRESULT f_close(FIL* fp) {
     if (!fp || !fp->obj) return FR_INVALID_OBJECT;
     /* Protect LBA 0: Cannot sync metadata if entry_lba is 0 (MBR or Root) */
     if (fp->entry_lba == 0) return FR_INVALID_OBJECT;
-    uint8_t dir_buf[512];
+    uint8_t dir_buf[2048];
     if (disk_read(fp->obj->drv, dir_buf, fp->entry_lba, 1) != RES_OK) return FR_DISK_ERR;
     fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
     entries[fp->entry_idx].size = fp->fsize;

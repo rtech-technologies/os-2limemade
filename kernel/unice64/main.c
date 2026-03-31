@@ -45,11 +45,6 @@ void _start(void) {
     /* 1. Sovereign Discovery: Scan ALL registered hardware for a bootable volume */
     void vga_print(const char* fmt, ...);
 
-    /* Audit all potential AHCI ports before discovery */
-    for (int p = 0; p < 32; p++) {
-        ahci_hardware_audit(p);
-    }
-
     int boot_drive = -1;
     int hw_count = get_hw_disk_count();
     vga_print("[BOOT] Scanning %d detected hardware volumes...\n", hw_count);

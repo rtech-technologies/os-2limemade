@@ -51,7 +51,7 @@ typedef struct {
     LBA_t dirbase;      /* Root directory base sector/cluster */
     LBA_t database;     /* Data base sector */
     DWORD winsect;      /* Current sector in win[] */
-    BYTE  win[512];     /* Disk access window for Directory/FAT/Boot */
+    BYTE  win[2048];    /* Disk access window for Directory/FAT/Boot */
 
     /* Sovereign Mechanical Context */
     uint16_t reserved_sectors;
