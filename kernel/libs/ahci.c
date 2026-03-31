@@ -175,6 +175,11 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     cmdhdr->w = 0;
     cmdhdr->prdtl = 1;
 
+    /* Re-link Command Table every time to ensure atomic correctness */
+    uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
+    cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
+    cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
+
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)port_ctba_virt[p];
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
     cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
@@ -197,7 +202,13 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 
     port->ci = (1 << 0);
     while (port->ci & (1 << 0)) {
-        if (port->tfd & (1 << 0)) return -1;
+        if (port->tfd & (1 << 0)) { /* ERR bit */
+            vga_print("[AHCI] Port %d READ ERROR: TFD 0x%x\n", p, port->tfd);
+            return -1;
+        }
+        if (port->tfd & (1 << 7)) { /* BSY bit */
+            /* Still busy, keep waiting */
+        }
         __asm__ volatile ("pause");
     }
     return 0;
@@ -213,6 +224,11 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     cmdhdr->cfl = 5;
     cmdhdr->w = 1;
     cmdhdr->prdtl = 1;
+
+    /* Re-link Command Table every time to ensure atomic correctness */
+    uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
+    cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
+    cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)port_ctba_virt[p];
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
@@ -236,7 +252,10 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 
     port->ci = (1 << 0);
     while (port->ci & (1 << 0)) {
-        if (port->tfd & (1 << 0)) return -1;
+        if (port->tfd & (1 << 0)) {
+            vga_print("[AHCI] Port %d WRITE ERROR: TFD 0x%x\n", p, port->tfd);
+            return -1;
+        }
         __asm__ volatile ("pause");
     }
     return 0;
@@ -253,6 +272,11 @@ int atapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     cmdhdr->w = 0;
     cmdhdr->a = 1;
     cmdhdr->prdtl = 1;
+
+    /* Re-link Command Table every time to ensure atomic correctness */
+    uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
+    cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
+    cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)port_ctba_virt[p];
 
@@ -274,7 +298,10 @@ int atapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 
     port->ci = (1 << 0);
     while (port->ci & (1 << 0)) {
-        if (port->tfd & (1 << 0)) return -1;
+        if (port->tfd & (1 << 0)) {
+            vga_print("[AHCI] Port %d ATAPI ERROR: TFD 0x%x\n", p, port->tfd);
+            return -1;
+        }
         __asm__ volatile ("pause");
     }
     return 0;
