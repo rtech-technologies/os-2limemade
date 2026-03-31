@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include <limine.h>
 
 #include "vdisk.h"
 
@@ -17,18 +18,19 @@ static int connect_count = 0;
 
 void serial_write_str(const char* s);
 void vga_print(const char* fmt, ...);
+struct limine_module_response* get_modules(void);
 
 void register_hardware_disk(vdisk_node_t node) {
     if (hw_count < MAX_DISKS) {
         hw_registry[hw_count++] = node;
-        vga_print("[VDISK] Physical hardware detected and registered.\n");
+        vga_print("[VDISK] Physical hardware registered.\n");
     }
 }
 
 void vdisk_connect(int hw_id) {
     if (hw_id >= 0 && hw_id < hw_count && connect_count < MAX_DISKS) {
         connect_registry[connect_count++] = hw_registry[hw_id];
-        serial_write_str("[CONNECT] Disk volume linked to Sovereign /CONNECT registry.\n");
+        serial_write_str("[CONNECT] Disk volume linked.\n");
     }
 }
 
@@ -62,21 +64,72 @@ bool vdisk_is_atapi(int hw_id) {
     return hw_registry[hw_id].is_atapi;
 }
 
-int is_sovereign_disk(int disk_id) {
-    uint32_t buffer[128]; /* 512 bytes */
-    if (vdisk_read_hw(disk_id, 0, 1, buffer) != 0) return 0;
-    if (buffer[0] == 0xEFBEADDE) {
-        vga_print("[VDISK] OSx2 Limemade signature 0xEFBEADDE found!\n");
-        return 1;
-    }
+static int ramdisk_read(void* priv, uint64_t lba, uint32_t count, void* buffer) {
+    (void)priv;
+    struct limine_module_response* resp = get_modules();
+    if (!resp || resp->module_count == 0) return -1;
+    struct limine_file* ramdisk = resp->modules[0];
+    uint8_t* base = (uint8_t*)ramdisk->address;
+    size_t offset = lba * 512;
+    size_t size = count * 512;
+    if (offset + size > ramdisk->size) return -1;
+    uint8_t* src = base + offset;
+    uint8_t* dst = (uint8_t*)buffer;
+    for (size_t i = 0; i < size; i++) dst[i] = src[i];
     return 0;
 }
 
 #include <include/vfs.h>
+#include <kernel/libs/fatfs/ff.h>
+
+static void vdisk_ls_root(void* path, void* priv) {
+    (void)path; (void)priv;
+    int count = get_hw_disk_count();
+    for (int i = 0; i < count; i++) {
+        char buf[64];
+        int k = 0;
+        buf[k++] = '0' + i; buf[k++] = ':'; buf[k++] = '/'; buf[k++] = ' ';
+
+        FATFS tmp;
+        if (f_mount(&tmp, i) == FR_OK) {
+            const char* tag = "[SOVEREIGN]";
+            while(*tag) buf[k++] = *tag++;
+        } else {
+            const char* tag = "[RAW DISK]";
+            while(*tag) buf[k++] = *tag++;
+        }
+        if (vdisk_is_atapi(i)) {
+            const char* tag = " (ATAPI)";
+            while(*tag) buf[k++] = *tag++;
+        }
+        buf[k++] = '\n'; buf[k++] = '\0';
+        print(buf);
+    }
+}
 
 void vdisk_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
-        serial_write_str("[INIT] /CONNECT registry (VDISK) initialized.\n");
+        serial_write_str("[INIT] VDISK Registry initialized.\n");
         vfs_init();
+
+        /* Register INITRD if module present */
+        struct limine_module_response* resp = get_modules();
+        if (resp && resp->module_count > 0) {
+            vdisk_node_t initrd = {
+                .sector_size = 512,
+                .total_lba = resp->modules[0]->size / 512,
+                .read_lba = ramdisk_read,
+                .write_lba = NULL,
+                .is_atapi = true /* Label it as ATAPI for main.c identification */
+            };
+            register_hardware_disk(initrd);
+            serial_write_str("[INIT] Ramdisk registered as Physical Volume.\n");
+        }
+
+        vfs_node_t root_node = {
+            .name = "/",
+            .ls = vdisk_ls_root
+        };
+        vfs_register_node(root_node);
     }
 }

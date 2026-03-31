@@ -23,7 +23,10 @@ static void* resolve_path(void* curdir, const char* arg) {
     if (is_absolute(arg)) return str_create(arg);
 
     const char* cd = str_to_cstr(curdir);
-    if (cstr_match(cd, "/")) return str_create(arg); /* Cannot prepend / to relative path easily here */
+    if (cstr_match(cd, "/")) {
+        /* If at root and arg isn't absolute, prepend nothing (disk list context) */
+        return str_create(arg);
+    }
 
     return str_concat(curdir, str_create(arg));
 }
@@ -114,7 +117,7 @@ void shell_main(void) {
         }
         else if (cstr_match(argv[0], "write")) {
             if (is_safe) { print("Error: Write commands disabled in Safe Mode.\n"); release(cmd_line); continue; }
-            if (cstr_match(str_to_cstr(curdir), "/")) { print("Error: Access Denied at root.\n"); release(cmd_line); continue; }
+            if (cstr_match(str_to_cstr(curdir), "/")) { print("Error: Access Denied at root. Access a drive (e.g. cd BOOT:/).\n"); release(cmd_line); continue; }
             if (argc > 1) {
                 void* path = resolve_path(curdir, argv[1]);
                 void* content = input("Enter Content: ");
@@ -141,10 +144,6 @@ void shell_main(void) {
             if (argc > 1) {
                 void* new_path;
                 if (cstr_match(argv[1], "/")) {
-                    if (cstr_match(str_to_cstr(curdir), "/")) {
-                        release(cmd_line);
-                        continue;
-                    }
                     new_path = str_create("/");
                 } else if (cstr_match(argv[1], "..")) {
                     /* Basic parent directory traversal */
@@ -152,14 +151,26 @@ void shell_main(void) {
                     if (cstr_match(cur, "/")) {
                         new_path = str_create("/");
                     } else {
-                        /* Simplified: return to / if not at / */
-                        new_path = str_create("/");
+                        /* Parent directory implementation */
+                        int last_slash = -1;
+                        int len = 0;
+                        while(cur[len]) {
+                            if (cur[len] == '/' && cur[len+1] != '\0') last_slash = len;
+                            len++;
+                        }
+                        if (last_slash == -1) new_path = str_create("/");
+                        else {
+                            char buf[256];
+                            for(int k=0; k<=last_slash; k++) buf[k] = cur[k];
+                            buf[last_slash+1] = '\0';
+                            new_path = str_create(buf);
+                        }
                     }
                 } else {
                     new_path = resolve_path(curdir, argv[1]);
                 }
 
-                if (rsl_exists(new_path)) {
+                if (cstr_match(str_to_cstr(new_path), "/") || rsl_exists(new_path)) {
                     /* Ensure directories end with / */
                     const char* nps = str_to_cstr(new_path);
                     int len = 0; while(nps[len]) len++;
@@ -251,19 +262,20 @@ void shell_main(void) {
         else if (cstr_match(argv[0], "help")) {
             print("OSx2 Limemade RSL Shell Commands:\n");
             print("---------------------------------\n");
-            print("ls [path]      - List Sovereign disks (at /), ATAPI nodes, or directories\n");
-            print("cd <path>      - Change to a new Sovereign path (e.g., 0:/)\n");
-            print("cat <file>     - Display contents of a Sovereign file\n");
-            print("echo <text>    - Print text to the screen\n");
-            print("write <file>   - Create or overwrite a file with interactive input\n");
-            print("mkdir <name>   - Create a new Sovereign directory\n");
-            print("rmdir <name>   - Remove a Sovereign directory or file\n");
-            print("mount <path>   - Mount a Sovereign volume (e.g., 0:)\n");
-            print("format <path>  - Physically format a drive (e.g., 0:)\n");
-            print("stamp <path>   - Apply Sovereign signature to LBA 0\n");
-            print("color <fg> <bg>- Update console colors (e.g., color green black)\n");
-            print("help           - Show this command list\n");
-            print("exit           - Terminate the RSL shell session\n");
+            print("ls [path]      - List disks at / or files in context\n");
+            print("cd <path>      - Change directory. Use '..' for up, '/' for root.\n");
+            print("cat <file>     - View file content. Returns to shell after.\n");
+            print("write <file>   - Create/Overwrite file in current directory.\n");
+            print("mkdir <name>   - Create new directory in current directory.\n");
+            print("rmdir <name>   - Delete directory or file.\n");
+            print("echo <text>    - Print text to output.\n");
+            print("mount <id>     - Mount disk ID (e.g. 0) to SATAx:.\n");
+            print("format <id>    - Format disk ID to Sovereign FAT32.\n");
+            print("run <script>   - Execute RSL script from disk.\n");
+            print("color <fg> <bg>- Set colors (cyan, green, red, white, etc).\n");
+            print("help           - Show this command list.\n");
+            print("exit           - Shutdown OSx2 Limemade.\n");
+            print("\nPaths: Drives use prefix (BOOT:/). Relative paths use curdir.\n");
         }
         else if (cstr_match(argv[0], "run")) {
             if (argc > 1) {

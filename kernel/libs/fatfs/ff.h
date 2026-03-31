@@ -58,8 +58,8 @@ typedef struct {
     uint32_t sectors_per_fat;
     uint8_t sectors_per_cluster;
     uint32_t root_cluster;
-    uint32_t data_lba;
-    uint32_t partition_lba;
+    LBA_t    data_lba;
+    LBA_t    partition_lba;
     uint16_t sector_size;
     bool active;
     bool ro;            /* Read-only (Safe Mode) */

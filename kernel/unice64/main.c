@@ -34,23 +34,25 @@ void _start(void) {
     /* 1. Sovereign Discovery: Scan ALL registered hardware for a bootable volume */
     void vga_print(const char* fmt, ...);
 
+    /* Audit all potential AHCI ports before discovery */
+    for (int p = 0; p < 32; p++) {
+        ahci_hardware_audit(p);
+    }
+
     int boot_drive = -1;
     int hw_count = get_hw_disk_count();
     vga_print("[BOOT] Scanning %d detected hardware volumes...\n", hw_count);
 
     bool sata_found = false;
-    /* Phase 1: SATA Sovereign Check */
+    /* Phase 1: SATA Sovereign Check (via mount) */
     for (int i = 0; i < hw_count; i++) {
         if (vdisk_is_atapi(i)) continue;
-        uint8_t sector[512];
-        if (disk_read(i, sector, 0, 1) == RES_OK) {
-            sata_found = true; /* At least one functional SATA disk detected */
-            uint32_t sig = *(uint32_t*)sector;
-            if (sig == 0xEFBEADDE) {
-                vga_print("[BOOT] Sovereign HDD found (Drive %d).\n", i);
-                boot_drive = i;
-                break;
-            }
+        sata_found = true; /* Mark that we have functional SATA hardware */
+        if (f_mount(&boot_fs, i) == FR_OK) {
+            vga_print("[BOOT] Sovereign HDD found (Drive %d).\n", i);
+            boot_drive = i;
+            mount_success = true;
+            break;
         }
     }
 
@@ -58,14 +60,11 @@ void _start(void) {
     if (!sata_found && boot_drive == -1) {
         for (int i = 0; i < hw_count; i++) {
             if (!vdisk_is_atapi(i)) continue;
-            uint8_t sector[512];
-            if (disk_read(i, sector, 0, 1) == RES_OK) {
-                uint32_t sig = *(uint32_t*)sector;
-                if (sig == 0xEFBEADDE) {
-                    vga_print("[BOOT] Sovereign Installation Media found (Drive %d).\n", i);
-                    boot_drive = i;
-                    break;
-                }
+            if (f_mount(&boot_fs, i) == FR_OK) {
+                vga_print("[BOOT] Sovereign Installation Media found (Drive %d).\n", i);
+                boot_drive = i;
+                mount_success = true;
+                break;
             }
         }
     }
@@ -102,44 +101,34 @@ void _start(void) {
         }
     }
 
-    if (boot_drive != -1) {
-        bool boot_mounted = false;
-        for (int retry = 0; retry < 3; retry++) {
-            if (f_mount(&boot_fs, boot_drive) == FR_OK) {
-                boot_mounted = true;
-                /* Register the boot volume with VFS as "BOOT" or "INITRD" */
-                void internal_fs_ls(void* path, void* priv);
-                void internal_fs_cat(void* path, void* priv);
-                void internal_fs_write(void* path, void* content, void* priv);
-                void internal_fs_mkdir(void* path, void* priv);
-                void internal_fs_rmdir(void* path, void* priv);
-                bool internal_fs_exists(void* path, void* priv);
+    if (mount_success) {
+        /* Register the boot volume with VFS as "BOOT" or "INITRD" */
+        void internal_fs_ls(void* path, void* priv);
+        void internal_fs_cat(void* path, void* priv);
+        void internal_fs_write(void* path, void* content, void* priv);
+        void internal_fs_mkdir(void* path, void* priv);
+        void internal_fs_rmdir(void* path, void* priv);
+        bool internal_fs_exists(void* path, void* priv);
 
-                vfs_node_t boot_node = {
-                    .private_data = &boot_fs,
-                    .ls = internal_fs_ls,
-                    .cat = internal_fs_cat,
-                    .write = internal_fs_write,
-                    .mkdir = internal_fs_mkdir,
-                    .rmdir = internal_fs_rmdir,
-                    .exists = internal_fs_exists
-                };
-                /* strcpy-like hack for name */
-                const char* bname = vdisk_is_atapi(boot_drive) ? "INITRD" : "BOOT";
-                int bk = 0;
-                while(bname[bk]) { boot_node.name[bk] = bname[bk]; bk++; } boot_node.name[bk] = '\0';
+        vfs_node_t boot_node = {
+            .private_data = &boot_fs,
+            .ls = internal_fs_ls,
+            .cat = internal_fs_cat,
+            .write = internal_fs_write,
+            .mkdir = internal_fs_mkdir,
+            .rmdir = internal_fs_rmdir,
+            .exists = internal_fs_exists
+        };
+        /* strcpy-like hack for name */
+        const char* bname = vdisk_is_atapi(boot_drive) ? "INITRD" : "BOOT";
+        int bk = 0;
+        while(bname[bk]) { boot_node.name[bk] = bname[bk]; bk++; } boot_node.name[bk] = '\0';
 
-                vfs_register_node(boot_node);
+        vfs_register_node(boot_node);
 
-                void vdisk_connect(int hw_id);
-                vdisk_connect(boot_drive);
-                mount_success = true;
-                vga_print("[FS] Sovereign Volume (Drive %d) Mounted as %s.\n", boot_drive, bname);
-                break;
-            }
-            vga_print("[FS] Mount failed on Drive %d, retry %d...\n", boot_drive, retry + 1);
-        }
-        if (!boot_mounted) boot_drive = -1; /* Reset if mount actually failed after retries */
+        void vdisk_connect(int hw_id);
+        vdisk_connect(boot_drive);
+        vga_print("[FS] Sovereign Volume (Drive %d) Mounted as %s.\n", boot_drive, bname);
     }
 
     if (!mount_success) {
