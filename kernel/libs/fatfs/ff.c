@@ -30,9 +30,16 @@ FRESULT f_fdisk(int drive) {
     return FR_OK;
 }
 
+void pit_wait_ms(uint32_t ms);
+
 FRESULT f_mount(FATFS* fs, int drive) {
     uint8_t sector[512];
-    if (disk_read(drive, sector, 0, 1) != RES_OK) return FR_DISK_ERR;
+    /* 50ms Sovereign Timeout */
+    int timeout = 50;
+    while (disk_read(drive, sector, 0, 1) != RES_OK && timeout--) {
+        pit_wait_ms(1);
+    }
+    if (timeout <= 0) return FR_TIMEOUT;
 
     uint32_t part_lba = 0;
     uint8_t gpt_header[512];
@@ -186,8 +193,10 @@ FRESULT f_open(FATFS* fs, FIL* fp, const TCHAR* path, BYTE mode) {
             if (last_slash == -1) { parent_cluster = fs->root_cluster; filename = path; }
             else {
                 int k;
-                for(k=0; k<last_slash; k++) dir_path[k] = path[k];
-                dir_path[k] = '\0';
+                for(k=0; k<last_slash; k++) {
+                    dir_path[k] = path[k];
+                }
+                dir_path[last_slash] = '\0';
                 parent_cluster = resolve_path_to_cluster(fs, dir_path, NULL, NULL, NULL);
                 filename = &path[last_slash+1];
             }
@@ -383,7 +392,10 @@ FRESULT f_mkdir(FATFS* fs, const TCHAR* path) {
     if (last_slash == -1) { parent_cluster = fs->root_cluster; filename = path; }
     else {
         int k;
-        for(k=0; k<last_slash; k++) dir_path[k] = path[k]; dir_path[k] = '\0';
+        for(k=0; k<last_slash; k++) {
+            dir_path[k] = path[k];
+        }
+        dir_path[k] = '\0';
         parent_cluster = resolve_path_to_cluster(fs, dir_path, NULL, NULL, NULL);
         filename = &path[last_slash+1];
     }

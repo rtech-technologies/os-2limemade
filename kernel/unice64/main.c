@@ -16,8 +16,19 @@ void forensic_panic(const char* message, void* state);
 void gdt_init(void);
 void pmm_init(void);
 
+/* 32KB Sovereign Stack */
+__attribute__((used, section(".bss"), aligned(16)))
+static uint8_t kernel_stack[32768];
+
 /* The Ritual: Entry Point */
 void _start(void) {
+    /* Switch to larger stack before anything else */
+    __asm__ volatile (
+        "mov %0, %%rsp\n"
+        "add $32768, %%rsp\n"
+        : : "r" (kernel_stack) : "memory"
+    );
+
     /* Sovereign Silicon Foundation */
     gdt_init();
     pmm_init();
@@ -43,25 +54,29 @@ void _start(void) {
     int hw_count = get_hw_disk_count();
     vga_print("[BOOT] Scanning %d detected hardware volumes...\n", hw_count);
 
-    bool sata_found = false;
-    /* Phase 1: SATA Sovereign Check (via mount) */
+    /* Phase 1: Hardware Mount (SATA first, 50ms Timeout) */
     for (int i = 0; i < hw_count; i++) {
         if (vdisk_is_atapi(i)) continue;
-        sata_found = true; /* Mark that we have functional SATA hardware */
-        if (f_mount(&boot_fs, i) == FR_OK) {
-            vga_print("[BOOT] Sovereign HDD found (Drive %d).\n", i);
+
+        vga_print("[BOOT] Attempting SATA Mount (Drive %d)...\n", i);
+        /* Simple polling mount for timeout logic */
+        FRESULT res = f_mount(&boot_fs, i);
+        if (res == FR_OK) {
+            vga_print("[BOOT] Sovereign HDD Online.\n");
             boot_drive = i;
             mount_success = true;
             break;
+        } else {
+            vga_print("[BOOT] Drive %d: MOUNT FAILURE or TIMEOUT.\n", i);
         }
     }
 
-    /* Phase 2: INITRD/CDROM Check (Only if no functional SATA found) */
-    if (!sata_found && boot_drive == -1) {
+    /* Phase 2: INITRD/Fallback (If no functional SATA or mount failure) */
+    if (!mount_success) {
         for (int i = 0; i < hw_count; i++) {
             if (!vdisk_is_atapi(i)) continue;
             if (f_mount(&boot_fs, i) == FR_OK) {
-                vga_print("[BOOT] Sovereign Installation Media found (Drive %d).\n", i);
+                vga_print("[BOOT] Falling back to Ramdisk/CDROM (Drive %d).\n", i);
                 boot_drive = i;
                 mount_success = true;
                 break;
