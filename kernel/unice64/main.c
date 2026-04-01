@@ -25,7 +25,7 @@ void _start(void) {
     /* Switch to larger stack before anything else */
     __asm__ volatile (
         "mov %0, %%rsp\n"
-        "add $32768, %%rsp\n"
+        "add $32760, %%rsp\n"  /* 16-byte Alignment Trick for x86_64 */
         : : "r" (kernel_stack) : "memory"
     );
 
@@ -86,12 +86,12 @@ void _start(void) {
         if (choice && str_match(choice, "y")) {
             for (int i = 0; i < hw_count; i++) {
                 if (vdisk_is_atapi(i)) continue;
-                uint8_t sector[512];
+                uint8_t sector[2048]; /* Safety buffer for ATAPI/CD-ROM signatures */
                 if (disk_read(i, sector, 0, 1) == RES_OK) {
                     uint32_t sig = *(uint32_t*)sector;
                     if (sig == 0 || sig != 0xEFBEADDE) {
                         vga_print("OSx2: Installing to Drive %d (Signature: 0x%x)...\n", i, sig);
-                        uint8_t stamp[512] = {0};
+                        uint8_t stamp[2048] = {0};
                         stamp[0] = 0xEF; stamp[1] = 0xBE; stamp[2] = 0xAD; stamp[3] = 0xDE;
                         disk_write(i, stamp, 0, 1);
 

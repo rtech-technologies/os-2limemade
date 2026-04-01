@@ -200,8 +200,13 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis->countl = (uint8_t)count;
     fis->counth = (uint8_t)(count >> 8);
 
-    port->ci = (1 << 0);
+    /* Idle Wait: Wait for drive to be ready to receive command */
     int timeout = 1000000;
+    while ((port->tfd & (0x80 | 0x08)) && timeout--) {
+        __asm__ volatile ("pause");
+    }
+
+    port->ci = (1 << 0);
     while ((port->ci & (1 << 0)) && timeout--) {
         if (port->tfd & (1 << 0)) { /* ERR bit */
             vga_print("[AHCI] Port %d READ ERROR: TFD 0x%x\n", p, port->tfd);
@@ -252,8 +257,13 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis->countl = (uint8_t)count;
     fis->counth = (uint8_t)(count >> 8);
 
-    port->ci = (1 << 0);
+    /* Idle Wait: Wait for drive to be ready to receive command */
     int timeout = 1000000;
+    while ((port->tfd & (0x80 | 0x08)) && timeout--) {
+        __asm__ volatile ("pause");
+    }
+
+    port->ci = (1 << 0);
     while ((port->ci & (1 << 0)) && timeout--) {
         if (port->tfd & (1 << 0)) {
             vga_print("[AHCI] Port %d WRITE ERROR: TFD 0x%x\n", p, port->tfd);
@@ -304,8 +314,13 @@ int atapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     cmdtbl->acmd[8] = (uint8_t)count;
     cmdtbl->acmd[9] = 0;
 
-    port->ci = (1 << 0);
+    /* Idle Wait: Wait for drive to be ready to receive command */
     int timeout = 1000000;
+    while ((port->tfd & (0x80 | 0x08)) && timeout--) {
+        __asm__ volatile ("pause");
+    }
+
+    port->ci = (1 << 0);
     while ((port->ci & (1 << 0)) && timeout--) {
         if (port->tfd & (1 << 0)) {
             vga_print("[AHCI] Port %d ATAPI ERROR: TFD 0x%x\n", p, port->tfd);
@@ -348,7 +363,14 @@ void ahci_service(kernel_event_t event) {
 
                     for (int p = 0; p < 32; p++) {
                         if (hba_base->pi & (1 << p)) {
-                            port_clb_virt[p] = bump_alloc(1024);
+                            /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
+                            void* raw_clb = bump_alloc(1024 + 1024);
+                            if (raw_clb) {
+                                uint64_t addr = (uint64_t)raw_clb;
+                                if (addr % 1024 != 0) addr = (addr + 1023) & ~1023;
+                                port_clb_virt[p] = (void*)addr;
+                            } else port_clb_virt[p] = NULL;
+
                             port_fb_virt[p] = bump_alloc(256);
                             port_ctba_virt[p] = bump_alloc(4096);
 
