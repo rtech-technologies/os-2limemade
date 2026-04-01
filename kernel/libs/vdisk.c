@@ -59,6 +59,11 @@ int vdisk_write_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer) {
     return hw_registry[hw_id].write_lba(hw_registry[hw_id].private_data, lba, count, buffer);
 }
 
+uint64_t vdisk_get_offset(int hw_id) {
+    if (hw_id < 0 || hw_id >= hw_count) return 0;
+    return hw_registry[hw_id].partition_offset;
+}
+
 bool vdisk_is_atapi(int hw_id) {
     if (hw_id < 0 || hw_id >= hw_count) return false;
     return hw_registry[hw_id].is_atapi;
@@ -118,6 +123,7 @@ void vdisk_service(kernel_event_t event) {
             vdisk_node_t initrd = {
                 .sector_size = 512,
                 .total_lba = resp->modules[0]->size / 512,
+                .partition_offset = 2048, /* Sovereign Partition Standard */
                 .read_lba = ramdisk_read,
                 .write_lba = NULL,
                 .is_atapi = true /* Label it as ATAPI for main.c identification */

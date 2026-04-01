@@ -206,20 +206,36 @@ void shell_main(void) {
         }
         else if (cstr_match(argv[0], "mount")) {
             if (argc > 1) {
-                void* path = str_create(argv[1]);
-                rsl_mount(path);
-                release(path);
+                const char* p = argv[1];
+                bool has_vol = false;
+                for(int k=0; p[k]; k++) if(p[k] == ':' && p[k+1] == '/') has_vol = true;
+
+                if (!has_vol) {
+                    print("Error: Volume Prefix Fault. Paths must contain ':/' (e.g. SATA0:/)\n");
+                } else {
+                    void* path = str_create(p);
+                    rsl_mount(path);
+                    release(path);
+                }
             } else {
-                print("Usage: mount <path>\n");
+                print("Usage: mount <drive_id:/path>\n");
             }
         }
         else if (cstr_match(argv[0], "format")) {
             if (argc > 1) {
-                void* path = str_create(argv[1]);
-                rsl_format(path);
-                release(path);
+                const char* p = argv[1];
+                bool has_vol = false;
+                for(int k=0; p[k]; k++) if(p[k] == ':' && p[k+1] == '/') has_vol = true;
+
+                if (!has_vol) {
+                    print("Error: Volume Prefix Fault. Paths must contain ':/' (e.g. SATA0:/)\n");
+                } else {
+                    void* path = str_create(p);
+                    rsl_format(path);
+                    release(path);
+                }
             } else {
-                print("Usage: format <path>\n");
+                print("Usage: format <drive_id:/path>\n");
             }
         }
         else if (cstr_match(argv[0], "stamp")) {

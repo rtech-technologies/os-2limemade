@@ -43,6 +43,10 @@ void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
             } else {
                 serial_write_str("[XHCI] Handover Successful.\n");
             }
+
+            /* Disable Legacy SMIs to ensure exclusive OS ownership */
+            volatile uint32_t* legsup_ctl = ext_cap + 1;
+            *legsup_ctl &= 0x1F00FFFF; /* Mask out SMI enable bits */
             break;
         }
 

@@ -7,6 +7,7 @@
 typedef struct {
     uint32_t sector_size;
     uint64_t total_lba;
+    uint64_t partition_offset;
     void* private_data;
     int (*read_lba)(void* priv, uint64_t lba, uint32_t count, void* buffer);
     int (*write_lba)(void* priv, uint64_t lba, uint32_t count, void* buffer);
@@ -21,6 +22,7 @@ int get_hw_disk_count(void);
 int get_connect_disk_count(void);
 int vdisk_read_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer);
 int vdisk_write_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer);
+uint64_t vdisk_get_offset(int hw_id);
 bool vdisk_is_atapi(int hw_id);
 
 #endif

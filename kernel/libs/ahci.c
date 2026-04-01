@@ -400,11 +400,27 @@ void ahci_service(kernel_event_t event) {
                             if ((hba_base->ports[p].ssts & 0x0F) == 0x03) {
                                 uint32_t sig = hba_base->ports[p].sig;
                                 if (sig == 0x00000101) { /* SATA */
-                                    vdisk_node_t sata_disk = { .sector_size = 512, .total_lba = 1024 * 1024 * 10, .read_lba = ahci_read_sectors, .write_lba = ahci_write_sectors, .private_data = (void*)(uint64_t)p, .is_atapi = false };
+                                    vdisk_node_t sata_disk = {
+                                        .sector_size = 512,
+                                        .total_lba = 1024 * 1024 * 10,
+                                        .partition_offset = 2048, /* GPT Sovereignty Offset */
+                                        .read_lba = ahci_read_sectors,
+                                        .write_lba = ahci_write_sectors,
+                                        .private_data = (void*)(uint64_t)p,
+                                        .is_atapi = false
+                                    };
                                     register_hardware_disk(sata_disk);
                                     vga_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
                                 } else if (sig == 0xEB140101) { /* ATAPI */
-                                    vdisk_node_t cdrom = { .sector_size = 2048, .total_lba = 1024 * 1024, .read_lba = atapi_read_sectors, .write_lba = NULL, .private_data = (void*)(uint64_t)p, .is_atapi = true };
+                                    vdisk_node_t cdrom = {
+                                        .sector_size = 2048,
+                                        .total_lba = 1024 * 1024,
+                                        .partition_offset = 0, /* No partition offset on ATAPI/ISO volumes */
+                                        .read_lba = atapi_read_sectors,
+                                        .write_lba = NULL,
+                                        .private_data = (void*)(uint64_t)p,
+                                        .is_atapi = true
+                                    };
                                     register_hardware_disk(cdrom);
                                     vga_print("[AHCI] Port %d: Registered as ATAPI CD-ROM.\n", p);
                                 }

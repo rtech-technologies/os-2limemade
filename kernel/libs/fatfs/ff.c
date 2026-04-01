@@ -1,5 +1,6 @@
 #include "ff.h"
 #include <include/rsl.h>
+#include <kernel/libs/vdisk.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -34,27 +35,27 @@ void pit_wait_ms(uint32_t ms);
 
 FRESULT f_mount(FATFS* fs, int drive) {
     uint8_t sector[2048];
-    /* 50ms Sovereign Timeout */
-    int timeout = 50;
-    while (disk_read(drive, sector, 0, 1) != RES_OK && timeout--) {
-        pit_wait_ms(1);
-    }
-    if (timeout <= 0) return FR_TIMEOUT;
+    uint64_t part_lba = vdisk_get_offset(drive);
 
-    uint32_t part_lba = 0;
-    uint8_t gpt_header[2048];
-    if (disk_read(drive, gpt_header, 1, 1) == RES_OK && *(uint64_t*)gpt_header == 0x5452415020494645ULL) {
-        uint8_t gpt_entry[2048];
-        if (disk_read(drive, gpt_entry, 2, 1) == RES_OK) {
-            part_lba = (uint32_t)*(uint64_t*)&gpt_entry[32];
-        }
-    }
     if (part_lba == 0) {
-        for (int i = 0; i < 4; i++) {
-            uint8_t* p = &sector[446 + (i * 16)];
-            if (p[4] == 0x0C) { part_lba = *(uint32_t*)&p[8]; break; }
+        /* No registry offset found, attempt partition discovery */
+        if (disk_read(drive, sector, 1, 1) == RES_OK && *(uint64_t*)sector == 0x5452415020494645ULL) {
+            /* GPT Header Found */
+            if (disk_read(drive, sector, 2, 1) == RES_OK) {
+                part_lba = *(uint64_t*)&sector[32];
+            }
+        }
+        if (part_lba == 0) {
+            /* Fallback to MBR check */
+            if (disk_read(drive, sector, 0, 1) == RES_OK) {
+                for (int i = 0; i < 4; i++) {
+                    uint8_t* p = &sector[446 + (i * 16)];
+                    if (p[4] == 0x0C) { part_lba = *(uint32_t*)&p[8]; break; }
+                }
+            }
         }
     }
+
     if (part_lba == 0) return FR_NO_FILESYSTEM;
     if (disk_read(drive, sector, part_lba, 1) != RES_OK) return FR_DISK_ERR;
     if (sector[510] != 0x55 || sector[511] != 0xAA) return FR_NO_FILESYSTEM;
@@ -357,20 +358,23 @@ FRESULT f_readdir(DIR* dp, FILINFO* fno) {
 }
 
 FRESULT f_mkfs(int drive) {
+    uint64_t offset = vdisk_get_offset(drive);
+    if (offset == 0) offset = 2048; /* Force GPT Standard offset for sovereign volumes */
+
     uint8_t boot[512] = {0};
     boot[0] = 0xEB; boot[1] = 0x58; boot[2] = 0x90;
     boot[11] = 0x00; boot[12] = 0x02; boot[13] = 0x08;
     boot[14] = 0x20; boot[16] = 0x02;
     *(uint32_t*)&boot[36] = 128; *(uint32_t*)&boot[44] = 2;
     boot[510] = 0x55; boot[511] = 0xAA;
-    disk_write(drive, boot, 2048, 1);
+    disk_write(drive, boot, offset, 1);
 
     uint8_t fat[512] = {0};
     *(uint32_t*)&fat[0] = 0x0FFFFFF8; *(uint32_t*)&fat[4] = 0xFFFFFFFF; *(uint32_t*)&fat[8] = 0x0FFFFFFF;
-    disk_write(drive, fat, 2048 + 32, 1);
+    disk_write(drive, fat, offset + 32, 1);
 
     uint8_t zero[512] = {0};
-    disk_write(drive, zero, 2048 + 32 + 256, 1);
+    disk_write(drive, zero, offset + 32 + 256, 1);
     return FR_OK;
 }
 

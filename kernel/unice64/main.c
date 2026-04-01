@@ -82,27 +82,15 @@ void _start(void) {
     if (boot_drive == -1) {
         set_color(YELLOW, BLACK);
         print("\n[BOOT] NO SOVEREIGN DISK FOUND.\n");
-        void* choice = input("Would you like to search for non-FAT disks and install? (y/n): ");
+        void* choice = input("Search for non-FAT disks and install? (y/n): ");
         if (choice && str_match(choice, "y")) {
             for (int i = 0; i < hw_count; i++) {
                 if (vdisk_is_atapi(i)) continue;
-                uint8_t sector[2048]; /* Safety buffer for ATAPI/CD-ROM signatures */
-                if (disk_read(i, sector, 0, 1) == RES_OK) {
-                    uint32_t sig = *(uint32_t*)sector;
-                    if (sig == 0 || sig != 0xEFBEADDE) {
-                        vga_print("OSx2: Installing to Drive %d (Signature: 0x%x)...\n", i, sig);
-                        uint8_t stamp[2048] = {0};
-                        stamp[0] = 0xEF; stamp[1] = 0xBE; stamp[2] = 0xAD; stamp[3] = 0xDE;
-                        disk_write(i, stamp, 0, 1);
-
-                        if (f_fdisk(i) == FR_OK) {
-                            if (f_mkfs(i) == FR_OK) {
-                                vga_print("OSx2: Installation Complete on Drive %d.\n", i);
-                                boot_drive = i;
-                                break;
-                            }
-                        }
-                    }
+                vga_print("OSx2: Installing to Drive %d...\n", i);
+                if (f_mkfs(i) == FR_OK) {
+                    vga_print("OSx2: Installation Complete on Drive %d.\n", i);
+                    boot_drive = i;
+                    break;
                 }
             }
             release(choice);
