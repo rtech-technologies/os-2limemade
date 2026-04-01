@@ -259,6 +259,15 @@ void shell_main(void) {
                 print("Usage: stamp <drive_id:>\n");
             }
         }
+        else if (cstr_match(argv[0], "eject")) {
+            if (argc > 1) {
+                void* path = str_create(argv[1]);
+                rsl_eject(path);
+                release(path);
+            } else {
+                print("Usage: eject <drive_id:>\n");
+            }
+        }
         else if (cstr_match(argv[0], "rmdir")) {
             if (is_safe) { print("Error: Directory commands disabled in Safe Mode.\n"); release(cmd_line); continue; }
             if (cstr_match(str_to_cstr(curdir), "/")) { print("Error: Access Denied at root.\n"); release(cmd_line); continue; }

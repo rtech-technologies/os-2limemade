@@ -122,3 +122,14 @@ void ahci_scan_remaining(void);
 void rsl_scan(void) {
     ahci_scan_remaining();
 }
+
+int vdisk_eject_hw(int hw_id);
+void rsl_eject(void* path) {
+    const char* p = str_to_cstr(path);
+    int drive = p[0] - '0';
+    if (vdisk_eject_hw(drive) == 0) {
+        print("Eject successful.\n");
+    } else {
+        print("Error: Eject failed or not supported.\n");
+    }
+}

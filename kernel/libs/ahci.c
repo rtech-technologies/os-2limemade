@@ -105,6 +105,10 @@ static void* port_clb_virt[32];
 static void* port_fb_virt[32];
 static void* port_ctba_virt[32];
 
+void* get_port_clb(int p) { return port_clb_virt[p]; }
+void* get_port_ctba(int p) { return port_ctba_virt[p]; }
+hba_mem_t* get_hba_base(void) { return hba_base; }
+
 void serial_print_hex(const char* label, uint16_t val);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
 void* bump_alloc(size_t size);
@@ -278,62 +282,8 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     return 0;
 }
 
-int atapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
-    if (!hba_base) return -1;
-    int p = (int)(uint64_t)priv;
-    hba_port_t* port = &hba_base->ports[p];
-    uint64_t phys_buffer = vmm_get_phys(buffer);
-
-    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
-    cmdhdr->cfl = 5;
-    cmdhdr->w = 0;
-    cmdhdr->a = 1;
-    cmdhdr->prdtl = 1;
-
-    /* Re-link Command Table every time to ensure atomic correctness */
-    uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
-    cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
-    cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
-
-    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)port_ctba_virt[p];
-
-    cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
-    cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
-    /* ATAPI is 2048 bytes per sector, so dbc should be (count * 2048) - 1 */
-    cmdtbl->prdt_entry[0].dbc = (count * 2048) - 1;
-    cmdtbl->prdt_entry[0].i = 1;
-
-    cmdtbl->acmd[0] = 0x28;
-    cmdtbl->acmd[1] = 0;
-    cmdtbl->acmd[2] = (uint8_t)(lba >> 24);
-    cmdtbl->acmd[3] = (uint8_t)(lba >> 16);
-    cmdtbl->acmd[4] = (uint8_t)(lba >> 8);
-    cmdtbl->acmd[5] = (uint8_t)lba;
-    cmdtbl->acmd[6] = 0;
-    cmdtbl->acmd[7] = (uint8_t)(count >> 8);
-    cmdtbl->acmd[8] = (uint8_t)count;
-    cmdtbl->acmd[9] = 0;
-
-    /* Idle Wait: Wait for drive to be ready to receive command */
-    int timeout = 1000000;
-    while ((port->tfd & (0x80 | 0x08)) && timeout--) {
-        __asm__ volatile ("pause");
-    }
-
-    port->ci = (1 << 0);
-    while ((port->ci & (1 << 0)) && timeout--) {
-        if (port->tfd & (1 << 0)) {
-            vga_print("[AHCI] Port %d ATAPI ERROR: TFD 0x%x\n", p, port->tfd);
-            return -1;
-        }
-        __asm__ volatile ("pause");
-    }
-    if (timeout <= 0) {
-        vga_print("[AHCI] Port %d ATAPI TIMEOUT\n", p);
-        return -1;
-    }
-    return 0;
-}
+int atapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer);
+int atapi_eject(void* priv);
 
 void ahci_scan_remaining(void) {
     if (!hba_base) return;
@@ -397,6 +347,7 @@ void ahci_scan_remaining(void) {
                         .partition_offset = 0, /* No partition offset on ATAPI/ISO volumes */
                         .read_lba = atapi_read_sectors,
                         .write_lba = NULL,
+                                        .eject = atapi_eject,
                         .private_data = (void*)(uint64_t)p,
                         .is_atapi = true
                     };
@@ -494,6 +445,7 @@ void ahci_service(kernel_event_t event) {
                                         .partition_offset = 0, /* No partition offset on ATAPI/ISO volumes */
                                         .read_lba = atapi_read_sectors,
                                         .write_lba = NULL,
+                                        .eject = atapi_eject,
                                         .private_data = (void*)(uint64_t)p,
                                         .is_atapi = true
                                     };

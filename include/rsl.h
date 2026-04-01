@@ -41,5 +41,6 @@ void rsl_stamp(void* path);
 bool rsl_safe_mode(void);
 void rsl_draw_rrif(void* path, int x, int y);
 void rsl_scan(void);
+void rsl_eject(void* path);
 
 #endif /* RSL_H */

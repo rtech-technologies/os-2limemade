@@ -59,6 +59,12 @@ int vdisk_write_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer) {
     return hw_registry[hw_id].write_lba(hw_registry[hw_id].private_data, lba, count, buffer);
 }
 
+int vdisk_eject_hw(int hw_id) {
+    if (hw_id < 0 || hw_id >= hw_count) return -1;
+    if (!hw_registry[hw_id].eject) return -1;
+    return hw_registry[hw_id].eject(hw_registry[hw_id].private_data);
+}
+
 uint64_t vdisk_get_offset(int hw_id) {
     if (hw_id < 0 || hw_id >= hw_count) return 0;
     return hw_registry[hw_id].partition_offset;
