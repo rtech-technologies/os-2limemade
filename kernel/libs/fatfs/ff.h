@@ -62,7 +62,7 @@ typedef struct {
     LBA_t    partition_lba;
     uint16_t sector_size;
     bool active;
-    bool ro;            /* Read-only (Safe Mode) */
+    bool ro;            /* Read-only (Safe Mode or Hardware Limit) */
 } FATFS;
 
 typedef struct {

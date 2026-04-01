@@ -70,7 +70,10 @@ FRESULT f_mount(FATFS* fs, int drive) {
     fs->data_lba = (LBA_t)part_lba + (LBA_t)fs->reserved_sectors + ((LBA_t)fs->n_fats * (LBA_t)fs->sectors_per_fat);
     fs->drv = (uint8_t)drive;
     fs->active = true;
-    fs->ro = false;
+
+    bool vdisk_is_readonly(int hw_id);
+    fs->ro = vdisk_is_readonly(drive);
+
     return FR_OK;
 }
 

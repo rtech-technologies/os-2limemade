@@ -64,6 +64,11 @@ uint64_t vdisk_get_offset(int hw_id) {
     return hw_registry[hw_id].partition_offset;
 }
 
+bool vdisk_is_readonly(int hw_id) {
+    if (hw_id < 0 || hw_id >= hw_count) return true;
+    return hw_registry[hw_id].write_lba == NULL;
+}
+
 bool vdisk_is_atapi(int hw_id) {
     if (hw_id < 0 || hw_id >= hw_count) return false;
     return hw_registry[hw_id].is_atapi;

@@ -23,6 +23,7 @@ int get_connect_disk_count(void);
 int vdisk_read_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer);
 int vdisk_write_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer);
 uint64_t vdisk_get_offset(int hw_id);
+bool vdisk_is_readonly(int hw_id);
 bool vdisk_is_atapi(int hw_id);
 
 #endif
