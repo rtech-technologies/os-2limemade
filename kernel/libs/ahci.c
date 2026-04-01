@@ -335,6 +335,79 @@ int atapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     return 0;
 }
 
+void ahci_scan_remaining(void) {
+    if (!hba_base) return;
+    vga_print("[AHCI] Performing extended scan (Ports 9-31)...\n");
+    for (int p = 9; p < 32; p++) {
+        if (hba_base->pi & (1 << p)) {
+            /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
+            void* raw_clb = bump_alloc(1024 + 1024);
+            if (raw_clb) {
+                uint64_t addr = (uint64_t)raw_clb;
+                if (addr % 1024 != 0) addr = (addr + 1023) & ~1023;
+                port_clb_virt[p] = (void*)addr;
+            } else port_clb_virt[p] = NULL;
+
+            port_fb_virt[p] = bump_alloc(256);
+            port_ctba_virt[p] = bump_alloc(4096);
+
+            if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
+                vga_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);
+                continue;
+            }
+
+            uint64_t clb_phys = vmm_get_phys(port_clb_virt[p]);
+            hba_base->ports[p].clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
+            hba_base->ports[p].clbu = (uint32_t)(clb_phys >> 32);
+
+            uint64_t fb_phys = vmm_get_phys(port_fb_virt[p]);
+            hba_base->ports[p].fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
+            hba_base->ports[p].fbu = (uint32_t)(fb_phys >> 32);
+
+            uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
+            hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
+            cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
+            cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
+
+            ahci_force_port_reset(&hba_base->ports[p], p);
+
+            /* Signature Delay: Wait for hardware to update registers after reset */
+            pit_wait_ms(10);
+
+            if ((hba_base->ports[p].ssts & 0x0F) == 0x03) {
+                uint32_t sig = hba_base->ports[p].sig;
+                if (sig == 0x00000101) { /* SATA */
+                    vdisk_node_t sata_disk = {
+                        .name = "SATA_HDD",
+                        .sector_size = 512,
+                        .total_lba = 1024 * 1024 * 10,
+                        .partition_offset = 2048, /* GPT Sovereignty Offset */
+                        .read_lba = ahci_read_sectors,
+                        .write_lba = ahci_write_sectors,
+                        .private_data = (void*)(uint64_t)p,
+                        .is_atapi = false
+                    };
+                    register_hardware_disk(sata_disk);
+                    vga_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
+                } else if (sig == 0xEB140101) { /* ATAPI */
+                    vdisk_node_t cdrom = {
+                        .name = "SATA_CD",
+                        .sector_size = 2048,
+                        .total_lba = 1024 * 1024,
+                        .partition_offset = 0, /* No partition offset on ATAPI/ISO volumes */
+                        .read_lba = atapi_read_sectors,
+                        .write_lba = NULL,
+                        .private_data = (void*)(uint64_t)p,
+                        .is_atapi = true
+                    };
+                    register_hardware_disk(cdrom);
+                    vga_print("[AHCI] Port %d: Registered as ATAPI CD-ROM.\n", p);
+                }
+            }
+        }
+    }
+}
+
 void ahci_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
         if (hba_base != NULL) return; /* Shield: Already Initialized */
@@ -361,7 +434,8 @@ void ahci_service(kernel_event_t event) {
                     while ((hba_base->ghc & (1 << 0)) && ghc_timeout--) pit_wait_ms(1);
                     hba_base->ghc |= (1 << 31);
 
-                    for (int p = 0; p < 32; p++) {
+                    /* OSx2: Only scan the first 9 ports on boot to save time */
+                    for (int p = 0; p < 9; p++) {
                         if (hba_base->pi & (1 << p)) {
                             /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
                             void* raw_clb = bump_alloc(1024 + 1024);

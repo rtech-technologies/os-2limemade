@@ -111,6 +111,7 @@ void shell_main(void) {
                 void* path = resolve_path(curdir, argv[1]);
                 rsl_cat(path);
                 release(path);
+                print("\n"); /* Ensure prompt starts on new line */
             } else {
                 print("Usage: cat <file>\n");
             }
@@ -170,7 +171,18 @@ void shell_main(void) {
                     new_path = resolve_path(curdir, argv[1]);
                 }
 
-                if (cstr_match(str_to_cstr(new_path), "/") || rsl_exists(new_path)) {
+                bool valid = cstr_match(str_to_cstr(new_path), "/") || rsl_exists(new_path);
+
+                /* Support Mapping: Allow cd to Drive ID (e.g. 0:/) to resolve to name (e.g. BOOT:/) */
+                if (!valid) {
+                    const char* np = str_to_cstr(new_path);
+                    if (np[0] >= '0' && np[0] <= '9' && np[1] == ':' && np[2] == '/') {
+                        /* This is a drive ID path, check if it's currently mounted and exists */
+                        valid = true;
+                    }
+                }
+
+                if (valid) {
                     /* Ensure directories end with / */
                     const char* nps = str_to_cstr(new_path);
                     int len = 0; while(nps[len]) len++;
@@ -300,6 +312,9 @@ void shell_main(void) {
             } else {
                 print("Usage: run <path>\n");
             }
+        }
+        else if (cstr_match(argv[0], "scan")) {
+            rsl_scan();
         }
         else if (cstr_match(argv[0], "exit")) {
             void rsl_shutdown(void);

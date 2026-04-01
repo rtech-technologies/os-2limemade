@@ -71,6 +71,12 @@ void rsl_mount(void* path) {
     int drive = p[0] - '0';
     if (mount_count >= MAX_MOUNTS) return;
 
+    /* Verify Hardware Drive Exists */
+    if (drive < 0 || drive >= get_hw_disk_count()) {
+        print("Error: Physical drive does not exist.\n");
+        return;
+    }
+
     if (f_mount(&mount_table[mount_count], drive) == FR_OK) {
         vfs_node_t node = { .private_data = &mount_table[mount_count], .ls = internal_fs_ls, .cat = internal_fs_cat, .write = internal_fs_write, .mkdir = internal_fs_mkdir, .rmdir = internal_fs_rmdir, .exists = internal_fs_exists };
         int k = 0; if (drive >= 10) node.name[k++] = '0' + (drive / 10); node.name[k++] = '0' + (drive % 10); node.name[k] = '\0';
@@ -110,4 +116,9 @@ void rsl_draw_rrif(void* path, int x, int y) {
         }
     }
     vfs_close(h);
+}
+
+void ahci_scan_remaining(void);
+void rsl_scan(void) {
+    ahci_scan_remaining();
 }
