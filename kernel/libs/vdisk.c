@@ -96,9 +96,17 @@ static void vdisk_ls_root(void* path, void* priv) {
     (void)path; (void)priv;
     int count = get_hw_disk_count();
     for (int i = 0; i < count; i++) {
-        char buf[64];
+        char buf[128];
         int k = 0;
         buf[k++] = '0' + i; buf[k++] = ':'; buf[k++] = '/'; buf[k++] = ' ';
+
+        /* Display Hardware Label */
+        const char* label = hw_registry[i].name;
+        if (label[0]) {
+            buf[k++] = '(';
+            while(*label) buf[k++] = *label++;
+            buf[k++] = ')'; buf[k++] = ' ';
+        }
 
         FATFS tmp;
         if (f_mount(&tmp, i) == FR_OK) {
@@ -130,6 +138,7 @@ void vdisk_service(kernel_event_t event) {
         struct limine_module_response* resp = get_modules();
         if (resp && resp->module_count > 0) {
             vdisk_node_t initrd = {
+                .name = "RAMDISK",
                 .sector_size = 512,
                 .total_lba = resp->modules[0]->size / 512,
                 .partition_offset = 2048, /* Sovereign Partition Standard */

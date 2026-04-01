@@ -33,6 +33,10 @@ void _start(void) {
     gdt_init();
     pmm_init();
 
+    /* OSx2 Sovereign Welcome */
+    serial_write_str("\n[ RTECH SOVEREIGN KERNEL ]\n");
+    serial_write_str("[ BUILD 23:00 - MECHANICAL TRUTH ]\n\n");
+
     /* Initialize Hardware and Core Memory */
     dispatch_event(EVENT_INIT);
 

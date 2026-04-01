@@ -5,6 +5,7 @@
 #include <stdbool.h>
 
 typedef struct {
+    char name[16];
     uint32_t sector_size;
     uint64_t total_lba;
     uint64_t partition_offset;

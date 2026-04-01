@@ -401,6 +401,7 @@ void ahci_service(kernel_event_t event) {
                                 uint32_t sig = hba_base->ports[p].sig;
                                 if (sig == 0x00000101) { /* SATA */
                                     vdisk_node_t sata_disk = {
+                                        .name = "SATA_HDD",
                                         .sector_size = 512,
                                         .total_lba = 1024 * 1024 * 10,
                                         .partition_offset = 2048, /* GPT Sovereignty Offset */
@@ -413,6 +414,7 @@ void ahci_service(kernel_event_t event) {
                                     vga_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
                                 } else if (sig == 0xEB140101) { /* ATAPI */
                                     vdisk_node_t cdrom = {
+                                        .name = "SATA_CD",
                                         .sector_size = 2048,
                                         .total_lba = 1024 * 1024,
                                         .partition_offset = 0, /* No partition offset on ATAPI/ISO volumes */
