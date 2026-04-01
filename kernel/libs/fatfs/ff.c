@@ -115,7 +115,8 @@ static uint32_t find_entry(FATFS* fs, uint32_t dir_cluster, const char* name, fa
     to_sfn(name, sfn);
     while (cluster < 0x0FFFFFF8) {
         uint64_t lba = get_sector_lba(fs, cluster);
-        fat_dir_entry_t entries[16];
+        uint8_t entries_buf[2048]; /* Safety buffer for ATAPI/CD-ROM sectors */
+        fat_dir_entry_t* entries = (fat_dir_entry_t*)entries_buf;
         for (uint8_t s = 0; s < fs->sectors_per_cluster; s++) {
             if (disk_read(fs->drv, (BYTE*)entries, lba + s, 1) != RES_OK) return 0;
             for (int i = 0; i < 16; i++) {
@@ -328,7 +329,8 @@ FRESULT f_readdir(DIR* dp, FILINFO* fno) {
     if (!fs || !fs->active) return FR_DENIED;
     while (dp->clust < 0x0FFFFFF8) {
         uint64_t lba = get_sector_lba(fs, dp->clust);
-        fat_dir_entry_t entries[16];
+        uint8_t entries_buf[2048]; /* Safety buffer for ATAPI/CD-ROM sectors */
+        fat_dir_entry_t* entries = (fat_dir_entry_t*)entries_buf;
         uint32_t sector_idx = (dp->index / 16);
         if (sector_idx >= fs->sectors_per_cluster) {
             dp->index = 0; dp->clust = get_next_cluster(fs, dp->clust);

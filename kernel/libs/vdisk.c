@@ -107,6 +107,10 @@ static void vdisk_ls_root(void* path, void* priv) {
             const char* tag = " (ATAPI)";
             while(*tag) buf[k++] = *tag++;
         }
+        if (!hw_registry[i].write_lba) {
+            const char* tag = " [READ ONLY]";
+            while(*tag) buf[k++] = *tag++;
+        }
         buf[k++] = '\n'; buf[k++] = '\0';
         print(buf);
     }
