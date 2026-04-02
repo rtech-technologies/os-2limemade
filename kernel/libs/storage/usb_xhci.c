@@ -1,9 +1,9 @@
-#include <kernel/libs/services.h>
+#include <kernel/libs/core/services.h>
 #include <limine.h>
 #include <stdint.h>
 #include <stddef.h>
-#include "vdisk.h"
-#include "pci.h"
+#include <kernel/libs/storage/vdisk.h>
+#include <kernel/libs/core/pci.h>
 
 void serial_write_str(const char* s);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);

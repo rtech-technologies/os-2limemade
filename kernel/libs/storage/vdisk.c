@@ -1,10 +1,10 @@
-#include <kernel/libs/services.h>
+#include <kernel/libs/core/services.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
 #include <limine.h>
 
-#include "vdisk.h"
+#include <kernel/libs/storage/vdisk.h>
 
 #define MAX_DISKS 16
 
@@ -96,7 +96,7 @@ static int ramdisk_read(void* priv, uint64_t lba, uint32_t count, void* buffer) 
 }
 
 #include <include/vfs.h>
-#include <kernel/libs/fatfs/ff.h>
+#include <kernel/libs/storage/fatfs/ff.h>
 
 static void vdisk_ls_root(void* path, void* priv) {
     (void)path; (void)priv;

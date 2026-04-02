@@ -4,7 +4,12 @@ CC = gcc
 CFLAGS = -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include
 LDFLAGS = -Wl,-T,boot/linker.ld -static -nostdlib -Wl,-z,max-page-size=0x1000
 
-KERNEL_SRC = $(filter-out kernel/libs/signature_check.c, $(wildcard kernel/unice64/*.c) $(wildcard kernel/libs/*.c) $(wildcard kernel/libs/fatfs/*.c)) programs/shell.c
+KERNEL_SRC = $(filter-out kernel/libs/signature_check.c, $(wildcard kernel/unice64/*.c) \
+             $(wildcard kernel/libs/io/*.c) \
+             $(wildcard kernel/libs/ram/*.c) \
+             $(wildcard kernel/libs/storage/*.c) \
+             $(wildcard kernel/libs/storage/fatfs/*.c) \
+             $(wildcard kernel/libs/core/*.c)) programs/shell.c
 KERNEL_OBJ = $(KERNEL_SRC:.c=.o)
 KERNEL_ELF = kernel.elf
 

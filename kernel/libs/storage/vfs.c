@@ -1,6 +1,6 @@
 #include <include/vfs.h>
 #include <include/rsl.h>
-#include <kernel/libs/fatfs/ff.h>
+#include <kernel/libs/storage/fatfs/ff.h>
 #include <stddef.h>
 
 #define MAX_VFS_NODES 16

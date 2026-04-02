@@ -1,6 +1,6 @@
-#include <kernel/libs/services.h>
-#include <kernel/libs/vdisk.h>
-#include <kernel/libs/pci.h>
+#include <kernel/libs/core/services.h>
+#include <kernel/libs/storage/vdisk.h>
+#include <kernel/libs/core/pci.h>
 #include <include/rsl.h>
 #include <include/vfs.h>
 #include <limine.h>
@@ -10,7 +10,7 @@ int is_sovereign_disk(int disk_id);
 void serial_write_str(const char* s);
 void shell_main(void);
 
-#include <kernel/libs/fatfs/ff.h>
+#include <kernel/libs/storage/fatfs/ff.h>
 void forensic_panic(const char* message, void* state);
 
 void gdt_init(void);

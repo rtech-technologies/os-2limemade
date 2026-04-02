@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-#include "vdisk.h"
+#include <kernel/libs/storage/vdisk.h>
 
 /* AHCI / ATAPI Structures (Internal Mirror from ahci.c) */
 typedef struct {

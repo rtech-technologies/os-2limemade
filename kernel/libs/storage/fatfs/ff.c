@@ -1,6 +1,6 @@
 #include "ff.h"
 #include <include/rsl.h>
-#include <kernel/libs/vdisk.h>
+#include <kernel/libs/storage/vdisk.h>
 #include <stdint.h>
 #include <stddef.h>
 

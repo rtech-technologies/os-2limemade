@@ -1,4 +1,4 @@
-#include <kernel/libs/services.h>
+#include <kernel/libs/core/services.h>
 #include <stddef.h>
 
 #define MAX_SERVICES 16

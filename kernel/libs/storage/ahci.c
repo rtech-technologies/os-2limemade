@@ -1,9 +1,9 @@
-#include <kernel/libs/services.h>
+#include <kernel/libs/core/services.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-#include "vdisk.h"
-#include "pci.h"
+#include <kernel/libs/storage/vdisk.h>
+#include <kernel/libs/core/pci.h>
 
 void serial_write_str(const char* s);
 

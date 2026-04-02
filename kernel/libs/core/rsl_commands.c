@@ -1,6 +1,6 @@
 #include <include/rsl.h>
 #include <include/vfs.h>
-#include <kernel/libs/fatfs/ff.h>
+#include <kernel/libs/storage/fatfs/ff.h>
 
 int get_hw_disk_count(void);
 int get_connect_disk_count(void);
