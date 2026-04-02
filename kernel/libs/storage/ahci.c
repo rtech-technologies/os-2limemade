@@ -298,6 +298,8 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 
 int satapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer);
 int satapi_eject(void* priv);
+int satapi_check_medium(void* priv);
+int satapi_read_capacity(void* priv, uint32_t* out_lba, uint32_t* out_ss);
 
 void ahci_scan_remaining(void) {
     if (!hba_base) return;
@@ -357,16 +359,32 @@ void ahci_scan_remaining(void) {
                     vdisk_node_t cdrom = {
                         .name = "SATA_CD",
                         .sector_size = 2048,
-                        .total_lba = 1024 * 1024,
-                        .partition_offset = 0, /* No partition offset on ATAPI/ISO volumes */
+                        .total_lba = 0,
+                        .partition_offset = 0,
                         .read_lba = satapi_read_sectors,
                         .write_lba = NULL,
                         .eject = satapi_eject,
                         .private_data = (void*)(uint64_t)p,
                         .is_atapi = true
                     };
+
+                    /* IDENTIFY PACKET DEVICE logic (Simplified for Build 23:00) */
+                    if (satapi_check_medium(cdrom.private_data) == 0) {
+                        uint32_t max_lba, block_size;
+                        if (satapi_read_capacity(cdrom.private_data, &max_lba, &block_size) == 0) {
+                            cdrom.total_lba = (uint64_t)max_lba + 1;
+                            cdrom.sector_size = block_size;
+                        }
+                    } else {
+                        /* Label as No Medium */
+                        int k = 0; const char* tag = " [NO MEDIUM]";
+                        while(cdrom.name[k]) k++;
+                        while(*tag) cdrom.name[k++] = *tag++;
+                        cdrom.name[k] = '\0';
+                    }
+
                     register_hardware_disk(cdrom);
-                    vga_print("[AHCI] Port %d: Registered as ATAPI CD-ROM.\n", p);
+                    vga_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
                 }
             }
         }
@@ -455,17 +473,32 @@ void ahci_service(kernel_event_t event) {
                                     vdisk_node_t cdrom = {
                                         .name = "SATA_CD",
                                         .sector_size = 2048,
-                                        .total_lba = 1024 * 1024,
-                                        .partition_offset = 0, /* No partition offset on ATAPI/ISO volumes */
+                        .total_lba = 0,
+                        .partition_offset = 0,
                         .read_lba = satapi_read_sectors,
                                         .write_lba = NULL,
                         .eject = satapi_eject,
                                         .private_data = (void*)(uint64_t)p,
                                         .is_atapi = true
                                     };
-                                    register_hardware_disk(cdrom);
-                                    vga_print("[AHCI] Port %d: Registered as ATAPI CD-ROM.\n", p);
-                                }
+
+                    if (satapi_check_medium(cdrom.private_data) == 0) {
+                        uint32_t max_lba, block_size;
+                        if (satapi_read_capacity(cdrom.private_data, &max_lba, &block_size) == 0) {
+                            cdrom.total_lba = (uint64_t)max_lba + 1;
+                            cdrom.sector_size = block_size;
+                        }
+                    } else {
+                        /* Label as No Medium */
+                        int k = 0; const char* tag = " [NO MEDIUM]";
+                        while(cdrom.name[k]) k++;
+                        while(*tag) cdrom.name[k++] = *tag++;
+                        cdrom.name[k] = '\0';
+                    }
+
+                    register_hardware_disk(cdrom);
+                    vga_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
+                }
                             }
                         }
                     }

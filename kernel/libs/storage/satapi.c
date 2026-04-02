@@ -103,51 +103,47 @@ void* get_port_clb(int p);
 void* get_port_ctba(int p);
 hba_mem_t* get_hba_base(void);
 
-int satapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
+/* ATAPI Packet Builders (from atapi.c) */
+void atapi_build_read10_packet(uint8_t* packet, uint64_t lba, uint32_t count);
+void atapi_build_capacity_packet(uint8_t* packet);
+void atapi_build_tur_packet(uint8_t* packet);
+void atapi_build_eject_packet(uint8_t* packet);
+
+int satapi_send_packet(int p, uint8_t* scsi_packet, void* buffer, uint32_t len, bool is_write) {
     hba_mem_t* hba_base = get_hba_base();
     if (!hba_base) return -1;
-    int p = (int)(uint64_t)priv;
     hba_port_t* port = &hba_base->ports[p];
-    uint64_t phys_buffer = vmm_get_phys(buffer);
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)get_port_clb(p);
     cmdhdr->cfl = 5;
-    cmdhdr->w = 0;
-    cmdhdr->a = 1; /* ATAPI Bit */
-    cmdhdr->p = 1; /* Prefetch */
-    cmdhdr->prdtl = 1;
+    cmdhdr->w = is_write ? 1 : 0;
+    cmdhdr->a = 1;
+    cmdhdr->p = 1;
+    cmdhdr->prdtl = buffer ? 1 : 0;
 
     uint64_t ctba_phys = vmm_get_phys(get_port_ctba(p));
     cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
     cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)get_port_ctba(p);
-    cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
-    cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
-    cmdtbl->prdt_entry[0].dbc = (count * 2048) - 1;
-    cmdtbl->prdt_entry[0].i = 1;
+    if (buffer) {
+        uint64_t phys_buffer = vmm_get_phys(buffer);
+        cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
+        cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
+        cmdtbl->prdt_entry[0].dbc = len - 1;
+        cmdtbl->prdt_entry[0].i = 1;
+    }
 
-    /* Construct ATA Command Packet FIS */
     fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
     for(int i=0; i<64; i++) cmdtbl->cfis[i] = 0;
     fis->fis_type = 0x27;
     fis->c = 1;
     fis->command = 0xA0; /* ATA_CMD_PACKET */
-    fis->featurel = 1;   /* DMA */
-    fis->featureh = 0;
-    fis->device = 0;     /* Bit 6 irrelevant for ATAPI Packet */
+    fis->featurel = buffer ? 1 : 0; /* DMA bit */
 
-    /* Construct SCSI READ(10) Packet */
     for(int i=0; i<16; i++) cmdtbl->acmd[i] = 0;
-    cmdtbl->acmd[0] = 0x28; /* READ(10) */
-    cmdtbl->acmd[2] = (uint8_t)(lba >> 24);
-    cmdtbl->acmd[3] = (uint8_t)(lba >> 16);
-    cmdtbl->acmd[4] = (uint8_t)(lba >> 8);
-    cmdtbl->acmd[5] = (uint8_t)lba;
-    cmdtbl->acmd[7] = (uint8_t)(count >> 8);
-    cmdtbl->acmd[8] = (uint8_t)count;
+    for(int i=0; i<12; i++) cmdtbl->acmd[i] = scsi_packet[i];
 
-    /* Idle Wait: Drive must not be busy */
     int timeout = 1000000;
     while ((port->tfd & (0x80 | 0x08)) && timeout--) {
         __asm__ volatile ("pause");
@@ -156,54 +152,42 @@ int satapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) 
     port->ci = (1 << 0);
     timeout = 1000000;
     while ((port->ci & (1 << 0)) && timeout--) {
-        if (port->tfd & (1 << 0)) {
-            vga_print("[SATAPI] Port %d ERROR: TFD 0x%x\n", p, port->tfd);
-            return -1;
-        }
+        if (port->tfd & (1 << 0)) return -1;
         __asm__ volatile ("pause");
     }
-    if (timeout <= 0) {
-        vga_print("[SATAPI] Port %d TIMEOUT\n", p);
-        return -1;
-    }
+    if (timeout <= 0) return -1;
     return 0;
 }
 
+int satapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
+    uint8_t packet[12];
+    atapi_build_read10_packet(packet, lba, count);
+    return satapi_send_packet((int)(uint64_t)priv, packet, buffer, count * 2048, false);
+}
+
+int satapi_check_medium(void* priv) {
+    uint8_t packet[12];
+    atapi_build_tur_packet(packet);
+    return satapi_send_packet((int)(uint64_t)priv, packet, NULL, 0, false);
+}
+
+int satapi_read_capacity(void* priv, uint32_t* out_lba, uint32_t* out_ss) {
+    uint8_t packet[12];
+    atapi_build_capacity_packet(packet);
+    uint32_t cap_data[2] = {0};
+    if (satapi_send_packet((int)(uint64_t)priv, packet, cap_data, 8, false) == 0) {
+        uint8_t* res = (uint8_t*)cap_data;
+        if (out_lba) *out_lba = (res[0] << 24) | (res[1] << 16) | (res[2] << 8) | res[3];
+        if (out_ss) *out_ss = (res[4] << 24) | (res[5] << 16) | (res[6] << 8) | res[7];
+        return 0;
+    }
+    return -1;
+}
+
 int satapi_eject(void* priv) {
-    hba_mem_t* hba_base = get_hba_base();
-    if (!hba_base) return -1;
-    int p = (int)(uint64_t)priv;
-    hba_port_t* port = &hba_base->ports[p];
-
-    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)get_port_clb(p);
-    cmdhdr->cfl = 5;
-    cmdhdr->w = 0;
-    cmdhdr->a = 1;
-    cmdhdr->prdtl = 0;
-
-    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)get_port_ctba(p);
-    fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
-    for(int i=0; i<64; i++) cmdtbl->cfis[i] = 0;
-    fis->fis_type = 0x27;
-    fis->c = 1;
-    fis->command = 0xA0;
-    fis->featurel = 0; /* PIO for non-data commands */
-
-    /* SCSI START STOP UNIT Packet */
-    for(int i=0; i<16; i++) cmdtbl->acmd[i] = 0;
-    cmdtbl->acmd[0] = 0x1B;
-    cmdtbl->acmd[4] = 0x02; /* Eject bit */
-
-    int timeout = 1000000;
-    while ((port->tfd & (0x80 | 0x08)) && timeout--) {
-        __asm__ volatile ("pause");
-    }
-
-    port->ci = (1 << 0);
-    timeout = 1000000;
-    while ((port->ci & (1 << 0)) && timeout--) {
-        __asm__ volatile ("pause");
-    }
-    vga_print("[SATAPI] Port %d: Eject Signal Sent.\n", p);
-    return 0;
+    uint8_t packet[12];
+    atapi_build_eject_packet(packet);
+    int res = satapi_send_packet((int)(uint64_t)priv, packet, NULL, 0, false);
+    if (res == 0) vga_print("[SATAPI] Port %d: Eject Signal Sent.\n", (int)(uint64_t)priv);
+    return res;
 }
