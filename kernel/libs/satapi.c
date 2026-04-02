@@ -103,7 +103,7 @@ void* get_port_clb(int p);
 void* get_port_ctba(int p);
 hba_mem_t* get_hba_base(void);
 
-int atapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
+int satapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     hba_mem_t* hba_base = get_hba_base();
     if (!hba_base) return -1;
     int p = (int)(uint64_t)priv;
@@ -157,19 +157,19 @@ int atapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     timeout = 1000000;
     while ((port->ci & (1 << 0)) && timeout--) {
         if (port->tfd & (1 << 0)) {
-            vga_print("[ATAPI] Port %d ERROR: TFD 0x%x\n", p, port->tfd);
+            vga_print("[SATAPI] Port %d ERROR: TFD 0x%x\n", p, port->tfd);
             return -1;
         }
         __asm__ volatile ("pause");
     }
     if (timeout <= 0) {
-        vga_print("[ATAPI] Port %d TIMEOUT\n", p);
+        vga_print("[SATAPI] Port %d TIMEOUT\n", p);
         return -1;
     }
     return 0;
 }
 
-int atapi_eject(void* priv) {
+int satapi_eject(void* priv) {
     hba_mem_t* hba_base = get_hba_base();
     if (!hba_base) return -1;
     int p = (int)(uint64_t)priv;
@@ -204,6 +204,6 @@ int atapi_eject(void* priv) {
     while ((port->ci & (1 << 0)) && timeout--) {
         __asm__ volatile ("pause");
     }
-    vga_print("[ATAPI] Port %d: Eject Signal Sent.\n", p);
+    vga_print("[SATAPI] Port %d: Eject Signal Sent.\n", p);
     return 0;
 }

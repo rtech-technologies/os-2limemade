@@ -172,6 +172,13 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     if (!hba_base) return -1;
     int p = (int)(uint64_t)priv;
     hba_port_t* port = &hba_base->ports[p];
+
+    /* SATA Test for ATAPI: Reject generic SATA reads on ATAPI signatures */
+    if (port->sig == 0xEB140101) {
+        vga_print("[AHCI] Port %d: Rejected SATA Read on ATAPI device.\n", p);
+        return -1;
+    }
+
     uint64_t phys_buffer = vmm_get_phys(buffer);
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
@@ -229,6 +236,13 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     if (!hba_base) return -1;
     int p = (int)(uint64_t)priv;
     hba_port_t* port = &hba_base->ports[p];
+
+    /* SATA Test for ATAPI: Reject generic SATA writes on ATAPI signatures */
+    if (port->sig == 0xEB140101) {
+        vga_print("[AHCI] Port %d: Rejected SATA Write on ATAPI device.\n", p);
+        return -1;
+    }
+
     uint64_t phys_buffer = vmm_get_phys(buffer);
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
@@ -282,8 +296,8 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     return 0;
 }
 
-int atapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer);
-int atapi_eject(void* priv);
+int satapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer);
+int satapi_eject(void* priv);
 
 void ahci_scan_remaining(void) {
     if (!hba_base) return;
@@ -345,9 +359,9 @@ void ahci_scan_remaining(void) {
                         .sector_size = 2048,
                         .total_lba = 1024 * 1024,
                         .partition_offset = 0, /* No partition offset on ATAPI/ISO volumes */
-                        .read_lba = atapi_read_sectors,
+                        .read_lba = satapi_read_sectors,
                         .write_lba = NULL,
-                                        .eject = atapi_eject,
+                        .eject = satapi_eject,
                         .private_data = (void*)(uint64_t)p,
                         .is_atapi = true
                     };
@@ -443,9 +457,9 @@ void ahci_service(kernel_event_t event) {
                                         .sector_size = 2048,
                                         .total_lba = 1024 * 1024,
                                         .partition_offset = 0, /* No partition offset on ATAPI/ISO volumes */
-                                        .read_lba = atapi_read_sectors,
+                        .read_lba = satapi_read_sectors,
                                         .write_lba = NULL,
-                                        .eject = atapi_eject,
+                        .eject = satapi_eject,
                                         .private_data = (void*)(uint64_t)p,
                                         .is_atapi = true
                                     };
