@@ -150,7 +150,7 @@ void vdisk_service(kernel_event_t event) {
                 .partition_offset = 2048, /* Sovereign Partition Standard */
                 .read_lba = ramdisk_read,
                 .write_lba = NULL,
-                .is_atapi = true /* Label it as ATAPI for main.c identification */
+                .is_atapi = false /* RAMDISK is virtual, not ATAPI */
             };
             register_hardware_disk(initrd);
             serial_write_str("[INIT] Ramdisk registered as Physical Volume.\n");
