@@ -171,6 +171,49 @@ int satapi_check_medium(void* priv) {
     return satapi_send_packet((int)(uint64_t)priv, packet, NULL, 0, false);
 }
 
+int satapi_identify(void* priv) {
+    hba_mem_t* hba_base = get_hba_base();
+    if (!hba_base) return -1;
+    int p = (int)(uint64_t)priv;
+    hba_port_t* port = &hba_base->ports[p];
+
+    uint16_t data[256];
+    uint64_t phys_buffer = vmm_get_phys(data);
+
+    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)get_port_clb(p);
+    cmdhdr->cfl = 5;
+    cmdhdr->w = 0;
+    cmdhdr->a = 0; /* ATAPI bit is 0 for IDENTIFY PACKET command itself */
+    cmdhdr->prdtl = 1;
+
+    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)get_port_ctba(p);
+    cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
+    cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
+    cmdtbl->prdt_entry[0].dbc = 512 - 1;
+    cmdtbl->prdt_entry[0].i = 1;
+
+    fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
+    for(int i=0; i<64; i++) cmdtbl->cfis[i] = 0;
+    fis->fis_type = 0x27;
+    fis->c = 1;
+    fis->command = 0xA1; /* IDENTIFY PACKET DEVICE */
+
+    int timeout = 1000000;
+    while ((port->tfd & (0x80 | 0x08)) && timeout--) {
+        __asm__ volatile ("pause");
+    }
+
+    port->ci = (1 << 0);
+    timeout = 1000000;
+    while ((port->ci & (1 << 0)) && timeout--) {
+        if (port->tfd & (1 << 0)) return -1;
+        __asm__ volatile ("pause");
+    }
+
+    if (timeout <= 0) return -1;
+    return 0;
+}
+
 int satapi_read_capacity(void* priv, uint32_t* out_lba, uint32_t* out_ss) {
     uint8_t packet[12];
     atapi_build_capacity_packet(packet);

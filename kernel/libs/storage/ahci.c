@@ -184,6 +184,7 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
     cmdhdr->cfl = 5;
     cmdhdr->w = 0;
+    cmdhdr->a = 0; /* Pure SATA */
     cmdhdr->prdtl = 1;
 
     /* Re-link Command Table every time to ensure atomic correctness */
@@ -248,6 +249,7 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
     cmdhdr->cfl = 5;
     cmdhdr->w = 1;
+    cmdhdr->a = 0; /* Pure SATA */
     cmdhdr->prdtl = 1;
 
     /* Re-link Command Table every time to ensure atomic correctness */
@@ -298,6 +300,7 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 
 int satapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer);
 int satapi_eject(void* priv);
+int satapi_identify(void* priv);
 int satapi_check_medium(void* priv);
 int satapi_read_capacity(void* priv, uint32_t* out_lba, uint32_t* out_ss);
 
@@ -368,8 +371,9 @@ void ahci_scan_remaining(void) {
                         .is_atapi = true
                     };
 
-                    /* IDENTIFY PACKET DEVICE logic (Simplified for Build 23:00) */
-                    if (satapi_check_medium(cdrom.private_data) == 0) {
+                    /* IDENTIFY PACKET DEVICE logic */
+                    if (satapi_identify(cdrom.private_data) == 0 &&
+                        satapi_check_medium(cdrom.private_data) == 0) {
                         uint32_t max_lba, block_size;
                         if (satapi_read_capacity(cdrom.private_data, &max_lba, &block_size) == 0) {
                             cdrom.total_lba = (uint64_t)max_lba + 1;
