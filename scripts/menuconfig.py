@@ -6,6 +6,7 @@ def main():
     print("------------------------------")
     serial_port = input("Enter Serial Port (default 0x3F8): ") or "0x3F8"
     heap_size = input("Enter Heap Size in MB (default 16): ") or "16"
+    terminal_rows = input("Enter Terminal Line Limit (default 20): ") or "20"
 
     print("\nAvailable Classic Screen Resolutions:")
     print("1. 320x200 (Mode 13h Classic)")
@@ -28,6 +29,7 @@ def main():
     with open(".config", "w") as f:
         f.write(f"SERIAL_PORT={serial_port}\n")
         f.write(f"HEAP_SIZE={heap_size}\n")
+        f.write(f"TERMINAL_ROWS={terminal_rows}\n")
         f.write(f"SCREEN_WIDTH={width}\n")
         f.write(f"SCREEN_HEIGHT={height}\n")
 
@@ -35,6 +37,7 @@ def main():
         f.write("#ifndef CONFIG_H\n#define CONFIG_H\n\n")
         f.write(f"#define CONFIG_SERIAL_PORT {serial_port}\n")
         f.write(f"#define CONFIG_HEAP_SIZE (1024 * 1024 * {heap_size})\n")
+        f.write(f"#define CONFIG_TERMINAL_ROWS {terminal_rows}\n")
         f.write(f"#define CONFIG_SCREEN_WIDTH {width}\n")
         f.write(f"#define CONFIG_SCREEN_HEIGHT {height}\n\n")
         f.write("#endif\n")

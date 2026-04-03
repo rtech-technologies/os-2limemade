@@ -20,10 +20,29 @@ void serial_write_str(const char* s);
 void vga_print(const char* fmt, ...);
 struct limine_module_response* get_modules(void);
 
+static bool str_match_local(const char* s1, const char* s2) {
+    int i = 0;
+    while (s1[i] && s2[i]) {
+        if (s1[i] != s2[i]) return false;
+        i++;
+    }
+    return s1[i] == s2[i];
+}
+
 void register_hardware_disk(vdisk_node_t node) {
     if (hw_count < MAX_DISKS) {
-        hw_registry[hw_count++] = node;
-        vga_print("[VDISK] Physical hardware registered.\n");
+        /* OSx2 Priority Shift: Prioritize SATA_HDD over others */
+        if (str_match_local(node.name, "SATA_HDD") && hw_count > 0) {
+            /* Shift existing nodes down to insert SATA_HDD at front */
+            for (int i = hw_count; i > 0; i--) {
+                hw_registry[i] = hw_registry[i-1];
+            }
+            hw_registry[0] = node;
+            hw_count++;
+        } else {
+            hw_registry[hw_count++] = node;
+        }
+        vga_print("[VDISK] Physical hardware registered: %s\n", node.name);
     }
 }
 
