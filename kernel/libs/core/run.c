@@ -52,13 +52,27 @@ void rsl_execute_stream(const char* path) {
     serial_write_str(path);
     serial_write_str("\n");
 
-    char line[128];
-    int br;
-    while ((br = vfs_read(h, line, sizeof(line)-1)) > 0) {
-        line[br] = '\0';
-        /* Logic Gate Evaluator and Streamer loop would go here */
-        /* For now, we simulate execution by printing the bytecode stream */
-        print(line);
+    char c;
+    char line[256];
+    int idx = 0;
+
+    while (vfs_read(h, &c, 1) == 1) {
+        if (c == '\n' || idx >= 255) {
+            line[idx] = '\0';
+            if (idx > 0) {
+                /* Precise Execution: Single Line Processor */
+                serial_write_str("[RSL] Executing: ");
+                serial_write_str(line);
+                serial_write_str("\n");
+
+                /* In a multitasking build, we would sovereign_yield() here */
+                void sovereign_yield(void);
+                sovereign_yield();
+            }
+            idx = 0;
+        } else {
+            line[idx++] = c;
+        }
     }
 
     vfs_close(h);

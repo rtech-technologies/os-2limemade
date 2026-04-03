@@ -140,32 +140,37 @@ bool vfs_exists(void* path) {
     return false;
 }
 
+void* bump_alloc(size_t size);
+void vga_print(const char* fmt, ...);
+
 int vfs_mount_auto(int drive_id, const char* mount_point) {
-    uint8_t sector[2048];
+    uint8_t* sector = bump_alloc(2048);
+    if (!sector) return -1;
+
+    /* Check A: ISO 9660 (via xorriso) */
     if (vdisk_read_hw(drive_id, 16, 1, sector) == 0) {
         if (sector[1] == 'C' && sector[2] == 'D' && sector[3] == '0' && sector[4] == '0' && sector[5] == '1') {
-            /* ISO 9660 Implementation Mapping */
             void internal_fs_ls(void* path, void* priv);
             void internal_fs_cat(void* path, void* priv);
 
             vfs_node_t node = { .private_data = (void*)(uint64_t)drive_id, .ls = internal_fs_ls, .cat = internal_fs_cat };
             int k = 0; while(mount_point[k]) { node.name[k] = mount_point[k]; k++; } node.name[k] = '\0';
             vfs_register_node(node);
+            vga_print("[VFS] Mechanical Judge: ISO 9660 Registered at %s:/ (Drive %d)\n", mount_point, drive_id);
             return 0;
         }
     }
 
+    /* Check B: FAT32 (Sovereign Target) */
     if (vdisk_read_hw(drive_id, 0, 1, sector) == 0) {
-        /* Check for FAT32 at offset 82 */
         if (sector[82] == 'F' && sector[83] == 'A' && sector[84] == 'T' && sector[85] == '3' && sector[86] == '2') {
-            /* FAT32 Implementation Mapping already in rsl_commands.c */
+            vga_print("[VFS] Mechanical Judge: FAT32 Detected on Drive %d.\n", drive_id);
             return 0;
         }
     }
+
     return -1;
 }
-
-void* bump_alloc(size_t size);
 
 vfs_handle_t* vfs_open(void* path, const char* mode) {
     const char* p = str_to_cstr(path);
