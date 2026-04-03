@@ -58,7 +58,8 @@ bool internal_fs_exists(void* path, void* priv) {
 
 void rsl_ls(void* path) { vfs_ls(path); }
 void rsl_cat(void* path) { vfs_cat(path); }
-void rsl_write(void* path, void* content) { vfs_write(path, content); }
+void vfs_write_dispatch(void* path, void* content);
+void rsl_write(void* path, void* content) { vfs_write_dispatch(path, content); }
 void rsl_cd(void* path) { vfs_cd(path); }
 void rsl_mkdir(void* path) { vfs_mkdir(path); }
 void rsl_rmdir(void* path) { vfs_rmdir(path); }

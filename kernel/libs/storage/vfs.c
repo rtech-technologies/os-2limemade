@@ -76,7 +76,7 @@ void vfs_cat(void* path) {
     }
 }
 
-void vfs_write(void* path, void* content) {
+void vfs_write_dispatch(void* path, void* content) {
     for (int i = 0; i < vfs_node_count; i++) {
         if (path_starts_with(path, vfs_registry[i].name)) {
             if (vfs_registry[i].write) {
@@ -140,31 +140,56 @@ bool vfs_exists(void* path) {
 void* bump_alloc(size_t size);
 
 vfs_handle_t* vfs_open(void* path, const char* mode) {
-    for (int i = 0; i < vfs_node_count; i++) {
-        if (path_starts_with(path, vfs_registry[i].name)) {
-            const char* subpath_cstr = strip_prefix(path, vfs_registry[i].name);
-            FATFS* fs = (FATFS*)vfs_registry[i].private_data;
-            if (!fs) return NULL;
+    const char* p = str_to_cstr(path);
+    int drive = -1;
+    const char* subpath_cstr = p;
 
-            FIL fil;
-            BYTE m = (mode[0] == 'w') ? (FA_WRITE | FA_CREATE_ALWAYS) : FA_READ;
-            if (f_open(fs, &fil, subpath_cstr, m) == FR_OK) {
-                vfs_handle_t* h = bump_alloc(sizeof(vfs_handle_t));
-                h->obj = fs;
-                h->sclust = fil.sclust;
-                h->clust = fil.clust;
-                h->size = fil.fsize;
-                h->pos = fil.fptr;
-                h->entry_lba = fil.entry_lba;
-                h->entry_idx = fil.entry_idx;
-                return h;
+    /* Sovereign Prefix Router: BOOT:/ or 0:/ mapping */
+    if (p[0] >= '0' && p[0] <= '9' && p[1] == ':') {
+        drive = p[0] - '0';
+        subpath_cstr = &p[3];
+    }
+
+    FATFS* fs = NULL;
+    if (drive != -1) {
+        /* Direct Hardware Mapping */
+        static FATFS hardware_fs[16];
+        if (drive >= 16) return NULL;
+        fs = &hardware_fs[drive];
+        if (!fs->active) {
+            if (f_mount(fs, drive) != FR_OK) return NULL;
+        }
+    } else {
+        /* VFS Node Dispatch (BOOT, INITRD, etc) */
+        for (int i = 0; i < vfs_node_count; i++) {
+            if (path_starts_with(path, vfs_registry[i].name)) {
+                subpath_cstr = strip_prefix(path, vfs_registry[i].name);
+                fs = (FATFS*)vfs_registry[i].private_data;
+                break;
             }
         }
+    }
+
+    if (!fs) return NULL;
+    FIL fil;
+    BYTE m = (mode[0] == 'w') ? (FA_WRITE | FA_CREATE_ALWAYS) : FA_READ;
+    if (f_open(fs, &fil, subpath_cstr, m) == FR_OK) {
+        vfs_handle_t* h = bump_alloc(sizeof(vfs_handle_t));
+        if (!h) return NULL;
+        h->obj = fs;
+        h->sclust = fil.sclust;
+        h->clust = fil.clust;
+        h->size = fil.fsize;
+        h->pos = fil.fptr;
+        h->entry_lba = fil.entry_lba;
+        h->entry_idx = fil.entry_idx;
+        return h;
     }
     return NULL;
 }
 
 int vfs_read(vfs_handle_t* h, void* buf, int len) {
+    if (!h || !h->obj) return -1;
     FATFS* fs = (FATFS*)h->obj;
     uint32_t cluster_size = fs->sector_size * fs->sectors_per_cluster;
 
@@ -202,6 +227,30 @@ uint32_t vfs_tell(vfs_handle_t* h) {
     return h->pos;
 }
 
+int vfs_write(vfs_handle_t* h, const void* buf, int len) {
+    if (!h || !h->obj) return -1;
+    FATFS* fs = (FATFS*)h->obj;
+    if (fs->ro) return -1;
+
+    FIL fil;
+    fil.obj = fs;
+    fil.sclust = h->sclust;
+    fil.clust = h->clust;
+    fil.fptr = h->pos;
+    fil.fsize = h->size;
+    fil.entry_lba = h->entry_lba;
+    fil.entry_idx = h->entry_idx;
+
+    uint32_t bw;
+    if (f_write(&fil, buf, (uint32_t)len, &bw) == FR_OK) {
+        h->pos = fil.fptr;
+        h->clust = fil.clust;
+        h->size = fil.fsize;
+        return (int)bw;
+    }
+    return -1;
+}
+
 void vfs_close(vfs_handle_t* h) {
     if (!h) return;
     FIL fil;
@@ -213,4 +262,5 @@ void vfs_close(vfs_handle_t* h) {
     fil.entry_lba = h->entry_lba;
     fil.entry_idx = h->entry_idx;
     f_close(&fil);
+    /* release(h); // Handled by ARC if caller calls release */
 }

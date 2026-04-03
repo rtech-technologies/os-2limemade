@@ -20,7 +20,7 @@ void vfs_init(void);
 void vfs_register_node(vfs_node_t node);
 void vfs_ls(void* path);
 void vfs_cat(void* path);
-void vfs_write(void* path, void* content);
+void vfs_write_dispatch(void* path, void* content);
 void vfs_cd(void* path);
 void vfs_mkdir(void* path);
 void vfs_rmdir(void* path);
@@ -42,6 +42,7 @@ void vfs_set_safe_mode(bool active);
 
 vfs_handle_t* vfs_open(void* path, const char* mode);
 int vfs_read(vfs_handle_t* h, void* buf, int len);
+int vfs_write(vfs_handle_t* h, const void* buf, int len);
 uint32_t vfs_tell(vfs_handle_t* h);
 void vfs_close(vfs_handle_t* h);
 
