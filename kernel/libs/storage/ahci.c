@@ -303,6 +303,7 @@ int satapi_eject(void* priv);
 int satapi_identify(void* priv);
 int satapi_check_medium(void* priv);
 int satapi_read_capacity(void* priv, uint32_t* out_lba, uint32_t* out_ss);
+int rtech_iso_init(int drive);
 
 void ahci_scan_remaining(void) {
     if (!hba_base) return;
@@ -389,6 +390,9 @@ void ahci_scan_remaining(void) {
 
                     register_hardware_disk(cdrom);
                     vga_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
+
+                    /* ISO Discovery Handshake */
+                    rtech_iso_init(get_hw_disk_count() - 1);
                 }
             }
         }
@@ -502,6 +506,9 @@ void ahci_service(kernel_event_t event) {
 
                     register_hardware_disk(cdrom);
                     vga_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
+
+                    /* ISO Discovery Handshake */
+                    rtech_iso_init(get_hw_disk_count() - 1);
                 }
                             }
                         }

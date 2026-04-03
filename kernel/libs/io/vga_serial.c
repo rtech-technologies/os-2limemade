@@ -241,9 +241,9 @@ void vga_write_char(char c, uint8_t color_attr) {
     if (!fb_resp || fb_resp->framebuffer_count == 0) return;
 
     int char_height = 8 * SCALE;
-    /* OSx2: Cap terminal to 10 lines at a time */
+    /* OSx2: Cap terminal to 20 lines at a time */
     int max_rows = fb->height / char_height;
-    if (max_rows > 10) max_rows = 10;
+    if (max_rows > 20) max_rows = 20;
 
     if (cursor_y >= max_rows) {
         /* Move all rows up by one char_height */
