@@ -153,10 +153,21 @@ int vfs_mount_auto(int drive_id, const char* mount_point) {
             void internal_fs_ls(void* path, void* priv);
             void internal_fs_cat(void* path, void* priv);
 
-            vfs_node_t node = { .private_data = (void*)(uint64_t)drive_id, .ls = internal_fs_ls, .cat = internal_fs_cat };
-            int k = 0; while(mount_point[k]) { node.name[k] = mount_point[k]; k++; } node.name[k] = '\0';
+            vfs_node_t node = {0};
+            node.private_data = (void*)(uint64_t)drive_id;
+            node.ls = internal_fs_ls;
+            node.cat = internal_fs_cat;
+
+            /* Explicit Null-Termination: Avoid Ghost Mount labels */
+            int k = 0;
+            while(mount_point[k] && k < 31) {
+                node.name[k] = mount_point[k];
+                k++;
+            }
+            node.name[k] = '\0';
+
             vfs_register_node(node);
-            vga_print("[VFS] Mechanical Judge: ISO 9660 Registered at %s:/ (Drive %d)\n", mount_point, drive_id);
+            vga_print("[VFS] Mechanical Judge: ISO 9660 Registered at %s:/ (Drive %d)\n", node.name, drive_id);
             return 0;
         }
     }
@@ -190,6 +201,10 @@ vfs_handle_t* vfs_open(void* path, const char* mode) {
         if (drive >= 16) return NULL;
         fs = &hardware_fs[drive];
         if (!fs->active) {
+            /* Force Partition 0 for ISO (Drive 1 in VMware usually) */
+            if (vdisk_is_atapi(drive)) {
+                /* ATAPI ISOs are treated as raw volumes by our mounter */
+            }
             if (f_mount(fs, drive) != FR_OK) return NULL;
         }
     } else {
