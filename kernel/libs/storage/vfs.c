@@ -1,6 +1,7 @@
 #include <include/vfs.h>
 #include <include/rsl.h>
 #include <kernel/libs/storage/fatfs/ff.h>
+#include <kernel/libs/storage/vdisk.h>
 #include <stddef.h>
 
 #define MAX_VFS_NODES 16
@@ -35,8 +36,10 @@ static bool path_starts_with(void* path, const char* prefix) {
 static const char* strip_prefix(void* path, const char* prefix) {
     const char* p = str_to_cstr(path);
     int i = 0;
-    while (prefix[i]) i++;
+    while (prefix[i] && p[i] == prefix[i]) i++;
     if (p[i] == ':') i++;
+    /* Skip leading slash after prefix if present (e.g. BOOT:/file -> /file) */
+    if (p[i] == '/') return &p[i];
     if (p[i] == '\0') return "/";
     return &p[i];
 }
@@ -135,6 +138,31 @@ bool vfs_exists(void* path) {
         }
     }
     return false;
+}
+
+int vfs_mount_auto(int drive_id, const char* mount_point) {
+    uint8_t sector[2048];
+    if (vdisk_read_hw(drive_id, 16, 1, sector) == 0) {
+        if (sector[1] == 'C' && sector[2] == 'D' && sector[3] == '0' && sector[4] == '0' && sector[5] == '1') {
+            /* ISO 9660 Implementation Mapping */
+            void internal_fs_ls(void* path, void* priv);
+            void internal_fs_cat(void* path, void* priv);
+
+            vfs_node_t node = { .private_data = (void*)(uint64_t)drive_id, .ls = internal_fs_ls, .cat = internal_fs_cat };
+            int k = 0; while(mount_point[k]) { node.name[k] = mount_point[k]; k++; } node.name[k] = '\0';
+            vfs_register_node(node);
+            return 0;
+        }
+    }
+
+    if (vdisk_read_hw(drive_id, 0, 1, sector) == 0) {
+        /* Check for FAT32 at offset 82 */
+        if (sector[82] == 'F' && sector[83] == 'A' && sector[84] == 'T' && sector[85] == '3' && sector[86] == '2') {
+            /* FAT32 Implementation Mapping already in rsl_commands.c */
+            return 0;
+        }
+    }
+    return -1;
 }
 
 void* bump_alloc(size_t size);
