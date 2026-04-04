@@ -25,8 +25,8 @@ void apic_timer_init(uint32_t count) {
     /* Set Divide Configuration Register to 16 */
     apic_write(APIC_TDCR, 0x03);
 
-    /* Set Local Vector Table Timer Register: Vector 32, Periodic Mode */
-    apic_write(APIC_TIMER, 32 | 0x20000);
+    /* Set Local Vector Table Timer Register: Vector 32, One-Shot Mode */
+    apic_write(APIC_TIMER, 32);
 
     /* Set Initial Count Register */
     apic_write(APIC_TICR, count);

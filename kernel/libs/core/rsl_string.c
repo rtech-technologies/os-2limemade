@@ -28,6 +28,26 @@ void* str_create(const char* cstr) {
     return (void*)r_str;
 }
 
+static void* clipboard = NULL;
+
+void rsl_copy(void* str) {
+    if (clipboard) release(clipboard);
+    if (str) {
+        retain(str);
+        clipboard = str;
+    } else {
+        clipboard = NULL;
+    }
+}
+
+void* rsl_paste(void) {
+    if (clipboard) {
+        retain(clipboard);
+        return clipboard;
+    }
+    return NULL;
+}
+
 bool str_is_empty(void* str) {
     if (!str) return true;
     return ((rsl_string_t*)str)->length == 0;

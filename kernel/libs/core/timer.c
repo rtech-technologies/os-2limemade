@@ -33,3 +33,13 @@ void pit_wait_ms(uint32_t ms) {
         while (!(inb(0x61) & 0x20));
     }
 }
+
+static uint64_t system_ticks = 0;
+
+void timer_handler(void) {
+    system_ticks++;
+}
+
+uint64_t get_system_ticks(void) {
+    return system_ticks;
+}

@@ -53,6 +53,24 @@ void shell_main(void) {
     print(" |_|  \\_\\ |_|  |______\\_____|_|  |_|  \\____/|_____/_/\\_\\____|\n");
     print("\n[ OSx2 Sovereign ] Build Success.\n");
 
+    /* Boot Menu Choice-Gate */
+    print("\n1. Install OSx2 to SATA HDD\n");
+    print("2. Enter Safe Mode (CD-ROM Only)\n");
+    void* choice = input("\nSelect Option (1/2): ");
+
+    bool is_safe = false;
+    if (choice) {
+        if (str_match(choice, "1")) {
+            print("Preparing Installation...\n");
+            void rsl_execute_stream(const char* path);
+            rsl_execute_stream("BOOT:/install.rsl");
+        } else if (str_match(choice, "2")) {
+            print("Entering Safe Mode...\n");
+            is_safe = true;
+        }
+        release(choice);
+    }
+
     void* curdir = str_create("/");
 
     while (1) {
@@ -82,7 +100,6 @@ void shell_main(void) {
         if (argc == 0) { release(cmd_line); continue; }
 
         /* Dispatcher */
-        bool is_safe = rsl_safe_mode();
         if (is_safe) {
             set_color(YELLOW, BLACK);
             print("[SAFE MODE] ");

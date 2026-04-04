@@ -135,6 +135,27 @@ void _start(void) {
         void vdisk_connect(int hw_id);
         vdisk_connect(boot_drive);
         vga_print("[FS] Sovereign Volume (Drive %d) Mounted as %s.\n", boot_drive, bname);
+
+        /* VFS Bridge: Mount second disk if it exists */
+        if (hw_count > 1) {
+            static FATFS data_fs;
+            int second_drive = (boot_drive == 0) ? 1 : 0;
+            if (f_mount(&data_fs, second_drive) == FR_OK) {
+                vfs_node_t data_node = {
+                    .private_data = &data_fs,
+                    .ls = internal_fs_ls,
+                    .cat = internal_fs_cat,
+                    .write = internal_fs_write,
+                    .mkdir = internal_fs_mkdir,
+                    .rmdir = internal_fs_rmdir,
+                    .exists = internal_fs_exists
+                };
+                const char* dname = "DISK0";
+                int dk = 0; while(dname[dk]) { data_node.name[dk] = dname[dk]; dk++; } data_node.name[dk] = '\0';
+                vfs_register_node(data_node);
+                vga_print("[FS] SATA HDD (Drive %d) Mounted as DISK0.\n", second_drive);
+            }
+        }
     }
 
     if (!mount_success) {
@@ -149,9 +170,9 @@ void _start(void) {
     /* Initialize Active-Relay Multitasking */
     tasking_init();
     idt_init();
-    /* APIC preemption disabled for pure Active-Relay multitasking */
-    /* apic_init(); */
-    /* apic_timer_init(1000000); */
+    /* Initialize APIC for system_ticks (One-Shot Mode) */
+    apic_init();
+    apic_timer_init(1000000);
 
     dispatch_event(EVENT_MAIN);
 

@@ -22,7 +22,9 @@ DSTATUS disk_initialize(BYTE pdrv) {
 
 void forensic_panic(const char* message, void* state);
 
-void* bump_alloc(size_t size);
+void* malloc(size_t size);
+void free(void* ptr);
+
 DRESULT disk_read(BYTE pdrv, BYTE* buff, DWORD sector, uint32_t count) {
     /* Hardware Guard: Verify drive index exists */
     if ((int)pdrv >= get_hw_disk_count()) {
@@ -33,7 +35,7 @@ DRESULT disk_read(BYTE pdrv, BYTE* buff, DWORD sector, uint32_t count) {
 
     /* ATAPI Translation: 1 Physical Block (2048) = 4 Logical Sectors (512) */
     if (vdisk_is_atapi((int)pdrv)) {
-        uint8_t* temp_block = bump_alloc(2048);
+        uint8_t* temp_block = malloc(2048);
         if (!temp_block) return RES_ERROR;
         for (uint32_t i = 0; i < count; i++) {
             uint64_t logical_sector = (uint64_t)sector + i;
@@ -45,6 +47,7 @@ DRESULT disk_read(BYTE pdrv, BYTE* buff, DWORD sector, uint32_t count) {
             uint8_t* dst = &buff[i * 512];
             for (int j = 0; j < 512; j++) dst[j] = temp_block[offset + j];
         }
+        free(temp_block);
         return RES_OK;
     }
 

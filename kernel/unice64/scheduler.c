@@ -59,7 +59,16 @@ void sys_yield(void) {
     __asm__ volatile ("int $32");
 }
 
+void vga_pulse_cursor(void);
+void apic_timer_init(uint32_t count);
+
 void unice64_schedule(void) {
+    /* Update UI Pulse */
+    vga_pulse_cursor();
+
+    /* Reset One-Shot Timer for next tick */
+    apic_timer_init(1000000);
+
     if (task_count < 2) return;
 
     /* Active-Relay Round Robin: Skip TASK_WAITING tasks */

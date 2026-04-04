@@ -2,6 +2,8 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+uint64_t get_hhdm_offset(void);
+
 #define SLAB_SIZE (4 * 1024 * 1024) /* 4MB Sovereign Slab */
 #define MAX_SLABS 16
 
@@ -35,11 +37,25 @@ void* slab_alloc(int id, size_t size) {
     size = (size + 15) & ~15;
     if (slabs[id].offset + size > SLAB_SIZE) return NULL;
 
-    void* ptr = (void*)(slabs[id].base + slabs[id].offset);
+    uint64_t hhdm = get_hhdm_offset();
+    void* ptr = (void*)(slabs[id].base + hhdm + slabs[id].offset);
     slabs[id].offset += size;
     return ptr;
 }
 
 void slab_reset(int id) {
     if (id >= 0 && id < MAX_SLABS) slabs[id].offset = 0;
+}
+
+void* malloc(size_t size) {
+    /* Use Slab 0 as Global System Heap */
+    return slab_alloc(0, size);
+}
+
+void free(void* ptr) {
+    /* Deterministic recycling via ARC logic.
+       In a pure bump/slab model, we don't free individual items
+       unless we integrate a freelist, but Rule #4 says we use Slab
+       partitioning with deterministic cleanup. */
+    (void)ptr;
 }

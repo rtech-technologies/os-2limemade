@@ -43,6 +43,22 @@ void pmm_init(void) {
     /* Initialize all pages as used */
     for (uint64_t i = 0; i < bitmap_size; i++) bitmap[i] = 0xFF;
 
+    /* GOP Shield: Reserve Framebuffer range in the Bitmap */
+    struct limine_framebuffer_response* get_framebuffer(void);
+    uint64_t vmm_get_phys(void* virt);
+    struct limine_framebuffer_response* fb_resp = get_framebuffer();
+    if (fb_resp && fb_resp->framebuffer_count > 0) {
+        struct limine_framebuffer* fb = fb_resp->framebuffers[0];
+        uint64_t fb_phys = vmm_get_phys(fb->address);
+        uint64_t fb_pages = (fb->pitch * fb->height + PAGE_SIZE - 1) / PAGE_SIZE;
+        uint64_t start_page = fb_phys / PAGE_SIZE;
+        for (uint64_t i = 0; i < fb_pages; i++) {
+            if (start_page + i < total_pages) {
+                bitmap[(start_page + i) / 8] |= (1 << ((start_page + i) % 8));
+            }
+        }
+    }
+
     /* Free usable regions in the bitmap */
     for (uint64_t i = 0; i < memmap->entry_count; i++) {
         struct limine_memmap_entry* entry = memmap->entries[i];

@@ -3,6 +3,7 @@
 #include <limine.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 /* I/O Port Helper */
 static inline void outb(uint16_t port, uint8_t val) {
@@ -161,6 +162,7 @@ static uint32_t vga_colors[] = {
 
 static int cursor_x = 0;
 static int cursor_y = 0;
+static bool cursor_visible = true;
 
 #define SCALE 2
 
@@ -331,6 +333,25 @@ void vga_clear(void) {
 void vga_set_cursor(int x, int y) {
     cursor_x = x;
     cursor_y = y;
+}
+
+void vga_pulse_cursor(void) {
+    if (!global_fb) return;
+    static uint64_t last_pulse = 0;
+    extern uint64_t get_system_ticks(void);
+    uint64_t now = get_system_ticks();
+
+    if (now - last_pulse > 500) {
+        last_pulse = now;
+        cursor_visible = !cursor_visible;
+        uint32_t color = cursor_visible ? 0x00FF00 : 0x000000;
+        /* Draw 8x16 block cursor */
+        for (int i = 0; i < 8 * SCALE; i++) {
+            for (int j = 0; j < 8 * SCALE; j++) {
+                draw_pixel(cursor_x * 8 * SCALE + j, cursor_y * 8 * SCALE + i, color);
+            }
+        }
+    }
 }
 
 void serial_print_hex(const char* label, uint16_t val) {

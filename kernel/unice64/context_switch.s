@@ -3,10 +3,11 @@
 .extern get_current_task
 .extern unice64_schedule
 
-# Offsets for task_t
+# Static Offsets for task_t and cpu_context_t
+# task_t: id(4), state(4), context(168), slab_id(4), stack_top(8)
 .set task_t_context_OFFSET, 8
 
-# Offsets for cpu_context_t
+# cpu_context_t layout (8 bytes each)
 .set ctx_r15, 0
 .set ctx_r14, 8
 .set ctx_r13, 16
@@ -29,7 +30,10 @@
 .set ctx_ss,  152
 
 unice64_context_switch:
-    # Save general purpose registers to stack
+    # Save general purpose registers to stack (matching cpu_context_t order)
+    # We need to save the state of the task that was just interrupted or yielded.
+    # Stack currently has: SS, RSP, RFLAGS, CS, RIP (from interrupt/int32)
+
     push %rax
     push %rbx
     push %rcx
@@ -46,48 +50,59 @@ unice64_context_switch:
     push %r14
     push %r15
 
-    # Get current task
+    # Save stack pointer
+    mov %rsp, %rax
+
+    # Get current task TCB
     call get_current_task
-    mov %rax, %rdi # rdi = task_t*
-    add $task_t_context_OFFSET, %rdi # rdi = cpu_context_t*
+    mov %rax, %rdi
+    add $task_t_context_OFFSET, %rdi # rdi = &current->context
 
-    # Copy registers from stack to TCB
-    mov $15, %rcx
-    mov %rsp, %rsi
-    rep movsq
+    # Store all registers using STATIC OFFSETS to prevent drift
+    # Source is stack (rax), dest is rdi
+    mov 0(%rax), %rbx; mov %rbx, ctx_r15(%rdi)
+    mov 8(%rax), %rbx; mov %rbx, ctx_r14(%rdi)
+    mov 16(%rax), %rbx; mov %rbx, ctx_r13(%rdi)
+    mov 24(%rax), %rbx; mov %rbx, ctx_r12(%rdi)
+    mov 32(%rax), %rbx; mov %rbx, ctx_r11(%rdi)
+    mov 40(%rax), %rbx; mov %rbx, ctx_r10(%rdi)
+    mov 48(%rax), %rbx; mov %rbx, ctx_r9(%rdi)
+    mov 56(%rax), %rbx; mov %rbx, ctx_r8(%rdi)
+    mov 64(%rax), %rbx; mov %rbx, ctx_rbp(%rdi)
+    mov 72(%rax), %rbx; mov %rbx, ctx_rdi(%rdi)
+    mov 80(%rax), %rbx; mov %rbx, ctx_rsi(%rdi)
+    mov 88(%rax), %rbx; mov %rbx, ctx_rdx(%rdi)
+    mov 96(%rax), %rbx; mov %rbx, ctx_rcx(%rdi)
+    mov 104(%rax), %rbx; mov %rbx, ctx_rbx(%rdi)
+    mov 112(%rax), %rbx; mov %rbx, ctx_rax(%rdi)
 
-    # Copy iretq frame from stack to TCB
-    # Frame at [rsp + 15*8]: RIP, CS, RFLAGS, RSP, SS
-    mov 15*8(%rsp), %rax
-    mov %rax, ctx_rip(%rdi)
-    mov (15*8 + 8)(%rsp), %rax
-    mov %rax, ctx_cs(%rdi)
-    mov (15*8 + 16)(%rsp), %rax
-    mov %rax, ctx_rflags(%rdi)
-    mov (15*8 + 24)(%rsp), %rax
-    mov %rax, ctx_rsp(%rdi)
-    mov (15*8 + 32)(%rsp), %rax
-    mov %rax, ctx_ss(%rdi)
+    # Save iretq frame (Static offsets from the end of the push sequence)
+    # The frame starts 15 registers deep.
+    mov (15 * 8 + 0)(%rax), %rbx; mov %rbx, ctx_rip(%rdi)
+    mov (15 * 8 + 8)(%rax), %rbx; mov %rbx, ctx_cs(%rdi)
+    mov (15 * 8 + 16)(%rax), %rbx; mov %rbx, ctx_rflags(%rdi)
+    mov (15 * 8 + 24)(%rax), %rbx; mov %rbx, ctx_rsp(%rdi)
+    mov (15 * 8 + 32)(%rax), %rbx; mov %rbx, ctx_ss(%rdi)
 
-    # Pick next task
+    # Handover: Pick next task
     call unice64_schedule
 
     # Load next task
     call get_current_task
-    mov %rax, %rsi # rsi = task_t*
-    add $task_t_context_OFFSET, %rsi # rsi = cpu_context_t*
+    mov %rax, %rsi
+    add $task_t_context_OFFSET, %rsi # rsi = &next->context
 
-    # Switch to next task's stack for iretq
+    # Switch to next task's kernel stack
     mov ctx_rsp(%rsi), %rsp
 
-    # Prepare iretq frame on new stack
+    # Restore iretq frame onto new stack
     pushq ctx_ss(%rsi)
     pushq ctx_rsp(%rsi)
     pushq ctx_rflags(%rsi)
     pushq ctx_cs(%rsi)
     pushq ctx_rip(%rsi)
 
-    # Restore general purpose registers
+    # Restore registers from TCB context using static offsets
     mov ctx_r15(%rsi), %r15
     mov ctx_r14(%rsi), %r14
     mov ctx_r13(%rsi), %r13

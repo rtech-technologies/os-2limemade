@@ -8,6 +8,8 @@ idt_load:
     lidt (%rdi)
     ret
 
+.extern timer_handler
+
 irq_timer_handler:
     # Save the current state
     pushq %rax
@@ -22,6 +24,9 @@ irq_timer_handler:
 
     # Send EOI to APIC
     call apic_eoi
+
+    # Update system ticks
+    call timer_handler
 
     # Restore registers before context switch (context_switch will save them again)
     popq %r11
