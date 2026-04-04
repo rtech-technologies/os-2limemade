@@ -1,4 +1,5 @@
 #include <include/rsl.h>
+#include <kernel/unice64/task.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -26,6 +27,7 @@ void print(const char* s) {
         vga_write_char(s[i], current_color_val);
         /* Serial mirroring is handled inside vga_write_char */
     }
+    sys_yield(); /* Sovereign Active-Relay Rule: Yield after print */
 }
 
 static void print_num(uint32_t n, int base) {
@@ -145,6 +147,12 @@ char get_char(void) {
             if (c == 27) return 27; /* ESC */
             if (c == '\n' || c == '\r' || c == '\b' || (c >= 32 && c <= 126)) return c;
         }
+
+        /* Sovereign Active-Relay: Yield while waiting for input */
+        task_t* current = get_current_task();
+        if (current) current->state = TASK_WAITING;
+        sys_yield();
+        if (current) current->state = TASK_RUNNING;
 
         __asm__ volatile ("pause");
     }

@@ -146,11 +146,12 @@ void _start(void) {
         vfs_set_safe_mode(false);
     }
 
-    /* Initialize Multitasking and Preemption */
+    /* Initialize Active-Relay Multitasking */
     tasking_init();
     idt_init();
-    apic_init();
-    apic_timer_init(1000000); /* ~100Hz on most systems */
+    /* APIC preemption disabled for pure Active-Relay multitasking */
+    /* apic_init(); */
+    /* apic_timer_init(1000000); */
 
     dispatch_event(EVENT_MAIN);
 

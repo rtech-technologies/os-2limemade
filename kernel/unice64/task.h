@@ -8,6 +8,7 @@ typedef enum {
     TASK_RUNNING,
     TASK_READY,
     TASK_SLEEPING,
+    TASK_WAITING,
     TASK_ZOMBIE
 } task_state_t;
 
@@ -28,5 +29,6 @@ typedef struct {
 void unice64_schedule(void);
 void unice64_scheduler_init(void);
 void register_task(void (*entry_point)(void), uint32_t slab_id);
+void sys_yield(void);
 
 #endif

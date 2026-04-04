@@ -21,6 +21,18 @@ void shell_task(void) {
     while (1) { __asm__ volatile ("hlt"); }
 }
 
+void system_task(void) {
+    vga_print("[UNICE64] System Maintenance Task Active.\n");
+    while (1) {
+        /* System Maintenance: Check AHCI Port 0 for Sovereign connectivity */
+        void ahci_hardware_audit(int p);
+        ahci_hardware_audit(0);
+
+        /* Voluntary handover */
+        sys_yield();
+    }
+}
+
 void tasking_init(void) {
     unice64_scheduler_init();
 
@@ -30,5 +42,8 @@ void tasking_init(void) {
     /* Register Shell Task in Slab 1 */
     register_task(shell_task, 1);
 
-    vga_print("[UNICE64] Multitasking initialized (2 tasks).\n");
+    /* Register System Maintenance Task in Slab 2 */
+    register_task(system_task, 2);
+
+    vga_print("[UNICE64] Multitasking initialized (3 tasks).\n");
 }

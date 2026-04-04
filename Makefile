@@ -9,7 +9,8 @@ KERNEL_SRC = $(filter-out kernel/libs/signature_check.c, $(wildcard kernel/unice
              $(wildcard kernel/libs/ram/*.c) \
              $(wildcard kernel/libs/storage/*.c) \
              $(wildcard kernel/libs/storage/fatfs/*.c) \
-             $(wildcard kernel/libs/core/*.c)) programs/shell.c
+             $(wildcard kernel/libs/core/*.c) \
+             programs/shell.c)
 AS_SRC = $(wildcard kernel/unice64/*.s)
 KERNEL_OBJ = $(KERNEL_SRC:.c=.o) $(AS_SRC:.s=.o)
 KERNEL_ELF = kernel.elf

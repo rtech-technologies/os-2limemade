@@ -1,6 +1,7 @@
 #include <include/rsl.h>
 #include <include/vfs.h>
 #include <kernel/libs/storage/fatfs/ff.h>
+#include <kernel/unice64/task.h>
 
 int get_hw_disk_count(void);
 int get_connect_disk_count(void);
@@ -56,13 +57,13 @@ bool internal_fs_exists(void* path, void* priv) {
     return f_stat(fs, str_to_cstr(path), &fno) == FR_OK;
 }
 
-void rsl_ls(void* path) { vfs_ls(path); }
-void rsl_cat(void* path) { vfs_cat(path); }
+void rsl_ls(void* path) { vfs_ls(path); sys_yield(); }
+void rsl_cat(void* path) { vfs_cat(path); sys_yield(); }
 void vfs_write_dispatch(void* path, void* content);
-void rsl_write(void* path, void* content) { vfs_write_dispatch(path, content); }
-void rsl_cd(void* path) { vfs_cd(path); }
-void rsl_mkdir(void* path) { vfs_mkdir(path); }
-void rsl_rmdir(void* path) { vfs_rmdir(path); }
+void rsl_write(void* path, void* content) { vfs_write_dispatch(path, content); sys_yield(); }
+void rsl_cd(void* path) { vfs_cd(path); sys_yield(); }
+void rsl_mkdir(void* path) { vfs_mkdir(path); sys_yield(); }
+void rsl_rmdir(void* path) { vfs_rmdir(path); sys_yield(); }
 bool rsl_exists(void* path) { return vfs_exists(path); }
 
 bool rsl_safe_mode(void) { return vfs_is_safe_mode(); }
@@ -87,12 +88,14 @@ void rsl_mount(void* path) {
     } else {
         print("Error: Mount failed.\n");
     }
+    sys_yield();
 }
 
 void rsl_format(void* path) {
     const char* p = str_to_cstr(path);
     int drive = p[0] - '0';
     if (f_mkfs(drive) == FR_OK) print("Format successful.\n");
+    sys_yield();
 }
 
 void rsl_stamp(void* path) {
@@ -122,6 +125,7 @@ void rsl_draw_rrif(void* path, int x, int y) {
 void ahci_scan_remaining(void);
 void rsl_scan(void) {
     ahci_scan_remaining();
+    sys_yield();
 }
 
 int vdisk_eject_hw(int hw_id);
@@ -133,4 +137,5 @@ void rsl_eject(void* path) {
     } else {
         print("Error: Eject failed or not supported.\n");
     }
+    sys_yield();
 }

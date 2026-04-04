@@ -52,17 +52,28 @@ task_t* get_current_task(void) {
 void telemetry_update(int task_id, const char* status);
 
 void sovereign_yield(void) {
+    sys_yield();
+}
+
+void sys_yield(void) {
     __asm__ volatile ("int $32");
 }
 
 void unice64_schedule(void) {
     if (task_count < 2) return;
 
-    /* Simple Round Robin Selection */
+    /* Active-Relay Round Robin: Skip TASK_WAITING tasks */
     int next_idx = (current_task_idx + 1) % task_count;
-    while (task_table[next_idx].state != TASK_READY && task_table[next_idx].state != TASK_RUNNING) {
+    int loop_count = 0;
+    while (task_table[next_idx].state != TASK_READY &&
+           task_table[next_idx].state != TASK_RUNNING &&
+           loop_count < task_count) {
         next_idx = (next_idx + 1) % task_count;
+        loop_count++;
     }
+
+    /* If no tasks are ready, use the first task (usually Idle) */
+    if (loop_count >= task_count) next_idx = 0;
 
     if (task_table[current_task_idx].state == TASK_RUNNING) {
         task_table[current_task_idx].state = TASK_READY;

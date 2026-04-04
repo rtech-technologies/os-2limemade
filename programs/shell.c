@@ -44,7 +44,7 @@ static color_t name_to_color(const char* name) {
 }
 
 void shell_main(void) {
-    set_color(LIGHT_CYAN, BLACK);
+    set_color(GREEN, BLACK);
     print("  _____ _______ ______ _____ _    _    ____   _____     ___  \n");
     print(" |  __ \\__   __|  ____/ ____| |  | |  / __ \\ / ____|   |__ \\ \n");
     print(" | |__) | | |  | |__ | |    | |__| | | |  | | (_____  __  ) |\n");
@@ -53,7 +53,6 @@ void shell_main(void) {
     print(" |_|  \\_\\ |_|  |______\\_____|_|  |_|  \\____/|_____/_/\\_\\____|\n");
     print("\n[ OSx2 Sovereign ] Build Success.\n");
 
-    set_color(GREEN, BLACK);
     void* curdir = str_create("/");
 
     while (1) {
