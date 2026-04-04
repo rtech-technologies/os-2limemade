@@ -242,7 +242,8 @@ void vga_write_char(char c, uint8_t color_attr) {
 
     int char_height = 8 * SCALE;
     /* OSx2: Cap terminal based on user configuration */
-    int max_rows = fb->height / char_height;
+    /* Leave room for telemetry row */
+    int max_rows = (fb->height / char_height) - 1;
 #ifdef CONFIG_TERMINAL_ROWS
     if (max_rows > CONFIG_TERMINAL_ROWS) max_rows = CONFIG_TERMINAL_ROWS;
 #else
@@ -268,6 +269,51 @@ void vga_write_char(char c, uint8_t color_attr) {
         }
 
         cursor_y = max_rows - 1;
+    }
+}
+
+/* Sovereign Telemetry Monitor (Bottom Row) */
+void telemetry_update(int task_id, const char* status) {
+    if (!global_fb) return;
+    struct limine_framebuffer* fb = global_fb;
+    int char_height = 8 * SCALE;
+    int char_width = 8 * SCALE;
+    int bottom_row = (fb->height / char_height) - 1;
+    int max_cols = fb->width / char_width;
+
+    /* Draw a separator line above telemetry */
+    uint32_t sep_color = 0x555555;
+    uint32_t* fb_ptr = (uint32_t*)fb->address;
+    int line_y = bottom_row * char_height - 2;
+    for (int x = 0; x < fb->width; x++) {
+        fb_ptr[line_y * (fb->pitch / 4) + x] = sep_color;
+    }
+
+    /* Clear the telemetry row */
+    for (int x = 0; x < max_cols; x++) {
+        draw_char(' ', x, bottom_row, 0x000000, 0x000000);
+    }
+
+    /* Print Status: [T:ID] HEARTBEAT STATUS */
+    char buf[64];
+    /* Simplified snprintf equivalent */
+    int i = 0;
+    buf[i++] = '['; buf[i++] = 'T'; buf[i++] = ':';
+    buf[i++] = (task_id % 10) + '0';
+    buf[i++] = ']'; buf[i++] = ' ';
+
+    static int heartbeat = 0;
+    const char* hb_chars = "|/-\\";
+    buf[i++] = hb_chars[heartbeat++ % 4];
+    buf[i++] = ' ';
+
+    int k = 0;
+    while (status[k] && i < 60) buf[i++] = status[k++];
+    buf[i] = '\0';
+
+    /* Draw at bottom left in Emerald (0x00FF88) */
+    for (int j = 0; j < i; j++) {
+        draw_char(buf[j], j, bottom_row, 0x00FF88, 0x000000);
     }
 }
 

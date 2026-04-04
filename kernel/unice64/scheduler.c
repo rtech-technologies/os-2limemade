@@ -49,6 +49,8 @@ task_t* get_current_task(void) {
     return &task_table[current_task_idx];
 }
 
+void telemetry_update(int task_id, const char* status);
+
 void sovereign_yield(void) {
     __asm__ volatile ("int $32");
 }
@@ -68,4 +70,7 @@ void unice64_schedule(void) {
 
     current_task_idx = next_idx;
     task_table[current_task_idx].state = TASK_RUNNING;
+
+    /* Update Telemetry on every switch */
+    telemetry_update(current_task_idx, "ACTIVE");
 }
