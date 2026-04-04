@@ -23,12 +23,12 @@ void register_task(void (*entry_point)(void), uint32_t slab_id) {
         task_table[task_count].state = TASK_READY;
         task_table[task_count].slab_id = slab_id;
 
-        /* Allocate Kernel Stack for Task (8KB) */
-        uint64_t stack_phys = (uint64_t)pmm_alloc(2); /* 2 pages = 8KB */
+        /* Allocate Kernel Stack for Task (16KB for Nested-VM Safety) */
+        uint64_t stack_phys = (uint64_t)pmm_alloc(4); /* 4 pages = 16KB */
         uint64_t hhdm = get_hhdm_offset();
         uint64_t stack_virt = stack_phys + hhdm;
 
-        task_table[task_count].kernel_stack_top = stack_virt + 8192;
+        task_table[task_count].kernel_stack_top = stack_virt + 16384;
 
         /* Initialize Context */
         cpu_context_t* ctx = &task_table[task_count].context;

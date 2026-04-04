@@ -425,8 +425,8 @@ void ahci_service(kernel_event_t event) {
                     while ((hba_base->ghc & (1 << 0)) && ghc_timeout--) pit_wait_ms(1);
                     hba_base->ghc |= (1 << 31);
 
-                    /* OSx2: Only scan the first 9 ports on boot to save time */
-                    for (int p = 0; p < 9; p++) {
+                    /* OSx2: Only scan PORT 0 on boot for Nested-VM stability */
+                    for (int p = 0; p < 1; p++) {
                         if (hba_base->pi & (1 << p)) {
                             /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
                             void* raw_clb = bump_alloc(1024 + 1024);
