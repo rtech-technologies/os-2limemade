@@ -7,7 +7,9 @@ typedef struct {
     uint64_t ref_count;
 } arc_header_t;
 
-void* bump_alloc(size_t size);
+void* slab_alloc(int id, size_t size);
+#include <kernel/unice64/task.h>
+task_t* get_current_task(void);
 void serial_write_str(const char* s);
 
 void arc_mem_service(kernel_event_t event) {
@@ -18,7 +20,10 @@ void arc_mem_service(kernel_event_t event) {
 
 void* arc_alloc(size_t size) {
     size_t total_size = size + sizeof(arc_header_t);
-    arc_header_t* header = (arc_header_t*)bump_alloc(total_size);
+    task_t* current = get_current_task();
+    int slab_id = current ? current->slab_id : 0;
+
+    arc_header_t* header = (arc_header_t*)slab_alloc(slab_id, total_size);
     if (!header) return NULL;
 
     header->ref_count = 1; /* Initial reference count */

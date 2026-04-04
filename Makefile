@@ -10,7 +10,8 @@ KERNEL_SRC = $(filter-out kernel/libs/signature_check.c, $(wildcard kernel/unice
              $(wildcard kernel/libs/storage/*.c) \
              $(wildcard kernel/libs/storage/fatfs/*.c) \
              $(wildcard kernel/libs/core/*.c)) programs/shell.c
-KERNEL_OBJ = $(KERNEL_SRC:.c=.o)
+AS_SRC = $(wildcard kernel/unice64/*.s)
+KERNEL_OBJ = $(KERNEL_SRC:.c=.o) $(AS_SRC:.s=.o)
 KERNEL_ELF = kernel.elf
 
 ISO_IMAGE = osx2.iso
@@ -59,6 +60,9 @@ kernel: limine-setup $(KERNEL_OBJ)
 	@echo "OSx2 Limemade Kernel Compiled: $(KERNEL_ELF)"
 
 %.o: %.c | limine-setup
+	$(CC) $(CFLAGS) -c $< -o $@
+
+%.o: %.s | limine-setup
 	$(CC) $(CFLAGS) -c $< -o $@
 
 iso: limine-setup kernel

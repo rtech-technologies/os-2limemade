@@ -15,6 +15,10 @@ void forensic_panic(const char* message, void* state);
 
 void gdt_init(void);
 void pmm_init(void);
+void idt_init(void);
+void apic_init(void);
+void apic_timer_init(uint32_t count);
+void tasking_init(void);
 
 /* 32KB Sovereign Stack */
 __attribute__((used, section(".bss"), aligned(16)))
@@ -142,6 +146,12 @@ void _start(void) {
         vfs_set_safe_mode(false);
     }
 
+    /* Initialize Multitasking and Preemption */
+    tasking_init();
+    idt_init();
+    apic_init();
+    apic_timer_init(1000000); /* ~100Hz on most systems */
+
     dispatch_event(EVENT_MAIN);
 
     /* Automated Sovereignty: Try to execute BOOT.RSL */
@@ -151,10 +161,10 @@ void _start(void) {
         rsl_execute_stream(script_path);
     }
 
-    /* Launch the RSL Shell */
-    shell_main();
-
-    /* Cleanup and Shutdown */
+    /* The main thread becomes an observer or a task.
+       Actually, tasking_init already registered the shell.
+       We should just loop here and let the scheduler take over. */
+    vga_print("[UNICE64] Kernel handover to Scheduler.\n");
     dispatch_event(EVENT_CLEANUP);
     dispatch_event(EVENT_EXIT);
 
