@@ -47,6 +47,11 @@ void slab_reset(int id) {
     if (id >= 0 && id < MAX_SLABS) slabs[id].offset = 0;
 }
 
+size_t slab_get_usage(int id) {
+    if (id >= 0 && id < MAX_SLABS) return slabs[id].offset;
+    return 0;
+}
+
 void* malloc(size_t size) {
     /* Use Slab 0 as Global System Heap */
     return slab_alloc(0, size);

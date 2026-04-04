@@ -5,6 +5,9 @@
 #include <kernel/libs/storage/vdisk.h>
 #include <kernel/libs/core/pci.h>
 
+void* malloc(size_t size);
+void free(void* ptr);
+
 void serial_write_str(const char* s);
 
 /* AHCI HBA Structures (Physical) */
@@ -311,15 +314,15 @@ void ahci_scan_remaining(void) {
     for (int p = 9; p < 32; p++) {
         if (hba_base->pi & (1 << p)) {
             /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
-            void* raw_clb = bump_alloc(1024 + 1024);
+            void* raw_clb = malloc(1024 + 1024);
             if (raw_clb) {
                 uint64_t addr = (uint64_t)raw_clb;
                 if (addr % 1024 != 0) addr = (addr + 1023) & ~1023;
                 port_clb_virt[p] = (void*)addr;
             } else port_clb_virt[p] = NULL;
 
-            port_fb_virt[p] = bump_alloc(256);
-            port_ctba_virt[p] = bump_alloc(4096);
+            port_fb_virt[p] = malloc(256);
+            port_ctba_virt[p] = malloc(4096);
 
             if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
                 vga_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);
@@ -425,19 +428,19 @@ void ahci_service(kernel_event_t event) {
                     while ((hba_base->ghc & (1 << 0)) && ghc_timeout--) pit_wait_ms(1);
                     hba_base->ghc |= (1 << 31);
 
-                    /* OSx2: Only scan PORT 0 on boot for Nested-VM stability */
-                    for (int p = 0; p < 1; p++) {
+                    /* OSx2: Scan the first 9 ports on boot per Sovereign mandate */
+                    for (int p = 0; p < 9; p++) {
                         if (hba_base->pi & (1 << p)) {
                             /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
-                            void* raw_clb = bump_alloc(1024 + 1024);
+                            void* raw_clb = malloc(1024 + 1024);
                             if (raw_clb) {
                                 uint64_t addr = (uint64_t)raw_clb;
                                 if (addr % 1024 != 0) addr = (addr + 1023) & ~1023;
                                 port_clb_virt[p] = (void*)addr;
                             } else port_clb_virt[p] = NULL;
 
-                            port_fb_virt[p] = bump_alloc(256);
-                            port_ctba_virt[p] = bump_alloc(4096);
+                            port_fb_virt[p] = malloc(256);
+                            port_ctba_virt[p] = malloc(4096);
 
                             if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
                                 vga_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);

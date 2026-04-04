@@ -9,7 +9,6 @@ typedef struct {
 
 void* slab_alloc(int id, size_t size);
 #include <kernel/unice64/task.h>
-task_t* get_current_task(void);
 void serial_write_str(const char* s);
 
 void arc_mem_service(kernel_event_t event) {

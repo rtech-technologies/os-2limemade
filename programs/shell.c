@@ -338,6 +338,9 @@ void shell_main(void) {
                 print("Usage: run <path>\n");
             }
         }
+        else if (cstr_match(argv[0], "settings")) {
+            rsl_settings();
+        }
         else if (cstr_match(argv[0], "scan")) {
             rsl_scan();
         }
