@@ -1,6 +1,7 @@
 .code64
 .global idt_load
 .global irq_timer_handler
+.global exception_handler_stub
 .extern apic_eoi
 .extern unice64_context_switch
 
@@ -41,3 +42,10 @@ irq_timer_handler:
 
     # Perform the Sovereign context swap
     jmp unice64_context_switch
+
+exception_handler_stub:
+    cli
+    # Simple Emerald (0x00FF88) Panic for Exceptions
+    # In a real build, we would push the vector and call forensic_panic.
+    1: hlt
+    jmp 1b

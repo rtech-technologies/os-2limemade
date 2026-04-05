@@ -19,6 +19,7 @@ void idt_init(void);
 void apic_init(void);
 void apic_timer_init(uint32_t count);
 void tasking_init(void);
+void slab_init(void);
 
 /* 32KB Sovereign Stack */
 __attribute__((used, section(".bss"), aligned(16)))
@@ -34,15 +35,19 @@ void _start(void) {
     );
 
     /* Sovereign Silicon Foundation */
+    __asm__ volatile ("cli");
     gdt_init();
     pmm_init();
+    slab_init();
+
+    /* Pre-register IDT to catch early faults */
+    idt_init();
 
     /* OSx2 Sovereign Welcome */
     serial_write_str("\n[ RTECH SOVEREIGN KERNEL ]\n");
     serial_write_str("[ BUILD 23:00 - MECHANICAL TRUTH ]\n\n");
 
     /* Initialize Hardware and Core Memory */
-    __asm__ volatile ("cli");
     dispatch_event(EVENT_INIT);
     __asm__ volatile ("sti");
 
@@ -169,14 +174,13 @@ void _start(void) {
         vfs_set_safe_mode(false);
     }
 
+    dispatch_event(EVENT_MAIN);
+
     /* Initialize Active-Relay Multitasking */
     tasking_init();
-    idt_init();
     /* Initialize APIC for system_ticks (One-Shot Mode) */
     apic_init();
     apic_timer_init(1000000);
-
-    dispatch_event(EVENT_MAIN);
 
     /* Automated Sovereignty: Try to execute BOOT.RSL */
     void rsl_execute_stream(const char* path);
