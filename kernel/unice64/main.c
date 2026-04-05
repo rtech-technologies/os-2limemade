@@ -49,6 +49,7 @@ void _start(void) {
 
     /* Initialize Hardware and Core Memory */
     dispatch_event(EVENT_INIT);
+    serial_write_str("[INIT] AHCI Polling Success - Handoff to Orchestrator\n");
     __asm__ volatile ("sti");
 
     /* Start the Shell and Main System Logic */

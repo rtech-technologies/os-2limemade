@@ -4,104 +4,12 @@
 #include <stdbool.h>
 #include <kernel/libs/storage/vdisk.h>
 #include <kernel/libs/core/pci.h>
+#include <kernel/libs/storage/ahci.h>
 
 void* malloc(size_t size);
 void free(void* ptr);
 
 void serial_write_str(const char* s);
-
-/* AHCI HBA Structures (Physical) */
-typedef struct {
-    uint8_t  fis_type;
-    uint8_t  pmport:4;
-    uint8_t  rsv0:3;
-    uint8_t  c:1;
-    uint8_t  command;
-    uint8_t  featurel;
-    uint8_t  lba0;
-    uint8_t  lba1;
-    uint8_t  lba2;
-    uint8_t  device;
-    uint8_t  lba3;
-    uint8_t  lba4;
-    uint8_t  lba5;
-    uint8_t  featureh;
-    uint8_t  countl;
-    uint8_t  counth;
-    uint8_t  icc;
-    uint8_t  control;
-    uint8_t  rsv1[4];
-} fis_reg_h2d_t;
-
-typedef struct {
-    uint32_t dba;
-    uint32_t dbau;
-    uint32_t rsv0;
-    uint32_t dbc:22;
-    uint32_t rsv1:9;
-    uint32_t i:1;
-} hba_prdt_entry_t;
-
-typedef struct {
-    uint8_t  cfis[64];
-    uint8_t  acmd[16];
-    uint8_t  rsv[48];
-    hba_prdt_entry_t prdt_entry[1];
-} hba_cmd_tbl_t;
-
-typedef struct {
-    uint8_t  cfl:5;
-    uint8_t  a:1;
-    uint8_t  w:1;
-    uint8_t  p:1;
-    uint8_t  r:1;
-    uint8_t  b:1;
-    uint8_t  c:1;
-    uint8_t  rsv0:1;
-    uint8_t  pmp:4;
-    uint16_t prdtl;
-    volatile uint32_t prdbc;
-    uint32_t ctba;
-    uint32_t ctbau;
-    uint32_t rsv1[4];
-} hba_cmd_header_t;
-
-typedef struct {
-    uint32_t clb;
-    uint32_t clbu;
-    uint32_t fb;
-    uint32_t fbu;
-    uint32_t is;
-    uint32_t ie;
-    uint32_t cmd;
-    uint32_t rsv0;
-    uint32_t tfd;
-    uint32_t sig;
-    uint32_t ssts;
-    uint32_t sctl;
-    uint32_t serr;
-    uint32_t sact;
-    uint32_t ci;
-    uint32_t sntf;
-    uint32_t fbs;
-    uint32_t devslp;
-    uint32_t rsv1[11]; /* (18 * 4) = 72 bytes. 128 - 72 = 56 bytes. 56 / 4 = 14. */
-    uint32_t rsv2[3]; /* More Padding */
-} hba_port_t;
-
-typedef struct {
-    uint32_t cap;
-    uint32_t ghc;
-    uint32_t is;
-    uint32_t pi;
-    uint32_t vs;
-    uint32_t bccc;
-    uint32_t bccd;
-    uint32_t cap2;
-    uint32_t bohc;
-    uint8_t  rsv[0x100 - 0x24]; /* Pad to 0x100 where ports start */
-    hba_port_t ports[32];
-} hba_mem_t;
 
 static hba_mem_t* hba_base = NULL;
 static void* port_clb_virt[32];
@@ -117,8 +25,21 @@ void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
 void* bump_alloc(size_t size);
 uint64_t vmm_get_phys(void* virt);
 
+void forensic_panic(const char* message, void* state);
+
+void ahci_wait_status(hba_port_t *port, ahci_poll_type_t type, uint32_t mask, uint32_t expected, uint32_t timeout) {
+    while (timeout--) {
+        uint32_t val = (type == AHCI_POLL_TFD) ? port->tfd : port->is;
+        if ((val & mask) == expected) return;
+        __asm__ volatile ("pause");
+    }
+    forensic_panic("AHCI_POLL_TIMEOUT", NULL);
+}
+
 void ahci_port_start(hba_port_t *port) {
-    while (port->cmd & (1 << 15));
+    int timeout = 1000000;
+    while (port->cmd & (1 << 15) && timeout--) __asm__ volatile ("pause");
+    if (timeout <= 0) forensic_panic("AHCI_PORT_START_TIMEOUT", NULL);
     port->cmd |= (1 << 4);
     port->cmd |= (1 << 0);
 }
@@ -136,6 +57,7 @@ void ahci_force_port_reset(hba_port_t *port, int port_no) {
     while ((port->cmd & 0x8000 || port->cmd & 0x4000) && engine_timeout--) {
         pit_wait_ms(1);
     }
+    if (engine_timeout <= 0) forensic_panic("AHCI_ENGINE_TIMEOUT", NULL);
 
     port->sctl = (port->sctl & ~0x0F) | 0x301;
     pit_wait_ms(10);
@@ -202,6 +124,7 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     cmdtbl->prdt_entry[0].i = 1;
 
     fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
+    for(int i=0; i<64; i++) cmdtbl->cfis[i] = 0;
     fis->fis_type = 0x27;
     fis->c = 1;
     fis->command = 0x25;
@@ -215,22 +138,18 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis->countl = (uint8_t)count;
     fis->counth = (uint8_t)(count >> 8);
 
+    /* Task A Fix: Clear sticky IS bits before command */
+    port->is = 0xFFFFFFFF;
+
     /* Idle Wait: Wait for drive to be ready to receive command */
-    int timeout = 1000000;
-    while ((port->tfd & (0x80 | 0x08)) && timeout--) {
-        __asm__ volatile ("pause");
-    }
+    ahci_wait_status(port, AHCI_POLL_TFD, 0x88, 0, 1000000);
 
     port->ci = (1 << 0);
-    while ((port->ci & (1 << 0)) && timeout--) {
-        if (port->tfd & (1 << 0)) { /* ERR bit */
-            vga_print("[AHCI] Port %d READ ERROR: TFD 0x%x\n", p, port->tfd);
-            return -1;
-        }
-        __asm__ volatile ("pause");
-    }
-    if (timeout <= 0) {
-        vga_print("[AHCI] Port %d READ TIMEOUT\n", p);
+    /* Task A: Replace while(!interrupt_fired) with ahci_wait_status polling PxIS */
+    ahci_wait_status(port, AHCI_POLL_IS, 0x01, 0x01, 1000000);
+
+    if (port->tfd & (1 << 0)) { /* ERR bit */
+        vga_print("[AHCI] Port %d READ ERROR: TFD 0x%x\n", p, port->tfd);
         return -1;
     }
     return 0;
@@ -267,6 +186,7 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     cmdtbl->prdt_entry[0].i = 1;
 
     fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
+    for(int i=0; i<64; i++) cmdtbl->cfis[i] = 0;
     fis->fis_type = 0x27;
     fis->c = 1;
     fis->command = 0x35;
@@ -280,22 +200,18 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis->countl = (uint8_t)count;
     fis->counth = (uint8_t)(count >> 8);
 
+    /* Task A Fix: Clear sticky IS bits before command */
+    port->is = 0xFFFFFFFF;
+
     /* Idle Wait: Wait for drive to be ready to receive command */
-    int timeout = 1000000;
-    while ((port->tfd & (0x80 | 0x08)) && timeout--) {
-        __asm__ volatile ("pause");
-    }
+    ahci_wait_status(port, AHCI_POLL_TFD, 0x88, 0, 1000000);
 
     port->ci = (1 << 0);
-    while ((port->ci & (1 << 0)) && timeout--) {
-        if (port->tfd & (1 << 0)) {
-            vga_print("[AHCI] Port %d WRITE ERROR: TFD 0x%x\n", p, port->tfd);
-            return -1;
-        }
-        __asm__ volatile ("pause");
-    }
-    if (timeout <= 0) {
-        vga_print("[AHCI] Port %d WRITE TIMEOUT\n", p);
+    /* Task A: Replace while(!interrupt_fired) with ahci_wait_status polling PxIS */
+    ahci_wait_status(port, AHCI_POLL_IS, 0x01, 0x01, 1000000);
+
+    if (port->tfd & (1 << 0)) {
+        vga_print("[AHCI] Port %d WRITE ERROR: TFD 0x%x\n", p, port->tfd);
         return -1;
     }
     return 0;
@@ -421,6 +337,7 @@ void ahci_service(kernel_event_t event) {
                     hba_base->ghc |= (1 << 0);
                     int ghc_timeout = 1000;
                     while ((hba_base->ghc & (1 << 0)) && ghc_timeout--) pit_wait_ms(1);
+                    if (ghc_timeout <= 0) forensic_panic("AHCI_GHC_RESET_TIMEOUT", NULL);
                     hba_base->ghc |= (1 << 31);
 
                     /* OSx2: Scan the first 9 ports on boot per Sovereign mandate */
