@@ -119,18 +119,22 @@ uint64_t vmm_get_phys(void* virt);
 
 void ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_t timeout_loops) {
     while (timeout_loops--) {
-        /* Check Interrupt Status (Poll-only acknowledgment) */
-        if (port->is & (mask | (1 << 30))) { /* Mask or Task File Error */
+        /* 1. Task File Error bit check */
+        if (port->tfd & (1 << 0)) return;
+
+        /* 2. Interrupt Status bit check (Manual Acknowledgment) */
+        if (port->is & mask) {
             port->is = 0xFFFFFFFF;
             return;
         }
-        /* Check Task File Data (ERR bit) */
-        if (port->tfd & (1 << 0)) return;
 
-        /* Standard mask/expected check for TFD and CI */
-        if ((port->tfd & mask) == expected && (port->ci & mask) == expected) {
+        /* 3. Robust Dual-Register Polling (TFD & CI) */
+        /* We wait until BOTH the status bits and command issue bits reach expectation. */
+        if (((port->tfd & mask) == expected) && ((port->ci & mask) == expected)) {
+            port->is = 0xFFFFFFFF;
             return;
         }
+
         __asm__ volatile ("pause");
     }
     void forensic_panic(const char* message, void* state);
@@ -326,7 +330,8 @@ void ahci_scan_remaining(void) {
         if (hba_base->pi & (1 << p)) {
             /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
             port_clb_virt[p] = slab_alloc_aligned(0, 1024, 1024);
-            port_fb_virt[p] = slab_alloc_aligned(0, 256, 256);
+            /* Received FIS: 4KB aligned for Sovereign safety */
+            port_fb_virt[p] = slab_alloc_aligned(0, 4096, 4096);
             port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
 
             if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
@@ -442,8 +447,8 @@ void ahci_service(kernel_event_t event) {
                             /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
                             port_clb_virt[p] = slab_alloc_aligned(0, 1024, 1024);
 
-                            /* Received FIS: 256 bytes, 256B aligned */
-                            port_fb_virt[p] = slab_alloc_aligned(0, 256, 256);
+                            /* Received FIS: 4KB aligned for Sovereign safety */
+                            port_fb_virt[p] = slab_alloc_aligned(0, 4096, 4096);
 
                             /* Command Table: 4KB aligned for standard safety */
                             port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);

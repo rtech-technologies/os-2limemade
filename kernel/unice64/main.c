@@ -59,63 +59,24 @@ void _start(void) {
     static FATFS boot_fs;
     bool mount_success = false;
 
-    /* 1. Sovereign Discovery: Scan ALL registered hardware for a bootable volume */
-    int boot_drive = -1;
+    /* 1. Sovereign Discovery: Follow strict Loader Phase ritual */
     int hw_count = get_hw_disk_count();
     vga_print("[BOOT] Scanning %d detected hardware volumes...\n", hw_count);
 
-    /* Phase 1: Hardware Mount (SATA first, 50ms Timeout) */
+    /* Phase 1: Mount Ramdisk as BOOT:/ */
+    int ramdisk_drive = -1;
     for (int i = 0; i < hw_count; i++) {
-        if (vdisk_is_atapi(i)) continue;
-
-        vga_print("[BOOT] Attempting SATA Mount (Drive %d)...\n", i);
-        /* Simple polling mount for timeout logic */
-        FRESULT res = f_mount(&boot_fs, i);
-        if (res == FR_OK) {
-            vga_print("[BOOT] Sovereign HDD Online.\n");
-            boot_drive = i;
-            mount_success = true;
-            break;
-        } else {
-            vga_print("[BOOT] Drive %d: MOUNT FAILURE or TIMEOUT.\n", i);
-        }
-    }
-
-    /* Phase 2: INITRD/Fallback (If no functional SATA or mount failure) */
-    if (!mount_success) {
-        for (int i = 0; i < hw_count; i++) {
-            if (!vdisk_is_atapi(i)) continue;
+        if (vdisk_is_atapi(i)) {
+            vga_print("[BOOT] Attempting Ramdisk Mount (Drive %d)...\n", i);
             if (f_mount(&boot_fs, i) == FR_OK) {
-                vga_print("[BOOT] Falling back to Ramdisk/CDROM (Drive %d).\n", i);
-                boot_drive = i;
+                ramdisk_drive = i;
                 mount_success = true;
                 break;
             }
         }
     }
 
-    if (boot_drive == -1) {
-        set_color(YELLOW, BLACK);
-        print("\n[BOOT] NO SOVEREIGN DISK FOUND.\n");
-        void* choice = input("Search for non-FAT disks and install? (y/n): ");
-        if (choice && str_match(choice, "y")) {
-            for (int i = 0; i < hw_count; i++) {
-                if (vdisk_is_atapi(i)) continue;
-                vga_print("OSx2: Installing to Drive %d...\n", i);
-                if (f_mkfs(i) == FR_OK) {
-                    vga_print("OSx2: Installation Complete on Drive %d.\n", i);
-                    boot_drive = i;
-                    break;
-                }
-            }
-            release(choice);
-        } else if (choice) {
-            release(choice);
-        }
-    }
-
     if (mount_success) {
-        /* Register the boot volume with VFS as "BOOT" or "INITRD" */
         void internal_fs_ls(void* path, void* priv);
         void internal_fs_cat(void* path, void* priv);
         void internal_fs_write(void* path, void* content, void* priv);
@@ -132,24 +93,29 @@ void _start(void) {
             .rmdir = internal_fs_rmdir,
             .exists = internal_fs_exists
         };
-        /* strcpy-like hack for name */
-        const char* bname = vdisk_is_atapi(boot_drive) ? "INITRD" : "BOOT";
-        int bk = 0;
-        while(bname[bk]) { boot_node.name[bk] = bname[bk]; bk++; } boot_node.name[bk] = '\0';
-
+        /* BOOT is the Ramdisk */
+        const char* bname = "BOOT";
+        int bk = 0; while(bname[bk]) { boot_node.name[bk] = bname[bk]; bk++; } boot_node.name[bk] = '\0';
         vfs_register_node(boot_node);
+        vga_print("[FS] Ramdisk Mounted as BOOT:/ (Drive %d)\n", ramdisk_drive);
+    }
 
-        void vdisk_connect(int hw_id);
-        vdisk_connect(boot_drive);
-        vga_print("[FS] Sovereign Volume (Drive %d) Mounted as %s.\n", boot_drive, bname);
+    /* Phase 2: Mount first SATA HDD as DISK0:/ */
+    static FATFS hdd_fs;
+    for (int i = 0; i < hw_count; i++) {
+        if (vdisk_is_atapi(i)) continue;
+        if (is_sovereign_disk(i)) {
+            vga_print("[BOOT] Attempting SATA Mount (Drive %d)...\n", i);
+            if (f_mount(&hdd_fs, i) == FR_OK) {
+                void internal_fs_ls(void* path, void* priv);
+                void internal_fs_cat(void* path, void* priv);
+                void internal_fs_write(void* path, void* content, void* priv);
+                void internal_fs_mkdir(void* path, void* priv);
+                void internal_fs_rmdir(void* path, void* priv);
+                bool internal_fs_exists(void* path, void* priv);
 
-        /* VFS Bridge: Mount second disk if it exists */
-        if (hw_count > 1) {
-            static FATFS data_fs;
-            int second_drive = (boot_drive == 0) ? 1 : 0;
-            if (f_mount(&data_fs, second_drive) == FR_OK) {
-                vfs_node_t data_node = {
-                    .private_data = &data_fs,
+                vfs_node_t hdd_node = {
+                    .private_data = &hdd_fs,
                     .ls = internal_fs_ls,
                     .cat = internal_fs_cat,
                     .write = internal_fs_write,
@@ -158,12 +124,14 @@ void _start(void) {
                     .exists = internal_fs_exists
                 };
                 const char* dname = "DISK0";
-                int dk = 0; while(dname[dk]) { data_node.name[dk] = dname[dk]; dk++; } data_node.name[dk] = '\0';
-                vfs_register_node(data_node);
-                vga_print("[FS] SATA HDD (Drive %d) Mounted as DISK0.\n", second_drive);
+                int dk = 0; while(dname[dk]) { hdd_node.name[dk] = dname[dk]; dk++; } hdd_node.name[dk] = '\0';
+                vfs_register_node(hdd_node);
+                vga_print("[FS] SATA HDD Mounted as DISK0:/ (Drive %d)\n", i);
+                break;
             }
         }
     }
+
 
     if (!mount_success) {
         set_color(LIGHT_RED, BLACK);
@@ -185,9 +153,8 @@ void _start(void) {
     /* Automated Sovereignty: Try to execute BOOT.RSL */
     void rsl_execute_stream(const char* path);
     if (mount_success) {
-        const char* script_path = vdisk_is_atapi(boot_drive) ? "INITRD:/BOOT.RSL" : "BOOT:/BOOT.RSL";
         serial_write_str("CHECKPOINT A: Executing stream...\n");
-        rsl_execute_stream(script_path);
+        rsl_execute_stream("BOOT:/BOOT.RSL");
         serial_write_str("CHECKPOINT B: Stream finished.\n");
     }
 

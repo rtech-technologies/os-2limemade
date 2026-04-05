@@ -65,6 +65,9 @@ void rsl_execute_stream(const char* path) {
                 serial_write_str(line);
                 serial_write_str("\n");
 
+                void rsl_execute_command(char* line);
+                rsl_execute_command(line);
+
                 /* In a multitasking build, we would sovereign_yield() here */
                 void sovereign_yield(void);
                 sovereign_yield();

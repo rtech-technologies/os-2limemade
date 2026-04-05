@@ -91,6 +91,195 @@ void rsl_mount(void* path) {
     sys_yield();
 }
 
+static void* curdir = NULL;
+
+void* rsl_get_curdir(void) {
+    if (!curdir) curdir = str_create("/");
+    retain(curdir);
+    return curdir;
+}
+
+static bool cstr_match_local(const char* s1, const char* s2) {
+    int i = 0;
+    while (s1[i] && s2[i]) {
+        if (s1[i] != s2[i]) return false;
+        i++;
+    }
+    return s1[i] == s2[i];
+}
+
+static bool is_absolute(const char* path) {
+    int i = 0;
+    while (path[i]) {
+        if (path[i] == ':') return true;
+        i++;
+    }
+    return path[0] == '/';
+}
+
+static void* resolve_path_local(void* curdir, const char* arg) {
+    if (is_absolute(arg)) return str_create(arg);
+    const char* cd = str_to_cstr(curdir);
+    if (cstr_match_local(cd, "/")) return str_create(arg);
+    return str_concat(curdir, str_create(arg));
+}
+
+static color_t name_to_color_local(const char* name) {
+    if (cstr_match_local(name, "black")) return BLACK;
+    if (cstr_match_local(name, "blue")) return BLUE;
+    if (cstr_match_local(name, "green")) return GREEN;
+    if (cstr_match_local(name, "cyan")) return CYAN;
+    if (cstr_match_local(name, "red")) return RED;
+    if (cstr_match_local(name, "magenta")) return MAGENTA;
+    if (cstr_match_local(name, "brown")) return BROWN;
+    if (cstr_match_local(name, "white")) return WHITE;
+    if (cstr_match_local(name, "yellow")) return YELLOW;
+    return WHITE;
+}
+
+void rsl_execute_command(char* line) {
+    if (!curdir) curdir = str_create("/");
+    if (!line || line[0] == '\0') return;
+
+    char* argv[16];
+    int argc = 0;
+    char* p = line;
+
+    while (*p && argc < 16) {
+        while (*p == ' ') *p++ = '\0';
+        if (*p == '\0') break;
+        argv[argc++] = p;
+        while (*p && *p != ' ') p++;
+    }
+
+    if (argc == 0) return;
+
+    if (cstr_match_local(argv[0], "ls")) {
+        if (argc > 1) {
+            void* path = resolve_path_local(curdir, argv[1]);
+            rsl_ls(path); release(path);
+        } else rsl_ls(curdir);
+    } else if (cstr_match_local(argv[0], "cd")) {
+        if (argc > 1) {
+            void* new_path;
+            if (cstr_match_local(argv[1], "/")) new_path = str_create("/");
+            else if (cstr_match_local(argv[1], "..")) {
+                const char* cur = str_to_cstr(curdir);
+                int last_slash = -1;
+                for(int k=0; cur[k]; k++) if (cur[k] == '/' && cur[k+1] != '\0') last_slash = k;
+                if (last_slash == -1) new_path = str_create("/");
+                else {
+                    char buf[256]; int k;
+                    for(k=0; k<=last_slash; k++) buf[k] = cur[k];
+                    buf[k] = '\0'; new_path = str_create(buf);
+                }
+            } else new_path = resolve_path_local(curdir, argv[1]);
+
+            if (cstr_match_local(str_to_cstr(new_path), "/") || rsl_exists(new_path)) {
+                const char* nps = str_to_cstr(new_path);
+                int len = 0; while(nps[len]) len++;
+                if (len > 0 && nps[len-1] != '/') {
+                    void* slash = str_create("/");
+                    void* fixed = str_concat(new_path, slash);
+                    release(slash); release(new_path);
+                    new_path = fixed;
+                }
+                release(curdir); curdir = new_path;
+                rsl_cd(curdir);
+            } else {
+                print("Error: Path not found.\n"); release(new_path);
+            }
+        }
+    } else if (cstr_match_local(argv[0], "cat")) {
+        if (argc > 1) {
+            void* path = resolve_path_local(curdir, argv[1]);
+            rsl_cat(path); release(path);
+            print("\n");
+        }
+    } else if (cstr_match_local(argv[0], "write")) {
+        if (argc > 1) {
+            void* path = resolve_path_local(curdir, argv[1]);
+            void* content;
+            if (argc > 2) content = str_create(argv[2]);
+            else content = input("Enter Content: ");
+            if (content) {
+                rsl_write(path, content); release(content);
+            }
+            release(path);
+        }
+    } else if (cstr_match_local(argv[0], "mkdir")) {
+        if (argc > 1) {
+            void* path = resolve_path_local(curdir, argv[1]);
+            rsl_mkdir(path); release(path);
+        }
+    } else if (cstr_match_local(argv[0], "rmdir")) {
+        if (argc > 1) {
+            void* path = resolve_path_local(curdir, argv[1]);
+            rsl_rmdir(path); release(path);
+        }
+    } else if (cstr_match_local(argv[0], "echo")) {
+        for (int i = 1; i < argc; i++) {
+            print(argv[i]); if (i < argc - 1) print(" ");
+        }
+        print("\n");
+    } else if (cstr_match_local(argv[0], "color")) {
+        if (argc > 2) {
+            set_color(name_to_color_local(argv[1]), name_to_color_local(argv[2]));
+            print("Color Updated.\n");
+        }
+    } else if (cstr_match_local(argv[0], "copy")) {
+        if (argc > 1) {
+            void* s = str_create(argv[1]);
+            rsl_copy(s); release(s);
+            print("Copied to clipboard.\n");
+        }
+    } else if (cstr_match_local(argv[0], "paste")) {
+        void* s = rsl_paste();
+        if (s) {
+            print(str_to_cstr(s)); print("\n"); release(s);
+        } else print("Clipboard empty.\n");
+    } else if (cstr_match_local(argv[0], "mount")) {
+        if (argc > 1) {
+            void* path = str_create(argv[1]);
+            rsl_mount(path); release(path);
+        }
+    } else if (cstr_match_local(argv[0], "format")) {
+        if (argc > 1) {
+            void* path = str_create(argv[1]);
+            rsl_format(path); release(path);
+        }
+    } else if (cstr_match_local(argv[0], "stamp")) {
+        if (argc > 1) {
+            void* path = str_create(argv[1]);
+            rsl_stamp(path); release(path);
+        }
+    } else if (cstr_match_local(argv[0], "eject")) {
+        if (argc > 1) {
+            void* path = str_create(argv[1]);
+            rsl_eject(path); release(path);
+        }
+    } else if (cstr_match_local(argv[0], "debug-dump")) {
+        rsl_debug_dump();
+    } else if (cstr_match_local(argv[0], "scan")) {
+        rsl_scan();
+    } else if (cstr_match_local(argv[0], "settings")) {
+        rsl_settings();
+    } else if (cstr_match_local(argv[0], "help")) {
+        print("OSx2 Limemade Commands:\n");
+        print("ls, cd, cat, write, mkdir, rmdir, echo, color, copy, paste, run, settings, debug-dump, scan, help, exit\n");
+    } else if (cstr_match_local(argv[0], "run")) {
+        if (argc > 1) {
+            void rsl_execute_stream(const char* path);
+            rsl_execute_stream(argv[1]);
+        }
+    } else if (cstr_match_local(argv[0], "exit")) {
+        void rsl_shutdown(void);
+        rsl_shutdown();
+    } else {
+        print("Unknown Command.\n");
+    }
+}
+
 void vga_print(const char* fmt, ...);
 size_t slab_get_usage(int id);
 

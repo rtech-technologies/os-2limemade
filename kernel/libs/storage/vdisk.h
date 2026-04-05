@@ -22,6 +22,7 @@ int vdisk_read(int disk_id, uint64_t lba, uint32_t count, void* buffer);
 int vdisk_write(int disk_id, uint64_t lba, uint32_t count, void* buffer);
 int get_hw_disk_count(void);
 int get_connect_disk_count(void);
+int is_sovereign_disk(int disk_id);
 int vdisk_read_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer);
 int vdisk_write_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer);
 int vdisk_eject_hw(int hw_id);

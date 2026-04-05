@@ -67,6 +67,22 @@ int vdisk_write(int disk_id, uint64_t lba, uint32_t count, void* buffer) {
 int get_hw_disk_count(void) { return hw_count; }
 int get_connect_disk_count(void) { return connect_count; }
 
+int is_sovereign_disk(int disk_id) {
+    if (disk_id < 0 || disk_id >= hw_count) return 0;
+    void* malloc(size_t size);
+    void free(void* ptr);
+    uint8_t* buf = malloc(512);
+    if (!buf) return 0;
+
+    int res = 0;
+    if (hw_registry[disk_id].read_lba(hw_registry[disk_id].private_data, 0, 1, buf) == 0) {
+        uint32_t sig = *(uint32_t*)buf;
+        if (sig == 0xEFBEADDE) res = 1;
+    }
+    free(buf);
+    return res;
+}
+
 int vdisk_read_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer) {
     if (hw_id < 0 || hw_id >= hw_count) return -1;
     return hw_registry[hw_id].read_lba(hw_registry[hw_id].private_data, lba, count, buffer);
@@ -109,8 +125,8 @@ static int ramdisk_read(void* priv, uint64_t lba, uint32_t count, void* buffer) 
     size_t size = count * 512;
     if (offset + size > ramdisk->size) return -1;
     uint8_t* src = base + offset;
-    uint8_t* dst = (uint8_t*)buffer;
-    for (size_t i = 0; i < size; i++) dst[i] = src[i];
+    void* memcpy(void* dest, const void* src, size_t n);
+    memcpy(buffer, src, size);
     return 0;
 }
 

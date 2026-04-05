@@ -18,6 +18,8 @@ void dispatch_event(kernel_event_t event) {
         register_service(vga_serial_service);
         register_service(arc_mem_service);
         register_service(usb_xhci_service);
+        void nvme_service(kernel_event_t event);
+        register_service(nvme_service);
         register_service(ahci_service);
         register_service(vdisk_service);
     }

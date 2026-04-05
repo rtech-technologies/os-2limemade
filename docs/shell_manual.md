@@ -26,6 +26,8 @@ The shell maintains a Current Working Directory (`curdir`).
 - `cat <file>`: Print the contents of a file.
 - `write <file>`: Create a new file or overwrite an existing one. Pre-existing files must be on a Sovereign volume.
 - `mkdir <name>`: Create a new directory in the current context.
+- `copy <text>`: Copy text to the global system clipboard.
+- `paste`: Output the contents of the global system clipboard.
 - `rmdir <name>`: Delete a directory or file.
 
 ### System
