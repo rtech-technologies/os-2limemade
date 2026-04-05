@@ -30,4 +30,4 @@ rsl> cd 0:/0/
 Once inside a disk, standard file operations like `ls`, `cat <file>`, and `write` apply to that volume's filesystem (FatFS). The OSx2 Limemade generator creates a primary volume with a `bin/` directory and an `INSTALL.rsl` script to facilitate system setup.
 
 ## 4. Verification
-If a disk is missing its `0xDEADBEEF` signature, it will not appear in the Global Root list, as it is not recognized as a **Sovereign** volume.
+A disk is recognized as a **Sovereign** volume based on its GPT partition structure and hardware status in the AHCI/XHCI registry.

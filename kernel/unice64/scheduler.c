@@ -3,7 +3,10 @@
 #include <stddef.h>
 
 #define MAX_TASKS 16
+#define TASK_STACK_SIZE 16384
+
 static task_t task_table[MAX_TASKS];
+static uint8_t task_stacks[MAX_TASKS][TASK_STACK_SIZE] __attribute__((aligned(4096)));
 static int task_count = 0;
 static int current_task_idx = 0;
 
@@ -23,12 +26,9 @@ void register_task(void (*entry_point)(void), uint32_t slab_id) {
         task_table[task_count].state = TASK_READY;
         task_table[task_count].slab_id = slab_id;
 
-        /* Allocate Kernel Stack for Task (16KB for Nested-VM Safety) */
-        uint64_t stack_phys = (uint64_t)pmm_alloc(4); /* 4 pages = 16KB */
-        uint64_t hhdm = get_hhdm_offset();
-        uint64_t stack_virt = stack_phys + hhdm;
-
-        task_table[task_count].kernel_stack_top = stack_virt + 16384;
+        /* Set Kernel Stack for Task (16KB aligned in Kernel Binary) */
+        uint64_t stack_virt = (uint64_t)&task_stacks[task_count];
+        task_table[task_count].kernel_stack_top = stack_virt + TASK_STACK_SIZE;
 
         /* Initialize Context */
         cpu_context_t* ctx = &task_table[task_count].context;

@@ -2,6 +2,7 @@
 .global unice64_context_switch
 .extern get_current_task
 .extern unice64_schedule
+.extern forensic_panic
 
 # Static Offsets for task_t and cpu_context_t
 # task_t: id(4), state(4), context(168), slab_id(4), stack_top(8)
@@ -30,10 +31,7 @@
 .set ctx_ss,  152
 
 unice64_context_switch:
-    # Save general purpose registers to stack (matching cpu_context_t order)
-    # We need to save the state of the task that was just interrupted or yielded.
-    # Stack currently has: SS, RSP, RFLAGS, CS, RIP (from interrupt/int32)
-
+    # Save general purpose registers to current stack
     push %rax
     push %rbx
     push %rcx
@@ -50,16 +48,28 @@ unice64_context_switch:
     push %r14
     push %r15
 
-    # Save stack pointer
-    mov %rsp, %rax
-
     # Get current task TCB
     call get_current_task
+
+    # Forensic Check: Null TCB
+    test %rax, %rax
+    jz 1f
+
+    # Forensic Check: Boundary Validation
+    # Kernel Base: 0xffffffff80000000. 8MB Limit: 0xffffffff80800000
     mov %rax, %rdi
+    mov $0xffffffff80000000, %rbx
+    cmp %rbx, %rdi
+    jb 2f
+    mov $0xffffffff80800000, %rbx
+    cmp %rbx, %rdi
+    jae 2f
+
+    # TCB is valid, save state
     add $task_t_context_OFFSET, %rdi # rdi = &current->context
+    mov %rsp, %rax # Use stack as source
 
     # Store all registers using STATIC OFFSETS to prevent drift
-    # Source is stack (rax), dest is rdi
     mov 0(%rax), %rbx; mov %rbx, ctx_r15(%rdi)
     mov 8(%rax), %rbx; mov %rbx, ctx_r14(%rdi)
     mov 16(%rax), %rbx; mov %rbx, ctx_r13(%rdi)
@@ -76,33 +86,51 @@ unice64_context_switch:
     mov 104(%rax), %rbx; mov %rbx, ctx_rbx(%rdi)
     mov 112(%rax), %rbx; mov %rbx, ctx_rax(%rdi)
 
-    # Save iretq frame (Static offsets from the end of the push sequence)
-    # The frame starts 15 registers deep.
+    # Save iretq frame (15 registers deep)
     mov (15 * 8 + 0)(%rax), %rbx; mov %rbx, ctx_rip(%rdi)
     mov (15 * 8 + 8)(%rax), %rbx; mov %rbx, ctx_cs(%rdi)
     mov (15 * 8 + 16)(%rax), %rbx; mov %rbx, ctx_rflags(%rdi)
     mov (15 * 8 + 24)(%rax), %rbx; mov %rbx, ctx_rsp(%rdi)
     mov (15 * 8 + 32)(%rax), %rbx; mov %rbx, ctx_ss(%rdi)
 
+    # Handover Preparation: Alignment
+    mov %rsp, %rbp
+    and $-16, %rsp
+
     # Handover: Pick next task
     call unice64_schedule
 
+    # Restore stack for restoration
+    mov %rbp, %rsp
+
     # Load next task
     call get_current_task
+    test %rax, %rax
+    jz 1f
+
     mov %rax, %rsi
     add $task_t_context_OFFSET, %rsi # rsi = &next->context
 
-    # Switch to next task's kernel stack
-    mov ctx_rsp(%rsi), %rsp
+    # Forensic Check: RSP Validity
+    mov ctx_rsp(%rsi), %rax
+    mov $0xffffffff80000000, %rbx
+    cmp %rbx, %rax
+    jb 3f
+    mov $0xffffffff80800000, %rbx
+    cmp %rbx, %rax
+    jae 3f
 
-    # Restore iretq frame onto new stack
+    # Switch to next task's kernel stack
+    mov %rax, %rsp
+
+    # Restore iretq frame
     pushq ctx_ss(%rsi)
     pushq ctx_rsp(%rsi)
     pushq ctx_rflags(%rsi)
     pushq ctx_cs(%rsi)
     pushq ctx_rip(%rsi)
 
-    # Restore registers from TCB context using static offsets
+    # Restore registers
     mov ctx_r15(%rsi), %r15
     mov ctx_r14(%rsi), %r14
     mov ctx_r13(%rsi), %r13
@@ -120,3 +148,21 @@ unice64_context_switch:
     mov ctx_rsi(%rsi), %rsi # Restore RSI last
 
     iretq
+
+# Forensic Panic Points
+1:  # NULL TCB
+    lea .msg_null_tcb(%rip), %rdi
+    xor %rsi, %rsi
+    call forensic_panic
+2:  # TCB OUT OF BOUNDS
+    lea .msg_tcb_bounds(%rip), %rdi
+    xor %rsi, %rsi
+    call forensic_panic
+3:  # RSP OUT OF BOUNDS
+    lea .msg_rsp_bounds(%rip), %rdi
+    xor %rsi, %rsi
+    call forensic_panic
+
+.msg_null_tcb: .asciz "UNICE64: CONTEXT SWITCH NULL TCB"
+.msg_tcb_bounds: .asciz "UNICE64: TCB ADDRESS OUT OF KERNEL BOUNDS"
+.msg_rsp_bounds: .asciz "UNICE64: RSP ADDRESS OUT OF KERNEL BOUNDS"
