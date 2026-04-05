@@ -131,6 +131,16 @@ void rsl_settings(void) {
     sys_yield();
 }
 
+void rsl_debug_dump(void) {
+    print("\n[RTECH BOOT DIAGNOSTICS]\n");
+    uint64_t cr3; __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
+    vga_print("CR3 (Page Table): 0x%x\n", cr3);
+    for (int i = 0; i < 4; i++) {
+        vga_print("Slab %d Usage: %d bytes\n", i, slab_get_usage(i));
+    }
+    sys_yield();
+}
+
 void rsl_format(void* path) {
     const char* p = str_to_cstr(path);
     int drive = p[0] - '0';

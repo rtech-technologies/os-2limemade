@@ -341,6 +341,9 @@ void shell_main(void) {
         else if (cstr_match(argv[0], "settings")) {
             rsl_settings();
         }
+        else if (cstr_match(argv[0], "debug-dump")) {
+            rsl_debug_dump();
+        }
         else if (cstr_match(argv[0], "scan")) {
             rsl_scan();
         }

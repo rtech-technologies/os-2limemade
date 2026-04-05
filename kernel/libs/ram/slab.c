@@ -31,16 +31,23 @@ void slab_init(void) {
     }
 }
 
-void* slab_alloc(int id, size_t size) {
+void* slab_alloc_aligned(int id, size_t size, size_t align) {
     if (id < 0 || id >= MAX_SLABS) return NULL;
-    /* Align to 16 bytes for x86_64 ABI */
-    size = (size + 15) & ~15;
-    if (slabs[id].offset + size > SLAB_SIZE) return NULL;
 
     uint64_t hhdm = get_hhdm_offset();
-    void* ptr = (void*)(slabs[id].base + hhdm + slabs[id].offset);
-    slabs[id].offset += size;
-    return ptr;
+    uintptr_t current_addr = slabs[id].base + hhdm + slabs[id].offset;
+
+    uintptr_t aligned_addr = (current_addr + (align - 1)) & ~(align - 1);
+    size_t padding = aligned_addr - current_addr;
+
+    if (slabs[id].offset + padding + size > SLAB_SIZE) return NULL;
+
+    slabs[id].offset += padding + size;
+    return (void*)aligned_addr;
+}
+
+void* slab_alloc(int id, size_t size) {
+    return slab_alloc_aligned(id, size, 16);
 }
 
 void slab_reset(int id) {

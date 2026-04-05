@@ -311,18 +311,13 @@ int rtech_iso_init(int drive);
 void ahci_scan_remaining(void) {
     if (!hba_base) return;
     vga_print("[AHCI] Performing extended scan (Ports 9-31)...\n");
+    void* slab_alloc_aligned(int id, size_t size, size_t align);
     for (int p = 9; p < 32; p++) {
         if (hba_base->pi & (1 << p)) {
             /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
-            void* raw_clb = malloc(1024 + 1024);
-            if (raw_clb) {
-                uint64_t addr = (uint64_t)raw_clb;
-                if (addr % 1024 != 0) addr = (addr + 1023) & ~1023;
-                port_clb_virt[p] = (void*)addr;
-            } else port_clb_virt[p] = NULL;
-
-            port_fb_virt[p] = malloc(256);
-            port_ctba_virt[p] = malloc(4096);
+            port_clb_virt[p] = slab_alloc_aligned(0, 1024, 1024);
+            port_fb_virt[p] = slab_alloc_aligned(0, 256, 256);
+            port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
 
             if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
                 vga_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);
@@ -429,18 +424,17 @@ void ahci_service(kernel_event_t event) {
                     hba_base->ghc |= (1 << 31);
 
                     /* OSx2: Scan the first 9 ports on boot per Sovereign mandate */
+                    void* slab_alloc_aligned(int id, size_t size, size_t align);
                     for (int p = 0; p < 9; p++) {
                         if (hba_base->pi & (1 << p)) {
                             /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
-                            void* raw_clb = malloc(1024 + 1024);
-                            if (raw_clb) {
-                                uint64_t addr = (uint64_t)raw_clb;
-                                if (addr % 1024 != 0) addr = (addr + 1023) & ~1023;
-                                port_clb_virt[p] = (void*)addr;
-                            } else port_clb_virt[p] = NULL;
+                            port_clb_virt[p] = slab_alloc_aligned(0, 1024, 1024);
 
-                            port_fb_virt[p] = malloc(256);
-                            port_ctba_virt[p] = malloc(4096);
+                            /* Received FIS: 256 bytes, 256B aligned */
+                            port_fb_virt[p] = slab_alloc_aligned(0, 256, 256);
+
+                            /* Command Table: 4KB aligned for standard safety */
+                            port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
 
                             if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
                                 vga_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);

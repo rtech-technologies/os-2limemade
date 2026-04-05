@@ -42,7 +42,9 @@ void _start(void) {
     serial_write_str("[ BUILD 23:00 - MECHANICAL TRUTH ]\n\n");
 
     /* Initialize Hardware and Core Memory */
+    __asm__ volatile ("cli");
     dispatch_event(EVENT_INIT);
+    __asm__ volatile ("sti");
 
     /* Start the Shell and Main System Logic */
     serial_write_str("[EVENT] Entering EVENT_MAIN...\n");
