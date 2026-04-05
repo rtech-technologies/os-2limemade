@@ -12,7 +12,7 @@ idt_load:
 .extern timer_handler
 
 irq_timer_handler:
-    # Save the current state
+    # Save partial state
     pushq %rax
     pushq %rcx
     pushq %rdx
@@ -29,7 +29,7 @@ irq_timer_handler:
     # Update system ticks
     call timer_handler
 
-    # Restore registers before context switch (context_switch will save them again)
+    # Restore partial state
     popq %r11
     popq %r10
     popq %r9
@@ -40,8 +40,8 @@ irq_timer_handler:
     popq %rcx
     popq %rax
 
-    # Perform the Sovereign context swap
-    jmp unice64_context_switch
+    # Pure Cooperative: No context switch on timer
+    iretq
 
 exception_handler_stub:
     cli

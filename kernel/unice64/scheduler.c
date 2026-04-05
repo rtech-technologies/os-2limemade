@@ -49,6 +49,10 @@ task_t* get_current_task(void) {
     return &task_table[current_task_idx];
 }
 
+int get_task_count(void) {
+    return task_count;
+}
+
 void telemetry_update(int task_id, const char* status);
 
 void sovereign_yield(void) {
@@ -56,7 +60,7 @@ void sovereign_yield(void) {
 }
 
 void sys_yield(void) {
-    __asm__ volatile ("int $32");
+    __asm__ volatile ("int $0x81");
 }
 
 void vga_pulse_cursor(void);

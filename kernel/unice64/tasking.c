@@ -3,6 +3,7 @@
 #include <stddef.h>
 
 void vga_print(const char* fmt, ...);
+void forensic_panic(const char* message, void* state);
 void pit_wait_ms(uint32_t ms);
 
 void idle_task(void) {
@@ -44,6 +45,13 @@ void tasking_init(void) {
 
     /* Register System Maintenance Task in Slab 2 */
     register_task(system_task, 2);
+
+    /* Context Guard: Verify that tasks were registered correctly */
+    /* (In this architecture, register_task increments task_count) */
+    extern int get_task_count(void);
+    if (get_task_count() < 3) {
+        forensic_panic("RTECH: INSUFFICIENT RAM FOR MULTITASKING INITIALIZATION", NULL);
+    }
 
     vga_print("[UNICE64] Multitasking initialized (3 tasks).\n");
 }

@@ -37,10 +37,16 @@ void retain(void* ptr) {
     header->ref_count++;
 }
 
+void free(void* ptr);
+
 void release(void* ptr) {
     if (!ptr) return;
     arc_header_t* header = ((arc_header_t*)ptr) - 1;
     if (header->ref_count > 0) {
         header->ref_count--;
+        if (header->ref_count == 0) {
+            /* Deterministic recycling via Slab-based free */
+            free(header);
+        }
     }
 }

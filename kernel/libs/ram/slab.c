@@ -7,10 +7,17 @@ uint64_t get_hhdm_offset(void);
 #define SLAB_SIZE (4 * 1024 * 1024) /* 4MB Sovereign Slab */
 #define MAX_SLABS 16
 
+typedef struct slab_header {
+    size_t size;
+    bool is_used;
+    struct slab_header* next;
+} slab_header_t;
+
 typedef struct {
     uintptr_t base;
     size_t offset;
     bool active;
+    slab_header_t* first_block;
 } sovereign_slab_t;
 
 static sovereign_slab_t slabs[MAX_SLABS];
@@ -60,14 +67,33 @@ size_t slab_get_usage(int id) {
 }
 
 void* malloc(size_t size) {
-    /* Use Slab 0 as Global System Heap */
-    return slab_alloc(0, size);
+    /* Use Slab 0 as Global System Heap with Recycling */
+    int id = 0;
+    size = (size + 15) & ~15; /* Align */
+
+    slab_header_t* search = slabs[id].first_block;
+    while (search) {
+        if (!search->is_used && search->size >= size) {
+            search->is_used = true;
+            return (void*)((uint8_t*)search + sizeof(slab_header_t));
+        }
+        search = search->next;
+    }
+
+    /* No free block found, bump allocate new block */
+    slab_header_t* new_block = (slab_header_t*)slab_alloc(id, size + sizeof(slab_header_t));
+    if (!new_block) return NULL;
+
+    new_block->size = size;
+    new_block->is_used = true;
+    new_block->next = slabs[id].first_block;
+    slabs[id].first_block = new_block;
+
+    return (void*)((uint8_t*)new_block + sizeof(slab_header_t));
 }
 
 void free(void* ptr) {
-    /* Deterministic recycling via ARC logic.
-       In a pure bump/slab model, we don't free individual items
-       unless we integrate a freelist, but Rule #4 says we use Slab
-       partitioning with deterministic cleanup. */
-    (void)ptr;
+    if (!ptr) return;
+    slab_header_t* header = (slab_header_t*)((uint8_t*)ptr - sizeof(slab_header_t));
+    header->is_used = false;
 }
