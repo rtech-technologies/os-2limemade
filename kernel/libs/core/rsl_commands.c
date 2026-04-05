@@ -138,6 +138,10 @@ void rsl_debug_dump(void) {
     for (int i = 0; i < 4; i++) {
         vga_print("Slab %d Usage: %d bytes\n", i, slab_get_usage(i));
     }
+
+    void* tcb = get_current_task();
+    vga_print("Current TCB: 0x%x\n", (uint64_t)tcb);
+
     sys_yield();
 }
 

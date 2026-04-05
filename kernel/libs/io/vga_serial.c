@@ -345,9 +345,9 @@ void vga_pulse_cursor(void) {
         last_pulse = now;
         cursor_visible = !cursor_visible;
         uint32_t color = cursor_visible ? 0x00FF00 : 0x000000;
-        /* Draw 8x16 block cursor */
-        for (int i = 0; i < 8 * SCALE; i++) {
-            for (int j = 0; j < 8 * SCALE; j++) {
+        /* Draw 8x16 block cursor (Pure Green Pulse) */
+        for (int i = 0; i < 8 * SCALE; i++) { /* 16 pixels high */
+            for (int j = 0; j < 4 * SCALE; j++) { /* 8 pixels wide */
                 draw_pixel(cursor_x * 8 * SCALE + j, cursor_y * 8 * SCALE + i, color);
             }
         }

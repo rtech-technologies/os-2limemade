@@ -5,7 +5,6 @@
 .extern forensic_panic
 
 # Static Offsets for task_t and cpu_context_t
-# task_t: id(4), state(4), context(168), slab_id(4), stack_top(8)
 .set task_t_context_OFFSET, 8
 
 # cpu_context_t layout (8 bytes each)
@@ -31,7 +30,7 @@
 .set ctx_ss,  152
 
 unice64_context_switch:
-    # Save general purpose registers to current stack
+    # 1. Save state of the task being switched OUT
     push %rax
     push %rbx
     push %rcx
@@ -48,15 +47,18 @@ unice64_context_switch:
     push %r14
     push %r15
 
-    # Get current task TCB
+    # Use %rax to store current %rsp for offset math
+    mov %rsp, %rax
+
+    # Get the current TCB
     call get_current_task
 
     # Forensic Check: Null TCB
     test %rax, %rax
     jz 1f
 
-    # Forensic Check: Boundary Validation
-    # Kernel Base: 0xffffffff80000000. 8MB Limit: 0xffffffff80800000
+    # Forensic Check: TCB Boundary Validation
+    # Kernel range: 0xffffffff80000000 - 0xffffffff80800000
     mov %rax, %rdi
     mov $0xffffffff80000000, %rbx
     cmp %rbx, %rdi
@@ -65,11 +67,10 @@ unice64_context_switch:
     cmp %rbx, %rdi
     jae 2f
 
-    # TCB is valid, save state
-    add $task_t_context_OFFSET, %rdi # rdi = &current->context
-    mov %rsp, %rax # Use stack as source
+    # TCB is valid, save context
+    add $task_t_context_OFFSET, %rdi # %rdi = &current->context
 
-    # Store all registers using STATIC OFFSETS to prevent drift
+    # Store general purpose registers from stack to TCB
     mov 0(%rax), %rbx; mov %rbx, ctx_r15(%rdi)
     mov 8(%rax), %rbx; mov %rbx, ctx_r14(%rdi)
     mov 16(%rax), %rbx; mov %rbx, ctx_r13(%rdi)
@@ -93,25 +94,21 @@ unice64_context_switch:
     mov (15 * 8 + 24)(%rax), %rbx; mov %rbx, ctx_rsp(%rdi)
     mov (15 * 8 + 32)(%rax), %rbx; mov %rbx, ctx_ss(%rdi)
 
-    # Handover Preparation: Alignment
+    # 2. ABI Alignment & Handover
     mov %rsp, %rbp
     and $-16, %rsp
-
-    # Handover: Pick next task
     call unice64_schedule
-
-    # Restore stack for restoration
     mov %rbp, %rsp
 
-    # Load next task
+    # 3. Load state of the task being switched IN
     call get_current_task
     test %rax, %rax
     jz 1f
 
     mov %rax, %rsi
-    add $task_t_context_OFFSET, %rsi # rsi = &next->context
+    add $task_t_context_OFFSET, %rsi # %rsi = &next->context
 
-    # Forensic Check: RSP Validity
+    # Forensic Check: RSP Boundary Validation
     mov ctx_rsp(%rsi), %rax
     mov $0xffffffff80000000, %rbx
     cmp %rbx, %rax
@@ -120,7 +117,7 @@ unice64_context_switch:
     cmp %rbx, %rax
     jae 3f
 
-    # Switch to next task's kernel stack
+    # Switch to target task stack
     mov %rax, %rsp
 
     # Restore iretq frame
@@ -130,7 +127,7 @@ unice64_context_switch:
     pushq ctx_cs(%rsi)
     pushq ctx_rip(%rsi)
 
-    # Restore registers
+    # Restore general purpose registers
     mov ctx_r15(%rsi), %r15
     mov ctx_r14(%rsi), %r14
     mov ctx_r13(%rsi), %r13
@@ -149,7 +146,7 @@ unice64_context_switch:
 
     iretq
 
-# Forensic Panic Points
+# Forensic Failure Handlers
 1:  # NULL TCB
     lea .msg_null_tcb(%rip), %rdi
     xor %rsi, %rsi

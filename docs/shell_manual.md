@@ -20,7 +20,7 @@ The shell maintains a Current Working Directory (`curdir`).
 - `ls`: List disks at root or files in the current directory.
 - `mount <drive_id>`: Attempt to mount a physical drive (e.g., `mount 0`). If successful, it maps to `SATAx:`.
 - `format <drive_id>`: Destructively format a drive to FAT32.
-- `stamp <drive_id>`: Apply the OSx2 Sovereign Signature (0xEFBEADDE) to LBA 0.
+- `stamp <drive_id>`: Perform a mechanical sync on the target drive.
 
 ### File Operations
 - `cat <file>`: Print the contents of a file.

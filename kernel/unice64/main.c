@@ -53,6 +53,7 @@ void _start(void) {
 
     /* Start the Shell and Main System Logic */
     serial_write_str("[EVENT] Entering EVENT_MAIN...\n");
+    serial_write_str("CHECKPOINT 0: Ready for Discovery.\n");
 
     static FATFS boot_fs;
     bool mount_success = false;

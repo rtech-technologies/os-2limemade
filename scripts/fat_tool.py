@@ -21,7 +21,7 @@ def main():
         f.seek(0)
 
         # 2. LBA 0: Protective MBR
-        f.write(struct.pack("<I", 0xEFBEADDE)) # Sovereign Signature
+        f.write(struct.pack("<I", 0x00000000)) # Legacy Signature Removed
         f.seek(446)
         # Entry 1: GPT Protective Partition (Type 0xEE)
         f.write(b'\x00\x00\x02\x00\xEE\xFF\xFF\xFF')
