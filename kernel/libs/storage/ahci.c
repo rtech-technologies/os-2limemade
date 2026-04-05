@@ -67,38 +67,38 @@ typedef struct {
 } hba_cmd_header_t;
 
 typedef struct {
-    uint32_t clb;
-    uint32_t clbu;
-    uint32_t fb;
-    uint32_t fbu;
-    uint32_t is;
-    uint32_t ie;
-    uint32_t cmd;
-    uint32_t rsv0;
-    uint32_t tfd;
-    uint32_t sig;
-    uint32_t ssts;
-    uint32_t sctl;
-    uint32_t serr;
-    uint32_t sact;
-    uint32_t ci;
-    uint32_t sntf;
-    uint32_t fbs;
-    uint32_t devslp;
-    uint32_t rsv1[11]; /* (18 * 4) = 72 bytes. 128 - 72 = 56 bytes. 56 / 4 = 14. */
-    uint32_t rsv2[3]; /* More Padding */
+    volatile uint32_t clb;
+    volatile uint32_t clbu;
+    volatile uint32_t fb;
+    volatile uint32_t fbu;
+    volatile uint32_t is;
+    volatile uint32_t ie;
+    volatile uint32_t cmd;
+    volatile uint32_t rsv0;
+    volatile uint32_t tfd;
+    volatile uint32_t sig;
+    volatile uint32_t ssts;
+    volatile uint32_t sctl;
+    volatile uint32_t serr;
+    volatile uint32_t sact;
+    volatile uint32_t ci;
+    volatile uint32_t sntf;
+    volatile uint32_t fbs;
+    volatile uint32_t devslp;
+    volatile uint32_t rsv1[11]; /* (18 * 4) = 72 bytes. 128 - 72 = 56 bytes. 56 / 4 = 14. */
+    volatile uint32_t rsv2[3]; /* More Padding */
 } hba_port_t;
 
 typedef struct {
-    uint32_t cap;
-    uint32_t ghc;
-    uint32_t is;
-    uint32_t pi;
-    uint32_t vs;
-    uint32_t bccc;
-    uint32_t bccd;
-    uint32_t cap2;
-    uint32_t bohc;
+    volatile uint32_t cap;
+    volatile uint32_t ghc;
+    volatile uint32_t is;
+    volatile uint32_t pi;
+    volatile uint32_t vs;
+    volatile uint32_t bccc;
+    volatile uint32_t bccd;
+    volatile uint32_t cap2;
+    volatile uint32_t bohc;
     uint8_t  rsv[0x100 - 0x24]; /* Pad to 0x100 where ports start */
     hba_port_t ports[32];
 } hba_mem_t;
@@ -116,6 +116,26 @@ void serial_print_hex(const char* label, uint16_t val);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
 void* bump_alloc(size_t size);
 uint64_t vmm_get_phys(void* virt);
+
+void ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_t timeout_loops) {
+    while (timeout_loops--) {
+        /* Check Interrupt Status (Poll-only acknowledgment) */
+        if (port->is & (mask | (1 << 30))) { /* Mask or Task File Error */
+            port->is = 0xFFFFFFFF;
+            return;
+        }
+        /* Check Task File Data (ERR bit) */
+        if (port->tfd & (1 << 0)) return;
+
+        /* Standard mask/expected check for TFD and CI */
+        if ((port->tfd & mask) == expected && (port->ci & mask) == expected) {
+            return;
+        }
+        __asm__ volatile ("pause");
+    }
+    void forensic_panic(const char* message, void* state);
+    forensic_panic("AHCI_POLL_TIMEOUT", NULL);
+}
 
 void ahci_port_start(hba_port_t *port) {
     while (port->cmd & (1 << 15));
@@ -216,21 +236,16 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis->counth = (uint8_t)(count >> 8);
 
     /* Idle Wait: Wait for drive to be ready to receive command */
-    int timeout = 1000000;
-    while ((port->tfd & (0x80 | 0x08)) && timeout--) {
-        __asm__ volatile ("pause");
-    }
+    ahci_wait_status(port, 0x80 | 0x08, 0, 1000000);
 
     port->ci = (1 << 0);
-    while ((port->ci & (1 << 0)) && timeout--) {
-        if (port->tfd & (1 << 0)) { /* ERR bit */
-            vga_print("[AHCI] Port %d READ ERROR: TFD 0x%x\n", p, port->tfd);
-            return -1;
-        }
-        __asm__ volatile ("pause");
-    }
-    if (timeout <= 0) {
-        vga_print("[AHCI] Port %d READ TIMEOUT\n", p);
+    ahci_wait_status(port, 1 << 0, 0, 1000000);
+
+    /* Flush Interrupts */
+    port->is = 0xFFFFFFFF;
+
+    if (port->tfd & (1 << 0)) { /* ERR bit */
+        vga_print("[AHCI] Port %d READ ERROR: TFD 0x%x\n", p, port->tfd);
         return -1;
     }
     return 0;
@@ -281,21 +296,16 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis->counth = (uint8_t)(count >> 8);
 
     /* Idle Wait: Wait for drive to be ready to receive command */
-    int timeout = 1000000;
-    while ((port->tfd & (0x80 | 0x08)) && timeout--) {
-        __asm__ volatile ("pause");
-    }
+    ahci_wait_status(port, 0x80 | 0x08, 0, 1000000);
 
     port->ci = (1 << 0);
-    while ((port->ci & (1 << 0)) && timeout--) {
-        if (port->tfd & (1 << 0)) {
-            vga_print("[AHCI] Port %d WRITE ERROR: TFD 0x%x\n", p, port->tfd);
-            return -1;
-        }
-        __asm__ volatile ("pause");
-    }
-    if (timeout <= 0) {
-        vga_print("[AHCI] Port %d WRITE TIMEOUT\n", p);
+    ahci_wait_status(port, 1 << 0, 0, 1000000);
+
+    /* Flush Interrupts */
+    port->is = 0xFFFFFFFF;
+
+    if (port->tfd & (1 << 0)) { /* ERR bit */
+        vga_print("[AHCI] Port %d WRITE ERROR: TFD 0x%x\n", p, port->tfd);
         return -1;
     }
     return 0;
@@ -396,6 +406,8 @@ void ahci_scan_remaining(void) {
         }
     }
 }
+
+static bool ahci_ready = false;
 
 void ahci_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
@@ -510,6 +522,7 @@ void ahci_service(kernel_event_t event) {
                             }
                         }
                     }
+                    ahci_ready = true;
                     return; /* Success: Controller found and initialized */
                 }
                 if (func == 0 && !(pci_config_read(bus, slot, 0, 0x0C) & 0x800000)) break;
