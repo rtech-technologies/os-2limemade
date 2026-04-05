@@ -60,44 +60,45 @@ typedef struct {
 } hba_cmd_header_t;
 
 typedef struct {
-    uint32_t clb;
-    uint32_t clbu;
-    uint32_t fb;
-    uint32_t fbu;
-    uint32_t is;
-    uint32_t ie;
-    uint32_t cmd;
-    uint32_t rsv0;
-    uint32_t tfd;
-    uint32_t sig;
-    uint32_t ssts;
-    uint32_t sctl;
-    uint32_t serr;
-    uint32_t sact;
-    uint32_t ci;
-    uint32_t sntf;
-    uint32_t fbs;
-    uint32_t devslp;
-    uint32_t rsv1[11];
-    uint32_t rsv2[3];
+    volatile uint32_t clb;
+    volatile uint32_t clbu;
+    volatile uint32_t fb;
+    volatile uint32_t fbu;
+    volatile uint32_t is;
+    volatile uint32_t ie;
+    volatile uint32_t cmd;
+    volatile uint32_t rsv0;
+    volatile uint32_t tfd;
+    volatile uint32_t sig;
+    volatile uint32_t ssts;
+    volatile uint32_t sctl;
+    volatile uint32_t serr;
+    volatile uint32_t sact;
+    volatile uint32_t ci;
+    volatile uint32_t sntf;
+    volatile uint32_t fbs;
+    volatile uint32_t devslp;
+    volatile uint32_t rsv1[11];
+    volatile uint32_t rsv2[3];
 } hba_port_t;
 
 typedef struct {
-    uint32_t cap;
-    uint32_t ghc;
-    uint32_t is;
-    uint32_t pi;
-    uint32_t vs;
-    uint32_t bccc;
-    uint32_t bccd;
-    uint32_t cap2;
-    uint32_t bohc;
+    volatile uint32_t cap;
+    volatile uint32_t ghc;
+    volatile uint32_t is;
+    volatile uint32_t pi;
+    volatile uint32_t vs;
+    volatile uint32_t bccc;
+    volatile uint32_t bccd;
+    volatile uint32_t cap2;
+    volatile uint32_t bohc;
     uint8_t  rsv[0x100 - 0x24];
     hba_port_t ports[32];
 } hba_mem_t;
 
 /* External Symbols */
 void vga_print(const char* fmt, ...);
+void ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_t timeout_loops);
 uint64_t vmm_get_phys(void* virt);
 void* get_port_clb(int p);
 void* get_port_ctba(int p);
@@ -144,18 +145,16 @@ int satapi_send_packet(int p, uint8_t* scsi_packet, void* buffer, uint32_t len, 
     for(int i=0; i<16; i++) cmdtbl->acmd[i] = 0;
     for(int i=0; i<12; i++) cmdtbl->acmd[i] = scsi_packet[i];
 
-    int timeout = 1000000;
-    while ((port->tfd & (0x80 | 0x08)) && timeout--) {
-        __asm__ volatile ("pause");
-    }
+    /* Idle Wait: Wait for drive to be ready to receive command */
+    ahci_wait_status(port, 0x80 | 0x08, 0, 1000000);
 
     port->ci = (1 << 0);
-    timeout = 1000000;
-    while ((port->ci & (1 << 0)) && timeout--) {
-        if (port->tfd & (1 << 0)) return -1;
-        __asm__ volatile ("pause");
-    }
-    if (timeout <= 0) return -1;
+    ahci_wait_status(port, 1 << 0, 0, 1000000);
+
+    /* Flush Interrupts */
+    port->is = 0xFFFFFFFF;
+
+    if (port->tfd & (1 << 0)) return -1;
     return 0;
 }
 
@@ -198,19 +197,16 @@ int satapi_identify(void* priv) {
     fis->c = 1;
     fis->command = 0xA1; /* IDENTIFY PACKET DEVICE */
 
-    int timeout = 1000000;
-    while ((port->tfd & (0x80 | 0x08)) && timeout--) {
-        __asm__ volatile ("pause");
-    }
+    /* Idle Wait: Wait for drive to be ready to receive command */
+    ahci_wait_status(port, 0x80 | 0x08, 0, 1000000);
 
     port->ci = (1 << 0);
-    timeout = 1000000;
-    while ((port->ci & (1 << 0)) && timeout--) {
-        if (port->tfd & (1 << 0)) return -1;
-        __asm__ volatile ("pause");
-    }
+    ahci_wait_status(port, 1 << 0, 0, 1000000);
 
-    if (timeout <= 0) return -1;
+    /* Flush Interrupts */
+    port->is = 0xFFFFFFFF;
+
+    if (port->tfd & (1 << 0)) return -1;
     return 0;
 }
 

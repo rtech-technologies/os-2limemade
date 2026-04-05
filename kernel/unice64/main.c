@@ -9,6 +9,7 @@
 int is_sovereign_disk(int disk_id);
 void serial_write_str(const char* s);
 void shell_main(void);
+void vga_print(const char* fmt, ...);
 
 #include <kernel/libs/storage/fatfs/ff.h>
 void forensic_panic(const char* message, void* state);
@@ -49,6 +50,7 @@ void _start(void) {
 
     /* Initialize Hardware and Core Memory */
     dispatch_event(EVENT_INIT);
+    vga_print("[INIT] AHCI Polling Success - Handoff to Orchestrator\n");
     __asm__ volatile ("sti");
 
     /* Start the Shell and Main System Logic */
@@ -58,8 +60,6 @@ void _start(void) {
     bool mount_success = false;
 
     /* 1. Sovereign Discovery: Scan ALL registered hardware for a bootable volume */
-    void vga_print(const char* fmt, ...);
-
     int boot_drive = -1;
     int hw_count = get_hw_disk_count();
     vga_print("[BOOT] Scanning %d detected hardware volumes...\n", hw_count);
