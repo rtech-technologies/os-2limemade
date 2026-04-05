@@ -287,7 +287,7 @@ void telemetry_update(int task_id, const char* status) {
     uint32_t sep_color = 0x555555;
     uint32_t* fb_ptr = (uint32_t*)fb->address;
     int line_y = bottom_row * char_height - 2;
-    for (int x = 0; x < fb->width; x++) {
+    for (uint32_t x = 0; x < fb->width; x++) {
         fb_ptr[line_y * (fb->pitch / 4) + x] = sep_color;
     }
 

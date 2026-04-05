@@ -20,21 +20,36 @@ typedef struct {
 } __attribute__((packed)) fat_dir_entry_t;
 
 FRESULT f_fdisk(int drive) {
-    uint8_t mbr[512];
-    if (disk_read(drive, mbr, 0, 1) != RES_OK) return FR_DISK_ERR;
+    void* malloc(size_t size);
+    void free(void* ptr);
+    uint8_t* mbr = malloc(2048);
+    if (!mbr) return FR_NOT_ENOUGH_CORE;
+
+    if (disk_read(drive, mbr, 0, 1) != RES_OK) {
+        free(mbr);
+        return FR_DISK_ERR;
+    }
     uint8_t* p = &mbr[446];
     p[0] = 0x80; p[4] = 0x0C;
     *(uint32_t*)&p[8] = 2048;
     *(uint32_t*)&p[12] = 129024;
     mbr[510] = 0x55; mbr[511] = 0xAA;
-    if (disk_write(drive, mbr, 0, 1) != RES_OK) return FR_DISK_ERR;
+    if (disk_write(drive, mbr, 0, 1) != RES_OK) {
+        free(mbr);
+        return FR_DISK_ERR;
+    }
+    free(mbr);
     return FR_OK;
 }
 
 void pit_wait_ms(uint32_t ms);
 
 FRESULT f_mount(FATFS* fs, int drive) {
-    uint8_t sector[2048];
+    void* malloc(size_t size);
+    void free(void* ptr);
+    uint8_t* sector = malloc(2048);
+    if (!sector) return FR_NOT_ENOUGH_CORE;
+
     uint64_t part_lba = vdisk_get_offset(drive);
 
     if (part_lba == 0) {
@@ -56,9 +71,18 @@ FRESULT f_mount(FATFS* fs, int drive) {
         }
     }
 
-    if (part_lba == 0) return FR_NO_FILESYSTEM;
-    if (disk_read(drive, sector, part_lba, 1) != RES_OK) return FR_DISK_ERR;
-    if (sector[510] != 0x55 || sector[511] != 0xAA) return FR_NO_FILESYSTEM;
+    if (part_lba == 0) {
+        free(sector);
+        return FR_NO_FILESYSTEM;
+    }
+    if (disk_read(drive, sector, part_lba, 1) != RES_OK) {
+        free(sector);
+        return FR_DISK_ERR;
+    }
+    if (sector[510] != 0x55 || sector[511] != 0xAA) {
+        free(sector);
+        return FR_NO_FILESYSTEM;
+    }
 
     fs->partition_lba = part_lba;
     fs->reserved_sectors = *(uint16_t*)&sector[14];
@@ -74,6 +98,7 @@ FRESULT f_mount(FATFS* fs, int drive) {
     bool vdisk_is_readonly(int hw_id);
     fs->ro = vdisk_is_readonly(drive);
 
+    free(sector);
     return FR_OK;
 }
 

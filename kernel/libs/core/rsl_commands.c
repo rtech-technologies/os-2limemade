@@ -146,10 +146,10 @@ void rsl_execute_command(char* line) {
     char* p = line;
 
     while (*p && argc < 16) {
-        while (*p == ' ') *p++ = '\0';
+        while (*p == ' ' || *p == '\r' || *p == '\t' || *p == '\n') *p++ = '\0';
         if (*p == '\0') break;
         argv[argc++] = p;
-        while (*p && *p != ' ') p++;
+        while (*p && *p != ' ' && *p != '\r' && *p != '\t' && *p != '\n') p++;
     }
 
     if (argc == 0) return;
