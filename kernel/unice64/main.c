@@ -145,9 +145,17 @@ void _start(void) {
 
     /* Initialize Active-Relay Multitasking */
     void vga_print(const char* fmt, ...);
-    vga_print("[INIT] AHCI Polling Success - Handoff to Orchestrator\n");
-    vga_print("[INIT] Handing control to RSL Shell...\n");
+    bool ahci_is_ready(void);
+    if (ahci_is_ready()) {
+        vga_print("[INIT] AHCI Polling Success - Handoff to Orchestrator\n");
+    } else {
+        vga_print("[AHCI] Booting in Degraded Mode...\n");
+    }
+
     tasking_init();
+    void tasking_create_process(const char* name);
+    tasking_create_process("shell");
+
     /* Initialize APIC for system_ticks (One-Shot Mode) */
     apic_init();
     apic_timer_init(1000000);

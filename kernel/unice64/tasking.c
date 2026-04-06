@@ -34,14 +34,23 @@ void system_task(void) {
     }
 }
 
+void tasking_create_process(const char* name) {
+    bool str_match(void* str, const char* pattern);
+    void* str_create(const char* cstr);
+    void release(void* ptr);
+
+    void* s = str_create(name);
+    if (str_match(s, "shell")) {
+        register_task(shell_task, 1);
+    }
+    release(s);
+}
+
 void tasking_init(void) {
     unice64_scheduler_init();
 
     /* Register Idle Task in Slab 0 */
     register_task(idle_task, 0);
-
-    /* Register Shell Task in Slab 1 */
-    register_task(shell_task, 1);
 
     /* Register System Maintenance Task in Slab 2 */
     register_task(system_task, 2);

@@ -38,7 +38,6 @@ int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_
         }
 
         /* 3. Robust Dual-Register Polling (TFD & CI) */
-        /* We wait until BOTH the status bits and command issue bits reach expectation. */
         if (((port->tfd & mask) == expected) && ((port->ci & mask) == expected)) {
             port->is = 0xFFFFFFFF;
             return 0;
@@ -55,6 +54,15 @@ void ahci_port_start(hba_port_t *port) {
     while ((port->cmd & (1 << 15)) && timeout--) {
         __asm__ volatile ("pause");
     }
+
+    /* Assign Physical Addresses to Port registers */
+    /* We assume the virt pointers were stored in port_clb_virt etc.
+       Actually, we need to find which port index this is to use the virt array.
+       Or we can pass the virt pointers.
+       Since we don't have the index here easily without changing signature,
+       let's ensure they are set in the initialization loop instead.
+    */
+
     port->cmd |= (1 << 4);
     port->cmd |= (1 << 0);
 }
@@ -241,7 +249,6 @@ void ahci_scan_remaining(void) {
         if (hba_base->pi & (1 << p)) {
             /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
             port_clb_virt[p] = slab_alloc_aligned(0, 1024, 1024);
-            /* Received FIS: 4KB aligned for Sovereign safety */
             port_fb_virt[p] = slab_alloc_aligned(0, 4096, 4096);
             port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
 
@@ -250,6 +257,7 @@ void ahci_scan_remaining(void) {
                 continue;
             }
 
+            /* Physical Registration: The Controller cannot see HHDM */
             uint64_t clb_phys = vmm_get_phys(port_clb_virt[p]);
             hba_base->ports[p].clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
             hba_base->ports[p].clbu = (uint32_t)(clb_phys >> 32);
@@ -324,6 +332,7 @@ void ahci_scan_remaining(void) {
 }
 
 static bool ahci_ready = false;
+bool ahci_is_ready(void) { return ahci_ready; }
 
 void ahci_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
@@ -357,11 +366,7 @@ void ahci_service(kernel_event_t event) {
                         if (hba_base->pi & (1 << p)) {
                             /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
                             port_clb_virt[p] = slab_alloc_aligned(0, 1024, 1024);
-
-                            /* Received FIS: 4KB aligned for Sovereign safety */
                             port_fb_virt[p] = slab_alloc_aligned(0, 4096, 4096);
-
-                            /* Command Table: 4KB aligned for standard safety */
                             port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
 
                             if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
@@ -369,6 +374,7 @@ void ahci_service(kernel_event_t event) {
                                 continue;
                             }
 
+                            /* Physical Registration: The Controller cannot see HHDM */
                             uint64_t clb_phys = vmm_get_phys(port_clb_virt[p]);
                             hba_base->ports[p].clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
                             hba_base->ports[p].clbu = (uint32_t)(clb_phys >> 32);
