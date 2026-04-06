@@ -1,6 +1,7 @@
 # OSx2 Limemade Documentation Index
 
 - [Architecture Guide](architecture.md)
+- [Startup & Boot Process](startup.md)
 - [Kernel Internals](kernel.md)
 - [Hardware Interface](hardware.md)
 - [Disk & Navigation](disk.md)

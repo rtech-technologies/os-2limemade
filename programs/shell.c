@@ -10,6 +10,10 @@ void shell_main(void) {
     print(" |_|  \\_\\ |_|  |______\\_____|_|  |_|  \\____/|_____/_/\\_\\____|\n");
     print("\n[ OSx2 Sovereign ] Build Success.\n");
 
+    /* Automated Sovereignty: Try to execute BOOT.RSL */
+    void rsl_execute_stream(const char* path);
+    rsl_execute_stream("BOOT:/BOOT.RSL");
+
     /* Boot Menu Choice-Gate */
     print("\n1. Install OSx2 to SATA HDD\n");
     print("2. Enter Safe Mode (CD-ROM Only)\n");

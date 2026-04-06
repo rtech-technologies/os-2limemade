@@ -128,17 +128,13 @@ void _start(void) {
     apic_init();
     apic_timer_init(1000000);
 
-    /* Automated Sovereignty: Try to execute BOOT.RSL */
-    void rsl_execute_stream(const char* path);
-    if (mount_success) {
-        serial_write_str("CHECKPOINT A: Executing stream...\n");
-        rsl_execute_stream("BOOT:/BOOT.RSL");
-        serial_write_str("CHECKPOINT B: Stream finished.\n");
-    }
-
     /* The main thread becomes an observer or a task. */
     vga_print("[INIT] Handing control to RSL Shell...\n");
     vga_print("[UNICE64] Kernel handover to Scheduler.\n");
+
+    /* Release yield-lock before handover */
+    void tasking_set_scanning(bool scanning);
+    tasking_set_scanning(false);
 
     /* Start Scheduling */
     void sys_yield(void);

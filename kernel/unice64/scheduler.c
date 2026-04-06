@@ -60,6 +60,8 @@ void sovereign_yield(void) {
 }
 
 void sys_yield(void) {
+    bool tasking_is_scanning(void);
+    if (tasking_is_scanning()) return;
     __asm__ volatile ("int $0x81");
 }
 

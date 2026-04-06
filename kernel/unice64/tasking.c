@@ -31,6 +31,16 @@ void system_task(void) {
     }
 }
 
+static bool kernel_scanning = true;
+
+void tasking_set_scanning(bool scanning) {
+    kernel_scanning = scanning;
+}
+
+bool tasking_is_scanning(void) {
+    return kernel_scanning;
+}
+
 void tasking_create_process(const char* name) {
     /* Hard-coded linear task registration for boot stability */
     (void)name;
@@ -44,7 +54,8 @@ void tasking_init(void) {
     register_task(system_task, 1);
 
     /* Register Shell Task in Slab 2 */
-    register_task(shell_task, 2);
+    void shell_main(void);
+    register_task(shell_main, 2);
 
     /* Context Guard: Verify that tasks were registered correctly */
     extern int get_task_count(void);
