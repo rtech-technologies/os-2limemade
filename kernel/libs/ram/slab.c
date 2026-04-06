@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include <include/panic.h>
 
 uint64_t get_hhdm_offset(void);
 
@@ -29,12 +30,12 @@ void slab_init(void) {
     /* Sovereign Partitioning: Divide memory into 4MB slabs */
     for (int i = 0; i < MAX_SLABS; i++) {
         void* ptr = pmm_alloc(SLAB_SIZE / 4096);
-        if (ptr) {
-            slabs[i].base = (uintptr_t)ptr;
-            slabs[i].offset = 0;
-            slabs[i].active = false;
-            slab_count++;
-        }
+        PANIC_ON(ptr == NULL, "SLAB_INIT: PHYSICAL MEMORY DEPLETED");
+
+        slabs[i].base = (uintptr_t)ptr;
+        slabs[i].offset = 0;
+        slabs[i].active = false;
+        slab_count++;
     }
 }
 

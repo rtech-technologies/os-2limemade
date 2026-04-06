@@ -1,5 +1,6 @@
 #include "task.h"
 #include <include/rsl.h>
+#include <include/panic.h>
 #include <stddef.h>
 
 void vga_print(const char* fmt, ...);
@@ -57,9 +58,7 @@ void tasking_init(void) {
 
     /* Context Guard: Verify that tasks were registered correctly */
     extern int get_task_count(void);
-    if (get_task_count() < 2) {
-        forensic_panic("RTECH: INSUFFICIENT RAM FOR MULTITASKING INITIALIZATION", NULL);
-    }
+    PANIC_ON(get_task_count() < 2, "MULTITASKING_INIT: INSUFFICIENT SYSTEM TASKS");
 
     vga_print("[UNICE64] Multitasking initialized.\n");
 }

@@ -33,10 +33,11 @@ int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_
     (void)timeout_loops;
     uint32_t count = 0;
     while (count < 1000000) {
-        /* 1. Task File Error bit check */
-        if (port->tfd & (1 << 0)) return -1;
+        /* 1. Task File Error bit check (ERR=0x01) */
+        if (port->tfd & 0x01) return -1;
 
         /* 2. Manual Poll: Check PxIS, PxTFD, or PxCI based on mask/expected */
+        /* Ready check often involves BSY=0x80 and DRQ=0x08 being clear */
         if (port->is & mask) {
             port->is = 0xFFFFFFFF;
             return 0;
@@ -255,9 +256,9 @@ void ahci_scan_remaining(void) {
     void* slab_alloc_aligned(int id, size_t size, size_t align);
     for (int p = 9; p < 32; p++) {
         if (hba_base->pi & (1 << p)) {
-            /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
+            /* CLB Alignment: AHCI Command Lists must be 1KB aligned, FB 256B aligned */
             port_clb_virt[p] = slab_alloc_aligned(0, 1024, 1024);
-            port_fb_virt[p] = slab_alloc_aligned(0, 4096, 4096);
+            port_fb_virt[p] = slab_alloc_aligned(0, 4096, 256);
             port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
 
             if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
@@ -373,9 +374,9 @@ void ahci_service(kernel_event_t event) {
                     void* slab_alloc_aligned(int id, size_t size, size_t align);
                     for (int p = 0; p < 9; p++) {
                         if (hba_base->pi & (1 << p)) {
-                            /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
+                            /* CLB Alignment: AHCI Command Lists must be 1KB aligned, FB 256B aligned */
                             port_clb_virt[p] = slab_alloc_aligned(0, 1024, 1024);
-                            port_fb_virt[p] = slab_alloc_aligned(0, 4096, 4096);
+                            port_fb_virt[p] = slab_alloc_aligned(0, 4096, 256);
                             port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
 
                             if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
