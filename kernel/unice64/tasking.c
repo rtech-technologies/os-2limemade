@@ -26,39 +26,30 @@ void shell_task(void) {
 void system_task(void) {
     vga_print("[UNICE64] System Maintenance Task Active.\n");
     while (1) {
-        /* System Maintenance: Check AHCI Port 0 for Sovereign connectivity */
-        void ahci_hardware_audit(int p);
-        ahci_hardware_audit(0);
-
-        /* Voluntary handover */
+        /* System Maintenance: Voluntary handover */
         sys_yield();
     }
 }
 
 void tasking_create_process(const char* name) {
-    bool str_match(void* str, const char* pattern);
-    void* str_create(const char* cstr);
-    void release(void* ptr);
-
-    void* s = str_create(name);
-    if (str_match(s, "shell")) {
-        register_task(shell_task, 1);
-    }
-    release(s);
+    /* Hard-coded linear task registration for boot stability */
+    (void)name;
 }
 
 void tasking_init(void) {
-    unice64_scheduler_init();
-
     /* Register Idle Task in Slab 0 */
     register_task(idle_task, 0);
 
-    /* Register System Maintenance Task in Slab 2 */
-    register_task(system_task, 2);
+    /* Register System Maintenance Task in Slab 1 */
+    register_task(system_task, 1);
+
+    /* Register Shell Task in Slab 2 */
+    register_task(shell_task, 2);
 
     /* Context Guard: Verify that tasks were registered correctly */
     extern int get_task_count(void);
     PANIC_ON(get_task_count() < 2, "MULTITASKING_INIT: INSUFFICIENT SYSTEM TASKS");
 
+    unice64_scheduler_init();
     vga_print("[UNICE64] Multitasking initialized.\n");
 }

@@ -120,9 +120,9 @@ void _start(void) {
 
     dispatch_event(EVENT_MAIN);
 
-    tasking_init();
     void tasking_create_process(const char* name);
     tasking_create_process("shell");
+    tasking_init();
 
     /* Initialize APIC for system_ticks (One-Shot Mode) */
     apic_init();
