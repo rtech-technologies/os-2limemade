@@ -450,6 +450,8 @@ void ahci_service(kernel_event_t event) {
             }
             if (found) break;
         }
-        PANIC_ON(!found, "AHCI_SERVICE: NO CONTROLLER FOUND");
+        if (!found) {
+            vga_print("[AHCI] No SATA/AHCI Controller found. Entering Degraded Mode.\n");
+        }
     }
 }

@@ -18,6 +18,7 @@ typedef struct {
     uintptr_t base;
     size_t offset;
     bool active;
+    bool in_use;
     slab_header_t* first_block;
 } sovereign_slab_t;
 
@@ -35,8 +36,33 @@ void slab_init(void) {
         slabs[i].base = (uintptr_t)ptr;
         slabs[i].offset = 0;
         slabs[i].active = false;
+        slabs[i].in_use = (i < 3); /* 0=Idle, 1=System, 2=Shell reserved */
         slab_count++;
     }
+}
+
+int slab_grab_transient(void) {
+    for (int i = 3; i < MAX_SLABS; i++) {
+        if (!slabs[i].in_use) {
+            slabs[i].in_use = true;
+            slabs[i].offset = 0;
+            return i;
+        }
+    }
+    return -1;
+}
+
+void slab_release_transient(int id) {
+    if (id >= 3 && id < MAX_SLABS) {
+        slabs[id].in_use = false;
+        slabs[id].offset = 0;
+    }
+}
+
+void* slab_get_base(int id) {
+    if (id < 0 || id >= MAX_SLABS) return NULL;
+    uint64_t hhdm = get_hhdm_offset();
+    return (void*)(slabs[id].base + hhdm);
 }
 
 void* slab_alloc_aligned(int id, size_t size, size_t align) {

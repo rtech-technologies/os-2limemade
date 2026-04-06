@@ -21,27 +21,59 @@ void unice64_scheduler_init(void) {
 }
 
 void register_task(void (*entry_point)(void), uint32_t slab_id) {
-    if (task_count < MAX_TASKS) {
-        task_table[task_count].id = task_count;
-        task_table[task_count].state = TASK_READY;
-        task_table[task_count].slab_id = slab_id;
+    for (int i = 0; i < MAX_TASKS; i++) {
+        if (!task_table[i].in_use) {
+            task_table[i].id = i;
+            task_table[i].state = TASK_READY;
+            task_table[i].slab_id = slab_id;
+            task_table[i].in_use = true;
+            task_table[i].is_transient = false;
 
-        /* Set Kernel Stack for Task (16KB aligned in Kernel Binary) */
-        uint64_t stack_virt = (uint64_t)&task_stacks[task_count];
-        task_table[task_count].kernel_stack_top = stack_virt + TASK_STACK_SIZE;
+            /* Set Kernel Stack for Task (16KB aligned in Kernel Binary) */
+            uint64_t stack_virt = (uint64_t)&task_stacks[i];
+            task_table[i].kernel_stack_top = stack_virt + TASK_STACK_SIZE;
 
-        /* Initialize Context */
-        cpu_context_t* ctx = &task_table[task_count].context;
-        ctx->rip = (uint64_t)entry_point;
-        ctx->cs = 0x08; /* Kernel Code Segment */
-        ctx->ss = 0x10; /* Kernel Data Segment */
-        ctx->rflags = 0x202; /* Interrupts Enabled */
+            /* Initialize Context */
+            cpu_context_t* ctx = &task_table[i].context;
+            for (int k=0; k < (int)(sizeof(cpu_context_t)/8); k++) ((uint64_t*)ctx)[k] = 0;
+            ctx->rip = (uint64_t)entry_point;
+            ctx->cs = 0x08;
+            ctx->ss = 0x10;
+            ctx->rflags = 0x202;
+            ctx->rsp = task_table[i].kernel_stack_top - 16;
 
-        /* 16-byte Alignment Trick for ABI compatibility */
-        ctx->rsp = task_table[task_count].kernel_stack_top - 8;
+            if (task_count <= i) task_count = i + 1;
+            vga_print("[UNICE64] Task registered in Slab %d\n", slab_id);
+            return;
+        }
+    }
+}
 
-        task_count++;
-        vga_print("[UNICE64] Task registered in Slab %d\n", slab_id);
+void register_transient_task(void (*entry_point)(void), uint32_t slab_id, uint64_t arg) {
+    for (int i = 0; i < MAX_TASKS; i++) {
+        if (!task_table[i].in_use) {
+            task_table[i].id = i;
+            task_table[i].state = TASK_READY;
+            task_table[i].slab_id = slab_id;
+            task_table[i].is_transient = true;
+            task_table[i].in_use = true;
+
+            void* slab_get_base(int id);
+            void* slab_base = slab_get_base(slab_id);
+            task_table[i].kernel_stack_top = (uint64_t)slab_base + (4 * 1024 * 1024);
+
+            cpu_context_t* ctx = &task_table[i].context;
+            for (int k=0; k < (int)(sizeof(cpu_context_t)/8); k++) ((uint64_t*)ctx)[k] = 0;
+            ctx->rip = (uint64_t)entry_point;
+            ctx->rdi = arg; /* RDI Passing Protocol */
+            ctx->cs = 0x08;
+            ctx->ss = 0x10;
+            ctx->rflags = 0x202;
+            ctx->rsp = task_table[i].kernel_stack_top - 16;
+
+            if (task_count <= i) task_count = i + 1;
+            return;
+        }
     }
 }
 
@@ -92,6 +124,15 @@ void unice64_schedule(void) {
 
     if (task_table[current_task_idx].state == TASK_RUNNING) {
         task_table[current_task_idx].state = TASK_READY;
+    }
+
+    /* Cleanup Transient Tasks before switching away */
+    if (task_table[current_task_idx].state == TASK_ZOMBIE && task_table[current_task_idx].is_transient) {
+        void slab_release_transient(int id);
+        slab_release_transient(task_table[current_task_idx].slab_id);
+
+        /* Reclaim task slot for future transient tasks */
+        task_count--;
     }
 
     current_task_idx = next_idx;

@@ -24,11 +24,14 @@ typedef struct {
     cpu_context_t context;
     uint32_t slab_id;
     uint64_t kernel_stack_top;
+    bool is_transient;
+    bool in_use;
 } task_t;
 
 void unice64_schedule(void);
 void unice64_scheduler_init(void);
 void register_task(void (*entry_point)(void), uint32_t slab_id);
+void register_transient_task(void (*entry_point)(void), uint32_t slab_id, uint64_t arg);
 void sys_yield(void);
 task_t* get_current_task(void);
 

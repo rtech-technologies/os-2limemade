@@ -10,7 +10,7 @@ void pit_wait_ms(uint32_t ms);
 void idle_task(void) {
     while (1) {
         /* Low power state */
-        __asm__ volatile ("hlt");
+        __asm__ volatile ("pause");
     }
 }
 
@@ -41,8 +41,14 @@ bool tasking_is_scanning(void) {
     return kernel_scanning;
 }
 
+void (*pending_shell_entry)(void) = NULL;
+
+void tasking_create_kernel_thread(void (*entry)(void), const char* name) {
+    (void)name;
+    pending_shell_entry = entry;
+}
+
 void tasking_create_process(const char* name) {
-    /* Hard-coded linear task registration for boot stability */
     (void)name;
 }
 
@@ -54,8 +60,9 @@ void tasking_init(void) {
     register_task(system_task, 1);
 
     /* Register Shell Task in Slab 2 */
-    void shell_main(void);
-    register_task(shell_main, 2);
+    if (pending_shell_entry) {
+        register_task(pending_shell_entry, 2);
+    }
 
     /* Context Guard: Verify that tasks were registered correctly */
     extern int get_task_count(void);
