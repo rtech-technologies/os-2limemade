@@ -5,6 +5,7 @@
 #include <kernel/libs/storage/vdisk.h>
 #include <kernel/libs/core/pci.h>
 #include <include/ahci_hw.h>
+#include <include/panic.h>
 
 void* malloc(size_t size);
 void free(void* ptr);
@@ -29,15 +30,19 @@ void forensic_panic(const char* message, void* state);
 
 #define panic(msg) forensic_panic(msg, NULL)
 
+void serial_print_hex32(const char* label, uint32_t val);
+
 int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_t timeout_loops) {
     (void)timeout_loops;
     uint32_t count = 0;
     while (count < 1000000) {
-        /* 1. Task File Error bit check (ERR=0x01) */
-        if (port->tfd & 0x01) return -1;
+        /* Task File Error Status (Bit 30 of PxIS) */
+        if (port->is & (1 << 30)) {
+            serial_print_hex32("[AHCI] TFES Detected! TFD: ", port->tfd);
+            for(;;); /* HALT */
+        }
 
         /* 2. Manual Poll: Check PxIS, PxTFD, or PxCI based on mask/expected */
-        /* Ready check often involves BSY=0x80 and DRQ=0x08 being clear */
         if (port->is & mask) {
             port->is = 0xFFFFFFFF;
             return 0;
@@ -128,58 +133,48 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     int p = (int)(uint64_t)priv;
     hba_port_t* port = &hba_base->ports[p];
 
-    /* SATA Test for ATAPI: Reject generic SATA reads on ATAPI signatures */
-    if (port->sig == 0xEB140101) {
-        vga_print("[AHCI] Port %d: Rejected SATA Read on ATAPI device.\n", p);
-        return -1;
-    }
+    if (port->sig == 0xEB140101) return -1;
 
     uint64_t phys_buffer = vmm_get_phys(buffer);
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
-    cmdhdr->cfl = 5;
-    cmdhdr->w = 0;
-    cmdhdr->a = 0; /* Pure SATA */
-    cmdhdr->prdtl = 1;
+    /* dw0: CFL=5, W=0, A=0, P=0, R=0, B=0, C=0, PMP=0 */
+    cmdhdr->dw0 = 5;
+    /* dw1: PRDTL=1, PRDBC=0 */
+    cmdhdr->dw1 = (1 << 16);
 
-    /* Re-link Command Table every time to ensure atomic correctness */
     uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
     cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
     cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)port_ctba_virt[p];
+    for (int i=0; i < (int)sizeof(hba_cmd_tbl_t); i++) ((uint8_t*)cmdtbl)[i] = 0;
+
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
     cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
-    cmdtbl->prdt_entry[0].dbc = (count * 512) - 1;
-    cmdtbl->prdt_entry[0].i = 1;
+    /* dw3: dbc=511 (for 1 sector per iteration in this simplified logic), i=1 */
+    cmdtbl->prdt_entry[0].dw3 = ((count * 512 - 1) & 0x3FFFFF) | (1U << 31);
 
-    fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
-    fis->fis_type = 0x27;
-    fis->c = 1;
-    fis->command = 0x25;
-    fis->lba0 = (uint8_t)lba;
-    fis->lba1 = (uint8_t)(lba >> 8);
-    fis->lba2 = (uint8_t)(lba >> 16);
-    fis->device = 1 << 6;
-    fis->lba3 = (uint8_t)(lba >> 24);
-    fis->lba4 = (uint8_t)(lba >> 32);
-    fis->lba5 = (uint8_t)(lba >> 40);
-    fis->countl = (uint8_t)count;
-    fis->counth = (uint8_t)(count >> 8);
+    uint32_t* fis = (uint32_t*)cmdtbl->cfis;
+    fis[0] = 0x27 | (1 << 15) | (0x25 << 16); /* Type, Command(0x25=READ DMA EXT), C=1 */
+    fis[1] = (lba & 0xFFFFFF) | (0x40 << 24); /* LBA Low 24 bits, Device=LBA Mode */
+    fis[2] = (lba >> 24) & 0xFFFFFF;          /* LBA High 24 bits */
+    fis[3] = count & 0xFFFF;                  /* Sector Count (16-bit) */
 
-    /* Idle Wait: Wait for drive to be ready to receive command */
-    if (ahci_wait_status(port, 0x80 | 0x01, 0, 1000000) != 0) return -1;
+    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
 
     port->ci = (1 << 0);
-    if (ahci_wait_status(port, 1 << 0, 0, 1000000) != 0) return -1;
 
-    /* Flush Interrupts */
-    port->is = 0xFFFFFFFF;
-
-    if (port->tfd & (1 << 0)) { /* ERR bit */
-        vga_print("[AHCI] Port %d READ ERROR: TFD 0x%x\n", p, port->tfd);
-        return -1;
+    /* Real Metal Poll: Wait for SILICON to clear CI bit */
+    while (port->ci & (1 << 0)) {
+        if (port->is & (1 << 30)) {
+            serial_print_hex32("[AHCI] READ SILICON REJECTION! TFD: ", port->tfd);
+            for(;;);
+        }
+        __asm__ volatile ("pause");
     }
+
+    port->is = 0xFFFFFFFF;
     return 0;
 }
 
@@ -188,58 +183,48 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     int p = (int)(uint64_t)priv;
     hba_port_t* port = &hba_base->ports[p];
 
-    /* SATA Test for ATAPI: Reject generic SATA writes on ATAPI signatures */
-    if (port->sig == 0xEB140101) {
-        vga_print("[AHCI] Port %d: Rejected SATA Write on ATAPI device.\n", p);
-        return -1;
-    }
+    if (port->sig == 0xEB140101) return -1;
 
     uint64_t phys_buffer = vmm_get_phys(buffer);
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
-    cmdhdr->cfl = 5;
-    cmdhdr->w = 1;
-    cmdhdr->a = 0; /* Pure SATA */
-    cmdhdr->prdtl = 1;
+    /* dw0: CFL=5, W=1, A=0, P=0, R=0, B=0, C=0, PMP=0 */
+    cmdhdr->dw0 = 5 | (1 << 6);
+    /* dw1: PRDTL=1, PRDBC=0 */
+    cmdhdr->dw1 = (1 << 16);
 
-    /* Re-link Command Table every time to ensure atomic correctness */
     uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
     cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
     cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)port_ctba_virt[p];
+    for (int i=0; i < (int)sizeof(hba_cmd_tbl_t); i++) ((uint8_t*)cmdtbl)[i] = 0;
+
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
     cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
-    cmdtbl->prdt_entry[0].dbc = (count * 512) - 1;
-    cmdtbl->prdt_entry[0].i = 1;
+    /* dw3: dbc, i=1 */
+    cmdtbl->prdt_entry[0].dw3 = ((count * 512 - 1) & 0x3FFFFF) | (1U << 31);
 
-    fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
-    fis->fis_type = 0x27;
-    fis->c = 1;
-    fis->command = 0x35;
-    fis->lba0 = (uint8_t)lba;
-    fis->lba1 = (uint8_t)(lba >> 8);
-    fis->lba2 = (uint8_t)(lba >> 16);
-    fis->device = 1 << 6;
-    fis->lba3 = (uint8_t)(lba >> 24);
-    fis->lba4 = (uint8_t)(lba >> 32);
-    fis->lba5 = (uint8_t)(lba >> 40);
-    fis->countl = (uint8_t)count;
-    fis->counth = (uint8_t)(count >> 8);
+    uint32_t* fis = (uint32_t*)cmdtbl->cfis;
+    fis[0] = 0x27 | (1 << 15) | (0x35 << 16); /* Type, Command(0x35=WRITE DMA EXT), C=1 */
+    fis[1] = (lba & 0xFFFFFF) | (0x40 << 24); /* LBA Low 24 bits, Device=LBA Mode */
+    fis[2] = (lba >> 24) & 0xFFFFFF;          /* LBA High 24 bits */
+    fis[3] = count & 0xFFFF;                  /* Sector Count (16-bit) */
 
-    /* Idle Wait: Wait for drive to be ready to receive command */
-    if (ahci_wait_status(port, 0x80 | 0x01, 0, 1000000) != 0) return -1;
+    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
 
     port->ci = (1 << 0);
-    if (ahci_wait_status(port, 1 << 0, 0, 1000000) != 0) return -1;
 
-    /* Flush Interrupts */
-    port->is = 0xFFFFFFFF;
-
-    if (port->tfd & (1 << 0)) { /* ERR bit */
-        vga_print("[AHCI] Port %d WRITE ERROR: TFD 0x%x\n", p, port->tfd);
-        return -1;
+    /* Real Metal Poll: Wait for SILICON to clear CI bit */
+    while (port->ci & (1 << 0)) {
+        if (port->is & (1 << 30)) {
+            serial_print_hex32("[AHCI] WRITE SILICON REJECTION! TFD: ", port->tfd);
+            for(;;);
+        }
+        __asm__ volatile ("pause");
     }
+
+    port->is = 0xFFFFFFFF;
     return 0;
 }
 
@@ -349,6 +334,7 @@ void ahci_service(kernel_event_t event) {
         if (hba_base != NULL) return; /* Shield: Already Initialized */
 
         vga_print("[INIT] Scanning PCI for SATA/AHCI controllers...\n");
+        bool found = false;
         for (int bus = 0; bus < 256; bus++) {
             for (int slot = 0; slot < 32; slot++) {
                 for (int func = 0; func < 8; func++) {
@@ -455,11 +441,15 @@ void ahci_service(kernel_event_t event) {
                         }
                     }
                     ahci_ready = true;
-                    return; /* Success: Controller found and initialized */
+                    found = true;
+                    break;
                 }
                 if (func == 0 && !(pci_config_read(bus, slot, 0, 0x0C) & 0x800000)) break;
                 }
+                if (found) break;
             }
+            if (found) break;
         }
+        PANIC_ON(!found, "AHCI_SERVICE: NO CONTROLLER FOUND");
     }
 }

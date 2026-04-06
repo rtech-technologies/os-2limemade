@@ -5,34 +5,18 @@
 
 /* AHCI HBA Structures (Physical) */
 typedef struct {
-    uint8_t  fis_type;
-    uint8_t  pmport:4;
-    uint8_t  rsv0:3;
-    uint8_t  c:1;
-    uint8_t  command;
-    uint8_t  featurel;
-    uint8_t  lba0;
-    uint8_t  lba1;
-    uint8_t  lba2;
-    uint8_t  device;
-    uint8_t  lba3;
-    uint8_t  lba4;
-    uint8_t  lba5;
-    uint8_t  featureh;
-    uint8_t  countl;
-    uint8_t  counth;
-    uint8_t  icc;
-    uint8_t  control;
-    uint8_t  rsv1[4];
+    uint32_t dw0;
+    uint32_t dw1;
+    uint32_t dw2;
+    uint32_t dw3;
+    uint32_t dw4;
 } fis_reg_h2d_t;
 
 typedef struct {
     uint32_t dba;
     uint32_t dbau;
     uint32_t rsv0;
-    uint32_t dbc:22;
-    uint32_t rsv1:9;
-    uint32_t i:1;
+    uint32_t dw3; /* dbc[21:0], reserved, i[31] */
 } hba_prdt_entry_t;
 
 typedef struct {
@@ -43,17 +27,8 @@ typedef struct {
 } hba_cmd_tbl_t;
 
 typedef struct {
-    uint8_t  cfl:5;
-    uint8_t  a:1;
-    uint8_t  w:1;
-    uint8_t  p:1;
-    uint8_t  r:1;
-    uint8_t  b:1;
-    uint8_t  c:1;
-    uint8_t  rsv0:1;
-    uint8_t  pmp:4;
-    uint16_t prdtl;
-    volatile uint32_t prdbc;
+    uint32_t dw0; /* cfl, a, w, p, r, b, c, pmp */
+    uint32_t dw1; /* prdtl, prdbc */
     uint32_t ctba;
     uint32_t ctbau;
     uint32_t rsv1[4];

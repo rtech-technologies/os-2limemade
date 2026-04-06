@@ -372,6 +372,16 @@ void serial_print_hex(const char* label, uint16_t val) {
     serial_write_char('\n');
 }
 
+void serial_print_hex32(const char* label, uint32_t val) {
+    serial_write_str(label);
+    serial_write_str("0x");
+    const char* hex = "0123456789ABCDEF";
+    for (int i = 7; i >= 0; i--) {
+        serial_write_char(hex[(val >> (i * 4)) & 0xF]);
+    }
+    serial_write_char('\n');
+}
+
 void vga_serial_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
         serial_init();

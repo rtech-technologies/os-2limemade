@@ -24,11 +24,10 @@ int satapi_send_packet(int p, uint8_t* scsi_packet, void* buffer, uint32_t len, 
     hba_port_t* port = &hba_base->ports[p];
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)get_port_clb(p);
-    cmdhdr->cfl = 5;
-    cmdhdr->w = is_write ? 1 : 0;
-    cmdhdr->a = 1;
-    cmdhdr->p = 1;
-    cmdhdr->prdtl = buffer ? 1 : 0;
+    /* dw0: CFL=5, A=1, W, P=1 */
+    cmdhdr->dw0 = 5 | (1 << 5) | (is_write ? (1 << 6) : 0) | (1 << 7);
+    /* dw1: PRDTL */
+    cmdhdr->dw1 = (buffer ? (1 << 16) : 0);
 
     uint64_t ctba_phys = vmm_get_phys(get_port_ctba(p));
     cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
@@ -39,16 +38,12 @@ int satapi_send_packet(int p, uint8_t* scsi_packet, void* buffer, uint32_t len, 
         uint64_t phys_buffer = vmm_get_phys(buffer);
         cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
         cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
-        cmdtbl->prdt_entry[0].dbc = len - 1;
-        cmdtbl->prdt_entry[0].i = 1;
+        cmdtbl->prdt_entry[0].dw3 = ((len - 1) & 0x3FFFFF) | (1U << 31);
     }
 
-    fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
-    for(int i=0; i<64; i++) cmdtbl->cfis[i] = 0;
-    fis->fis_type = 0x27;
-    fis->c = 1;
-    fis->command = 0xA0; /* ATA_CMD_PACKET */
-    fis->featurel = buffer ? 1 : 0; /* DMA bit */
+    uint32_t* fis = (uint32_t*)cmdtbl->cfis;
+    for(int i=0; i<16; i++) fis[i] = 0;
+    fis[0] = 0x27 | (1 << 15) | (0xA0 << 16) | ((buffer ? 1 : 0) << 24); /* Type, C, Command, FeatureL */
 
     for(int i=0; i<16; i++) cmdtbl->acmd[i] = 0;
     for(int i=0; i<12; i++) cmdtbl->acmd[i] = scsi_packet[i];
@@ -88,22 +83,17 @@ int satapi_identify(void* priv) {
     uint64_t phys_buffer = vmm_get_phys(data);
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)get_port_clb(p);
-    cmdhdr->cfl = 5;
-    cmdhdr->w = 0;
-    cmdhdr->a = 0; /* ATAPI bit is 0 for IDENTIFY PACKET command itself */
-    cmdhdr->prdtl = 1;
+    cmdhdr->dw0 = 5;
+    cmdhdr->dw1 = (1 << 16);
 
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)get_port_ctba(p);
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
     cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
-    cmdtbl->prdt_entry[0].dbc = 512 - 1;
-    cmdtbl->prdt_entry[0].i = 1;
+    cmdtbl->prdt_entry[0].dw3 = (511 & 0x3FFFFF) | (1U << 31);
 
-    fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
-    for(int i=0; i<64; i++) cmdtbl->cfis[i] = 0;
-    fis->fis_type = 0x27;
-    fis->c = 1;
-    fis->command = 0xA1; /* IDENTIFY PACKET DEVICE */
+    uint32_t* fis = (uint32_t*)cmdtbl->cfis;
+    for(int i=0; i<16; i++) fis[i] = 0;
+    fis[0] = 0x27 | (1 << 15) | (0xA1 << 16); /* Type, C, Command */
 
     /* Idle Wait: Wait for drive to be ready to receive command */
     if (ahci_wait_status(port, 0x80 | 0x01, 0, 1000000) != 0) return -1;

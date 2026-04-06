@@ -13,6 +13,13 @@ void forensic_panic(const char* message, void* state);
         } \
     } while (0)
 
+#define PANIC_ON_ERR(error_code, message) \
+    do { \
+        if ((error_code) != 0) { \
+            forensic_panic(message, NULL); \
+        } \
+    } while (0)
+
 #define ASSERT(condition, message) \
     do { \
         if (!(condition)) { \
