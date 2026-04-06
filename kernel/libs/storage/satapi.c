@@ -54,10 +54,10 @@ int satapi_send_packet(int p, uint8_t* scsi_packet, void* buffer, uint32_t len, 
     for(int i=0; i<12; i++) cmdtbl->acmd[i] = scsi_packet[i];
 
     /* Idle Wait: Wait for drive to be ready to receive command */
-    if (ahci_wait_status(port, 0x80 | 0x08, 0, 10000000) != 0) return -1;
+    if (ahci_wait_status(port, 0x80 | 0x01, 0, 1000000) != 0) return -1;
 
     port->ci = (1 << 0);
-    if (ahci_wait_status(port, 1 << 0, 0, 10000000) != 0) return -1;
+    if (ahci_wait_status(port, 1 << 0, 0, 1000000) != 0) return -1;
 
     /* Flush Interrupts */
     port->is = 0xFFFFFFFF;
@@ -106,10 +106,10 @@ int satapi_identify(void* priv) {
     fis->command = 0xA1; /* IDENTIFY PACKET DEVICE */
 
     /* Idle Wait: Wait for drive to be ready to receive command */
-    if (ahci_wait_status(port, 0x80 | 0x08, 0, 10000000) != 0) return -1;
+    if (ahci_wait_status(port, 0x80 | 0x01, 0, 1000000) != 0) return -1;
 
     port->ci = (1 << 0);
-    if (ahci_wait_status(port, 1 << 0, 0, 10000000) != 0) return -1;
+    if (ahci_wait_status(port, 1 << 0, 0, 1000000) != 0) return -1;
 
     /* Flush Interrupts */
     port->is = 0xFFFFFFFF;

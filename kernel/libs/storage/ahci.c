@@ -25,43 +25,50 @@ void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
 void* bump_alloc(size_t size);
 uint64_t vmm_get_phys(void* virt);
 void vga_print(const char* fmt, ...);
+void forensic_panic(const char* message, void* state);
+
+#define panic(msg) forensic_panic(msg, NULL)
 
 int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_t timeout_loops) {
-    while (timeout_loops--) {
+    (void)timeout_loops;
+    uint32_t count = 0;
+    while (count < 1000000) {
         /* 1. Task File Error bit check */
         if (port->tfd & (1 << 0)) return -1;
 
-        /* 2. Interrupt Status bit check (Manual Acknowledgment) */
+        /* 2. Manual Poll: Check PxIS, PxTFD, or PxCI based on mask/expected */
         if (port->is & mask) {
             port->is = 0xFFFFFFFF;
             return 0;
         }
 
-        /* 3. Robust Dual-Register Polling (TFD & CI) */
         if (((port->tfd & mask) == expected) && ((port->ci & mask) == expected)) {
-            port->is = 0xFFFFFFFF;
             return 0;
         }
 
+        count++;
         __asm__ volatile ("pause");
     }
-    vga_print("[AHCI] Command timeout detected!\n");
+
+    panic("AHCI_POLL_TIMEOUT");
     return -1;
 }
 
-void ahci_port_start(hba_port_t *port) {
+void ahci_port_start(int p) {
+    hba_port_t* port = &hba_base->ports[p];
     int timeout = 10000000;
     while ((port->cmd & (1 << 15)) && timeout--) {
         __asm__ volatile ("pause");
     }
 
-    /* Assign Physical Addresses to Port registers */
-    /* We assume the virt pointers were stored in port_clb_virt etc.
-       Actually, we need to find which port index this is to use the virt array.
-       Or we can pass the virt pointers.
-       Since we don't have the index here easily without changing signature,
-       let's ensure they are set in the initialization loop instead.
-    */
+    /* Physical Registration: The Controller cannot see HHDM */
+    uint64_t clb_phys = vmm_get_phys(port_clb_virt[p]);
+    port->clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
+    port->clbu = (uint32_t)(clb_phys >> 32);
+
+    uint64_t fb_phys = vmm_get_phys(port_fb_virt[p]);
+    port->fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
+    port->fbu = (uint32_t)(fb_phys >> 32);
 
     port->cmd |= (1 << 4);
     port->cmd |= (1 << 0);
@@ -69,7 +76,8 @@ void ahci_port_start(hba_port_t *port) {
 
 void pit_wait_ms(uint32_t ms);
 
-void ahci_force_port_reset(hba_port_t *port, int port_no) {
+void ahci_force_port_reset(int port_no) {
+    hba_port_t* port = &hba_base->ports[port_no];
     port->serr = 0xFFFFFFFF;
     port->is = 0xFFFFFFFF;
     port->cmd &= ~0x0001;
@@ -93,7 +101,7 @@ void ahci_force_port_reset(hba_port_t *port, int port_no) {
     if ((port->ssts & 0x0F) == 0x03) {
         vga_print("[AHCI] PORT %d: LINK ESTABLISHED\n", port_no);
         port->cmd |= 0x0010;
-        port->cmd |= 0x0001;
+        ahci_port_start(port_no);
     } else {
         vga_print("[AHCI] PORT %d: MECHANICAL FAILURE\n", port_no);
     }
@@ -106,9 +114,9 @@ void ahci_hardware_audit(int p) {
 
     uint32_t ssts = port->ssts;
     if ((ssts & 0x0F) == 0x03) {
-        ahci_port_start(port);
+        ahci_port_start(p);
     } else {
-        ahci_force_port_reset(port, p);
+        ahci_force_port_reset(p);
     }
 }
 
@@ -159,10 +167,10 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis->counth = (uint8_t)(count >> 8);
 
     /* Idle Wait: Wait for drive to be ready to receive command */
-    if (ahci_wait_status(port, 0x80 | 0x08, 0, 10000000) != 0) return -1;
+    if (ahci_wait_status(port, 0x80 | 0x01, 0, 1000000) != 0) return -1;
 
     port->ci = (1 << 0);
-    if (ahci_wait_status(port, 1 << 0, 0, 10000000) != 0) return -1;
+    if (ahci_wait_status(port, 1 << 0, 0, 1000000) != 0) return -1;
 
     /* Flush Interrupts */
     port->is = 0xFFFFFFFF;
@@ -219,10 +227,10 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis->counth = (uint8_t)(count >> 8);
 
     /* Idle Wait: Wait for drive to be ready to receive command */
-    if (ahci_wait_status(port, 0x80 | 0x08, 0, 10000000) != 0) return -1;
+    if (ahci_wait_status(port, 0x80 | 0x01, 0, 1000000) != 0) return -1;
 
     port->ci = (1 << 0);
-    if (ahci_wait_status(port, 1 << 0, 0, 10000000) != 0) return -1;
+    if (ahci_wait_status(port, 1 << 0, 0, 1000000) != 0) return -1;
 
     /* Flush Interrupts */
     port->is = 0xFFFFFFFF;
@@ -271,7 +279,7 @@ void ahci_scan_remaining(void) {
             cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
             cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
-            ahci_force_port_reset(&hba_base->ports[p], p);
+            ahci_force_port_reset(p);
 
             /* Signature Delay: Wait for hardware to update registers after reset */
             pit_wait_ms(10);
@@ -328,6 +336,7 @@ void ahci_scan_remaining(void) {
                 }
             }
         }
+        vga_print("[AHCI] No SATA/AHCI Controller found.\n");
     }
 }
 
@@ -388,7 +397,7 @@ void ahci_service(kernel_event_t event) {
                             cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
                             cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
-                            ahci_force_port_reset(&hba_base->ports[p], p);
+                            ahci_force_port_reset(p);
 
                             /* Signature Delay: Wait for hardware to update registers after reset */
                             pit_wait_ms(10);

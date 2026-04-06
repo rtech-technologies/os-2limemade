@@ -55,82 +55,50 @@ void _start(void) {
     /* Start the Shell and Main System Logic */
     serial_write_str("[EVENT] Entering EVENT_MAIN...\n");
 
-    static FATFS boot_fs;
     bool mount_success = false;
 
-    /* 1. Sovereign Discovery: Follow strict Loader Phase ritual */
+    /* 1. Sovereign Discovery: Unified Volume Handshake */
     int hw_count = get_hw_disk_count();
     vga_print("[BOOT] Scanning %d detected hardware volumes...\n", hw_count);
 
-    /* Phase 1: Mount Ramdisk as BOOT:/ */
-    int ramdisk_drive = -1;
+    static FATFS disk_fses[16];
+    int disk_idx = 0;
+
     for (int i = 0; i < hw_count; i++) {
-        if (vdisk_is_atapi(i)) {
-            vga_print("[BOOT] Attempting Ramdisk Mount (Drive %d)...\n", i);
-            if (f_mount(&boot_fs, i) == FR_OK) {
-                ramdisk_drive = i;
+        vga_print("[BOOT] Attempting Mount (Drive %d)...\n", i);
+        if (f_mount(&disk_fses[i], i) == FR_OK) {
+            void internal_fs_ls(void* path, void* priv);
+            void internal_fs_cat(void* path, void* priv);
+            void internal_fs_write(void* path, void* content, void* priv);
+            void internal_fs_mkdir(void* path, void* priv);
+            void internal_fs_rmdir(void* path, void* priv);
+            bool internal_fs_exists(void* path, void* priv);
+
+            vfs_node_t node = {
+                .private_data = &disk_fses[i],
+                .ls = internal_fs_ls,
+                .cat = internal_fs_cat,
+                .write = internal_fs_write,
+                .mkdir = internal_fs_mkdir,
+                .rmdir = internal_fs_rmdir,
+                .exists = internal_fs_exists
+            };
+
+            if (!mount_success) {
+                const char* name = "BOOT";
+                int k = 0; while(name[k]) { node.name[k] = name[k]; k++; } node.name[k] = '\0';
+                vfs_register_node(node);
+                vga_print("[FS] Drive %d Registered as Primary BOOT:/ Volume.\n", i);
                 mount_success = true;
-                break;
+            } else {
+                node.name[0] = 'D'; node.name[1] = 'I'; node.name[2] = 'S'; node.name[3] = 'K';
+                node.name[4] = '0' + disk_idx; node.name[5] = '\0';
+                vfs_register_node(node);
+                vga_print("[FS] Drive %d Registered as %s:/.\n", i, node.name);
+                disk_idx++;
             }
         }
     }
-
-    if (mount_success) {
-        void internal_fs_ls(void* path, void* priv);
-        void internal_fs_cat(void* path, void* priv);
-        void internal_fs_write(void* path, void* content, void* priv);
-        void internal_fs_mkdir(void* path, void* priv);
-        void internal_fs_rmdir(void* path, void* priv);
-        bool internal_fs_exists(void* path, void* priv);
-
-        vfs_node_t boot_node = {
-            .private_data = &boot_fs,
-            .ls = internal_fs_ls,
-            .cat = internal_fs_cat,
-            .write = internal_fs_write,
-            .mkdir = internal_fs_mkdir,
-            .rmdir = internal_fs_rmdir,
-            .exists = internal_fs_exists
-        };
-        /* BOOT is the Ramdisk */
-        const char* bname = "BOOT";
-        int bk = 0; while(bname[bk]) { boot_node.name[bk] = bname[bk]; bk++; } boot_node.name[bk] = '\0';
-        vfs_register_node(boot_node);
-        vga_print("[FS] Ramdisk Mounted as BOOT:/ (Drive %d)\n", ramdisk_drive);
-    }
-
-    /* Phase 2: Mount first SATA HDD as DISK0:/ */
-    static FATFS hdd_fs;
-    for (int i = 0; i < hw_count; i++) {
-        if (vdisk_is_atapi(i)) continue;
-        if (is_sovereign_disk(i)) {
-            vga_print("[BOOT] Attempting SATA Mount (Drive %d)...\n", i);
-            if (f_mount(&hdd_fs, i) == FR_OK) {
-                void internal_fs_ls(void* path, void* priv);
-                void internal_fs_cat(void* path, void* priv);
-                void internal_fs_write(void* path, void* content, void* priv);
-                void internal_fs_mkdir(void* path, void* priv);
-                void internal_fs_rmdir(void* path, void* priv);
-                bool internal_fs_exists(void* path, void* priv);
-
-                vfs_node_t hdd_node = {
-                    .private_data = &hdd_fs,
-                    .ls = internal_fs_ls,
-                    .cat = internal_fs_cat,
-                    .write = internal_fs_write,
-                    .mkdir = internal_fs_mkdir,
-                    .rmdir = internal_fs_rmdir,
-                    .exists = internal_fs_exists
-                };
-                const char* dname = "DISK0";
-                int dk = 0; while(dname[dk]) { hdd_node.name[dk] = dname[dk]; dk++; } hdd_node.name[dk] = '\0';
-                vfs_register_node(hdd_node);
-                vga_print("[FS] SATA HDD Mounted as DISK0:/ (Drive %d)\n", i);
-                break;
-            }
-        }
-    }
-
 
     if (!mount_success) {
         set_color(LIGHT_RED, BLACK);
@@ -141,8 +109,6 @@ void _start(void) {
         vfs_set_safe_mode(false);
     }
 
-    dispatch_event(EVENT_MAIN);
-
     /* Initialize Active-Relay Multitasking */
     void vga_print(const char* fmt, ...);
     bool ahci_is_ready(void);
@@ -151,6 +117,8 @@ void _start(void) {
     } else {
         vga_print("[AHCI] Booting in Degraded Mode...\n");
     }
+
+    dispatch_event(EVENT_MAIN);
 
     tasking_init();
     void tasking_create_process(const char* name);
@@ -168,13 +136,13 @@ void _start(void) {
         serial_write_str("CHECKPOINT B: Stream finished.\n");
     }
 
-    /* The main thread becomes an observer or a task.
-       Actually, tasking_init already registered the shell.
-       We should just loop here and let the scheduler take over. */
+    /* The main thread becomes an observer or a task. */
     vga_print("[INIT] Handing control to RSL Shell...\n");
     vga_print("[UNICE64] Kernel handover to Scheduler.\n");
-    dispatch_event(EVENT_CLEANUP);
-    dispatch_event(EVENT_EXIT);
+
+    /* Start Scheduling */
+    void sys_yield(void);
+    sys_yield();
 
     /* Hang if we ever return */
     for (;;) {
