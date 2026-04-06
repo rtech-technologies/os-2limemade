@@ -39,13 +39,13 @@ int64_t rsl_get_var(const char* name) {
     return 0;
 }
 
-void rsl_execute_stream(const char* path) {
+int rsl_execute_stream(const char* path) {
     void* pstr = str_create(path);
     vfs_handle_t* h = vfs_open(pstr, "r");
     if (!h) {
-        print("Error: Could not open RSL script.\n");
+        /* Silently return error code, caller handles UI */
         release(pstr);
-        return;
+        return -1;
     }
 
     serial_write_str("[RSL] Executing script streamer: ");
@@ -81,4 +81,5 @@ void rsl_execute_stream(const char* path) {
     vfs_close(h);
     release(pstr);
     print("\nRSL Execution Finished.\n");
+    return 0;
 }

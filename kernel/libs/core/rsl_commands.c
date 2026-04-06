@@ -269,7 +269,7 @@ void rsl_execute_command(char* line) {
         print("ls, cd, cat, write, mkdir, rmdir, echo, color, copy, paste, run, settings, debug-dump, scan, help, exit\n");
     } else if (cstr_match_local(argv[0], "run")) {
         if (argc > 1) {
-            void rsl_execute_stream(const char* path);
+            int rsl_execute_stream(const char* path);
             rsl_execute_stream(argv[1]);
         }
     } else if (cstr_match_local(argv[0], "exit")) {

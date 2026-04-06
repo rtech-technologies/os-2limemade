@@ -11,8 +11,12 @@ void shell_main(void) {
     print("\n[ OSx2 Sovereign ] Build Success.\n");
 
     /* Automated Sovereignty: Try to execute BOOT.RSL */
-    void rsl_execute_stream(const char* path);
-    rsl_execute_stream("BOOT:/BOOT.RSL");
+    int rsl_execute_stream(const char* path);
+    if (rsl_execute_stream("BOOT:/BOOT.RSL") != 0) {
+        set_color(LIGHT_RED, BLACK);
+        print("Warning: BOOT.RSL failed to load.\n");
+        set_color(GREEN, BLACK);
+    }
 
     /* Boot Menu Choice-Gate */
     print("\n1. Install OSx2 to SATA HDD\n");
@@ -22,7 +26,7 @@ void shell_main(void) {
     if (choice) {
         if (str_match(choice, "1")) {
             print("Preparing Installation...\n");
-            void rsl_execute_stream(const char* path);
+            int rsl_execute_stream(const char* path);
             rsl_execute_stream("BOOT:/install.rsl");
         } else if (str_match(choice, "2")) {
             print("Entering Safe Mode...\n");

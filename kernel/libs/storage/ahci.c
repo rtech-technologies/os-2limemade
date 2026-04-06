@@ -39,6 +39,7 @@ int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_
         /* Task File Error Status (Bit 30 of PxIS) */
         if (port->is & (1 << 30)) {
             serial_print_hex32("[AHCI] TFES Detected! TFD: ", port->tfd);
+            vga_print("[AHCI] Fatal silicon rejection. System halted.\n");
             for(;;); /* HALT */
         }
 

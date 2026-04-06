@@ -7,6 +7,7 @@
 
 static task_t task_table[MAX_TASKS];
 static uint8_t task_stacks[MAX_TASKS][TASK_STACK_SIZE] __attribute__((aligned(4096)));
+static uint32_t task_bitmask = 0;
 static int task_count = 0;
 static int current_task_idx = 0;
 
@@ -22,18 +23,17 @@ void unice64_scheduler_init(void) {
 
 void register_task(void (*entry_point)(void), uint32_t slab_id) {
     for (int i = 0; i < MAX_TASKS; i++) {
-        if (!task_table[i].in_use) {
+        if (!(task_bitmask & (1 << i))) {
+            task_bitmask |= (1 << i);
             task_table[i].id = i;
             task_table[i].state = TASK_READY;
             task_table[i].slab_id = slab_id;
-            task_table[i].in_use = true;
             task_table[i].is_transient = false;
+            task_table[i].in_use = true;
 
-            /* Set Kernel Stack for Task (16KB aligned in Kernel Binary) */
             uint64_t stack_virt = (uint64_t)&task_stacks[i];
             task_table[i].kernel_stack_top = stack_virt + TASK_STACK_SIZE;
 
-            /* Initialize Context */
             cpu_context_t* ctx = &task_table[i].context;
             for (int k=0; k < (int)(sizeof(cpu_context_t)/8); k++) ((uint64_t*)ctx)[k] = 0;
             ctx->rip = (uint64_t)entry_point;
@@ -51,7 +51,8 @@ void register_task(void (*entry_point)(void), uint32_t slab_id) {
 
 void register_transient_task(void (*entry_point)(void), uint32_t slab_id, uint64_t arg) {
     for (int i = 0; i < MAX_TASKS; i++) {
-        if (!task_table[i].in_use) {
+        if (!(task_bitmask & (1 << i))) {
+            task_bitmask |= (1 << i);
             task_table[i].id = i;
             task_table[i].state = TASK_READY;
             task_table[i].slab_id = slab_id;
@@ -130,9 +131,8 @@ void unice64_schedule(void) {
     if (task_table[current_task_idx].state == TASK_ZOMBIE && task_table[current_task_idx].is_transient) {
         void slab_release_transient(int id);
         slab_release_transient(task_table[current_task_idx].slab_id);
-
-        /* Reclaim task slot for future transient tasks */
-        task_count--;
+        task_bitmask &= ~(1 << current_task_idx);
+        task_table[current_task_idx].in_use = false;
     }
 
     current_task_idx = next_idx;

@@ -119,19 +119,37 @@ The kernel dispatches its first `sys_yield()`, which triggers a software interru
 Functions like `print()` utilize **Self-Destructing Tasks** and Micro-Slabs for isolated execution. This prevents system calls from polluting the caller's stack.
 - [Link to console.c](../kernel/libs/io/console.c)
 
+The system enforces the **RDI-Passing Protocol**, where arguments for transient tasks are passed via the CPU context rather than manual stack injection.
+
 ```c
 void print(const char* s) {
     int slab_id = slab_grab_transient();
 
-    print_request_t req = { .s = s, .done = false };
-    /* Injection: Put request on the worker's future stack */
-    print_request_t* remote_req = (print_request_t*)(stack_top - sizeof(print_request_t) - 16);
-    *remote_req = req;
+    print_request_t* req = malloc(sizeof(print_request_t));
+    req->s = s; req->done = false;
 
-    register_transient_task(print_worker, slab_id);
+    /* RDI-Passing Protocol: Set RDI in the worker's context frame */
+    register_transient_task(print_worker, slab_id, (uint64_t)req);
 
     /* Suspend App until worker finishes */
-    while (!remote_req->done) sys_yield();
+    while (!req->done) sys_yield();
+}
+```
+
+Inside `unice64_schedule()` in `kernel/unice64/scheduler.c`, the engine uses a **Slot-Availability Bitmask** to detect when a transient worker finishes (state `TASK_ZOMBIE`) and reclaims the task slot in O(1) time:
+
+```c
+void unice64_schedule(void) {
+    /* ... */
+    if (task_table[current_task_idx].state == TASK_ZOMBIE &&
+        task_table[current_task_idx].is_transient) {
+        slab_release_transient(task_table[current_task_idx].slab_id);
+
+        /* Reclaim task slot via bitmask */
+        task_bitmask &= ~(1 << current_task_idx);
+        task_table[current_task_idx].in_use = false;
+    }
+    /* ... */
 }
 ```
 
