@@ -6,7 +6,7 @@
 
 /* External Symbols */
 void vga_print(const char* fmt, ...);
-void ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_t timeout_loops);
+int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_t timeout_loops);
 uint64_t vmm_get_phys(void* virt);
 void* get_port_clb(int p);
 void* get_port_ctba(int p);
@@ -54,10 +54,10 @@ int satapi_send_packet(int p, uint8_t* scsi_packet, void* buffer, uint32_t len, 
     for(int i=0; i<12; i++) cmdtbl->acmd[i] = scsi_packet[i];
 
     /* Idle Wait: Wait for drive to be ready to receive command */
-    ahci_wait_status(port, 0x80 | 0x08, 0, 1000000);
+    if (ahci_wait_status(port, 0x80 | 0x08, 0, 10000000) != 0) return -1;
 
     port->ci = (1 << 0);
-    ahci_wait_status(port, 1 << 0, 0, 1000000);
+    if (ahci_wait_status(port, 1 << 0, 0, 10000000) != 0) return -1;
 
     /* Flush Interrupts */
     port->is = 0xFFFFFFFF;
@@ -106,10 +106,10 @@ int satapi_identify(void* priv) {
     fis->command = 0xA1; /* IDENTIFY PACKET DEVICE */
 
     /* Idle Wait: Wait for drive to be ready to receive command */
-    ahci_wait_status(port, 0x80 | 0x08, 0, 1000000);
+    if (ahci_wait_status(port, 0x80 | 0x08, 0, 10000000) != 0) return -1;
 
     port->ci = (1 << 0);
-    ahci_wait_status(port, 1 << 0, 0, 1000000);
+    if (ahci_wait_status(port, 1 << 0, 0, 10000000) != 0) return -1;
 
     /* Flush Interrupts */
     port->is = 0xFFFFFFFF;

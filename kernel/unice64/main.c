@@ -50,7 +50,6 @@ void _start(void) {
 
     /* Initialize Hardware and Core Memory */
     dispatch_event(EVENT_INIT);
-    vga_print("[INIT] AHCI Polling Success - Handoff to Orchestrator\n");
     __asm__ volatile ("sti");
 
     /* Start the Shell and Main System Logic */
@@ -145,6 +144,9 @@ void _start(void) {
     dispatch_event(EVENT_MAIN);
 
     /* Initialize Active-Relay Multitasking */
+    void vga_print(const char* fmt, ...);
+    vga_print("[INIT] AHCI Polling Success - Handoff to Orchestrator\n");
+    vga_print("[INIT] Handing control to RSL Shell...\n");
     tasking_init();
     /* Initialize APIC for system_ticks (One-Shot Mode) */
     apic_init();
@@ -161,6 +163,7 @@ void _start(void) {
     /* The main thread becomes an observer or a task.
        Actually, tasking_init already registered the shell.
        We should just loop here and let the scheduler take over. */
+    vga_print("[INIT] Handing control to RSL Shell...\n");
     vga_print("[UNICE64] Kernel handover to Scheduler.\n");
     dispatch_event(EVENT_CLEANUP);
     dispatch_event(EVENT_EXIT);

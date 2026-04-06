@@ -24,33 +24,34 @@ void serial_print_hex(const char* label, uint16_t val);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
 void* bump_alloc(size_t size);
 uint64_t vmm_get_phys(void* virt);
+void vga_print(const char* fmt, ...);
 
-void ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_t timeout_loops) {
+int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_t timeout_loops) {
     while (timeout_loops--) {
         /* 1. Task File Error bit check */
-        if (port->tfd & (1 << 0)) return;
+        if (port->tfd & (1 << 0)) return -1;
 
         /* 2. Interrupt Status bit check (Manual Acknowledgment) */
         if (port->is & mask) {
             port->is = 0xFFFFFFFF;
-            return;
+            return 0;
         }
 
         /* 3. Robust Dual-Register Polling (TFD & CI) */
         /* We wait until BOTH the status bits and command issue bits reach expectation. */
         if (((port->tfd & mask) == expected) && ((port->ci & mask) == expected)) {
             port->is = 0xFFFFFFFF;
-            return;
+            return 0;
         }
 
         __asm__ volatile ("pause");
     }
-    void forensic_panic(const char* message, void* state);
-    forensic_panic("AHCI_POLL_TIMEOUT", NULL);
+    vga_print("[AHCI] Command timeout detected!\n");
+    return -1;
 }
 
 void ahci_port_start(hba_port_t *port) {
-    int timeout = 1000;
+    int timeout = 10000000;
     while ((port->cmd & (1 << 15)) && timeout--) {
         __asm__ volatile ("pause");
     }
@@ -58,7 +59,6 @@ void ahci_port_start(hba_port_t *port) {
     port->cmd |= (1 << 0);
 }
 
-void vga_print(const char* fmt, ...);
 void pit_wait_ms(uint32_t ms);
 
 void ahci_force_port_reset(hba_port_t *port, int port_no) {
@@ -67,9 +67,9 @@ void ahci_force_port_reset(hba_port_t *port, int port_no) {
     port->cmd &= ~0x0001;
     port->cmd &= ~0x0010;
 
-    int engine_timeout = 1000;
+    int engine_timeout = 10000000;
     while ((port->cmd & 0x8000 || port->cmd & 0x4000) && engine_timeout--) {
-        pit_wait_ms(1);
+        __asm__ volatile ("pause");
     }
 
     port->sctl = (port->sctl & ~0x0F) | 0x301;
@@ -77,9 +77,9 @@ void ahci_force_port_reset(hba_port_t *port, int port_no) {
     port->sctl = (port->sctl & ~0x0F) | 0x300;
     pit_wait_ms(50);
 
-    int timeout = 1000;
+    int timeout = 10000000;
     while ((port->ssts & 0x0F) != 0x03 && timeout--) {
-        pit_wait_ms(1);
+        __asm__ volatile ("pause");
     }
 
     if ((port->ssts & 0x0F) == 0x03) {
@@ -151,10 +151,10 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis->counth = (uint8_t)(count >> 8);
 
     /* Idle Wait: Wait for drive to be ready to receive command */
-    ahci_wait_status(port, 0x80 | 0x08, 0, 1000000);
+    if (ahci_wait_status(port, 0x80 | 0x08, 0, 10000000) != 0) return -1;
 
     port->ci = (1 << 0);
-    ahci_wait_status(port, 1 << 0, 0, 1000000);
+    if (ahci_wait_status(port, 1 << 0, 0, 10000000) != 0) return -1;
 
     /* Flush Interrupts */
     port->is = 0xFFFFFFFF;
@@ -211,10 +211,10 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis->counth = (uint8_t)(count >> 8);
 
     /* Idle Wait: Wait for drive to be ready to receive command */
-    ahci_wait_status(port, 0x80 | 0x08, 0, 1000000);
+    if (ahci_wait_status(port, 0x80 | 0x08, 0, 10000000) != 0) return -1;
 
     port->ci = (1 << 0);
-    ahci_wait_status(port, 1 << 0, 0, 1000000);
+    if (ahci_wait_status(port, 1 << 0, 0, 10000000) != 0) return -1;
 
     /* Flush Interrupts */
     port->is = 0xFFFFFFFF;
@@ -347,8 +347,8 @@ void ahci_service(kernel_event_t event) {
 
                     hba_base->ghc |= (1 << 31);
                     hba_base->ghc |= (1 << 0);
-                    int ghc_timeout = 1000;
-                    while ((hba_base->ghc & (1 << 0)) && ghc_timeout--) pit_wait_ms(1);
+                    int ghc_timeout = 10000000;
+                    while ((hba_base->ghc & (1 << 0)) && ghc_timeout--) __asm__ volatile ("pause");
                     hba_base->ghc |= (1 << 31);
 
                     /* OSx2: Scan the first 9 ports on boot per Sovereign mandate */
