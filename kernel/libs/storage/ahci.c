@@ -31,11 +31,12 @@ void forensic_panic(const char* message, void* state);
 #define panic(msg) forensic_panic(msg, NULL)
 
 void serial_print_hex32(const char* label, uint32_t val);
+void pit_wait_ms(uint32_t ms);
 
 int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_t timeout_loops) {
     (void)timeout_loops;
-    uint32_t count = 0;
-    while (count < 1000000) {
+    uint32_t ms = 0;
+    while (ms < 100) {
         /* Task File Error Status (Bit 30 of PxIS) */
         if (port->is & (1 << 30)) {
             serial_print_hex32("[AHCI] TFES Detected! TFD: ", port->tfd);
@@ -53,8 +54,8 @@ int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_
             return 0;
         }
 
-        count++;
-        __asm__ volatile ("pause");
+        pit_wait_ms(1);
+        ms++;
     }
 
     panic("AHCI_POLL_TIMEOUT");
@@ -63,9 +64,10 @@ int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_
 
 void ahci_port_start(int p) {
     hba_port_t* port = &hba_base->ports[p];
-    int timeout = 10000000;
-    while ((port->cmd & (1 << 15)) && timeout--) {
-        __asm__ volatile ("pause");
+    int ms = 0;
+    while ((port->cmd & (1 << 15)) && ms < 100) {
+        pit_wait_ms(1);
+        ms++;
     }
 
     /* Physical Registration: The Controller cannot see HHDM */
@@ -81,8 +83,6 @@ void ahci_port_start(int p) {
     port->cmd |= (1 << 0);
 }
 
-void pit_wait_ms(uint32_t ms);
-
 void ahci_force_port_reset(int port_no) {
     hba_port_t* port = &hba_base->ports[port_no];
     port->serr = 0xFFFFFFFF;
@@ -90,9 +90,10 @@ void ahci_force_port_reset(int port_no) {
     port->cmd &= ~0x0001;
     port->cmd &= ~0x0010;
 
-    int engine_timeout = 10000000;
-    while ((port->cmd & 0x8000 || port->cmd & 0x4000) && engine_timeout--) {
-        __asm__ volatile ("pause");
+    int engine_ms = 0;
+    while ((port->cmd & 0x8000 || port->cmd & 0x4000) && engine_ms < 100) {
+        pit_wait_ms(1);
+        engine_ms++;
     }
 
     port->sctl = (port->sctl & ~0x0F) | 0x301;
@@ -100,9 +101,10 @@ void ahci_force_port_reset(int port_no) {
     port->sctl = (port->sctl & ~0x0F) | 0x300;
     pit_wait_ms(50);
 
-    int timeout = 10000000;
-    while ((port->ssts & 0x0F) != 0x03 && timeout--) {
-        __asm__ volatile ("pause");
+    int status_ms = 0;
+    while ((port->ssts & 0x0F) != 0x03 && status_ms < 100) {
+        pit_wait_ms(1);
+        status_ms++;
     }
 
     if ((port->ssts & 0x0F) == 0x03) {
@@ -162,18 +164,21 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis[2] = (lba >> 24) & 0xFFFFFF;          /* LBA High 24 bits */
     fis[3] = count & 0xFFFF;                  /* Sector Count (16-bit) */
 
-    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
+    if (ahci_wait_status(port, 0x88, 0, 100) != 0) return -1;
 
     port->ci = (1 << 0);
 
-    /* Real Metal Poll: Wait for SILICON to clear CI bit */
-    while (port->ci & (1 << 0)) {
+    /* Real Metal Poll: Wait for SILICON to clear CI bit (100ms) */
+    int ci_ms = 0;
+    while ((port->ci & (1 << 0)) && ci_ms < 100) {
         if (port->is & (1 << 30)) {
             serial_print_hex32("[AHCI] READ SILICON REJECTION! TFD: ", port->tfd);
             for(;;);
         }
-        __asm__ volatile ("pause");
+        pit_wait_ms(1);
+        ci_ms++;
     }
+    if (ci_ms >= 100) panic("AHCI_CI_TIMEOUT");
 
     port->is = 0xFFFFFFFF;
     return 0;
@@ -212,18 +217,21 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis[2] = (lba >> 24) & 0xFFFFFF;          /* LBA High 24 bits */
     fis[3] = count & 0xFFFF;                  /* Sector Count (16-bit) */
 
-    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
+    if (ahci_wait_status(port, 0x88, 0, 100) != 0) return -1;
 
     port->ci = (1 << 0);
 
-    /* Real Metal Poll: Wait for SILICON to clear CI bit */
-    while (port->ci & (1 << 0)) {
+    /* Real Metal Poll: Wait for SILICON to clear CI bit (100ms) */
+    int ci_ms = 0;
+    while ((port->ci & (1 << 0)) && ci_ms < 100) {
         if (port->is & (1 << 30)) {
             serial_print_hex32("[AHCI] WRITE SILICON REJECTION! TFD: ", port->tfd);
             for(;;);
         }
-        __asm__ volatile ("pause");
+        pit_wait_ms(1);
+        ci_ms++;
     }
+    if (ci_ms >= 100) panic("AHCI_CI_TIMEOUT");
 
     port->is = 0xFFFFFFFF;
     return 0;
@@ -353,8 +361,11 @@ void ahci_service(kernel_event_t event) {
 
                     hba_base->ghc |= (1 << 31);
                     hba_base->ghc |= (1 << 0);
-                    int ghc_timeout = 10000000;
-                    while ((hba_base->ghc & (1 << 0)) && ghc_timeout--) __asm__ volatile ("pause");
+                    int ghc_ms = 0;
+                    while ((hba_base->ghc & (1 << 0)) && ghc_ms < 100) {
+                        pit_wait_ms(1);
+                        ghc_ms++;
+                    }
                     hba_base->ghc |= (1 << 31);
 
                     /* OSx2: Scan the first 9 ports on boot per Sovereign mandate */

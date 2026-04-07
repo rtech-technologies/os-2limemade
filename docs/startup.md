@@ -36,12 +36,12 @@ void _start(void) {
 The kernel dispatches `EVENT_INIT` to all services. The AHCI driver in `kernel/libs/storage/ahci.c` performs a synchronous hardware handshake.
 - [Link to ahci.c](../kernel/libs/storage/ahci.c)
 
-To avoid waiting for interrupts that haven't been "wired" by the Orchestrator, the driver uses `ahci_wait_status` to manually poll registers with a safety timeout.
+To avoid waiting for interrupts that haven't been "wired" by the Orchestrator, the driver uses `ahci_wait_status` to manually poll registers with a **100ms Time-based Timeout**.
 
 ```c
 int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_t timeout_loops) {
-    uint32_t count = 0;
-    while (count < 1000000) {
+    uint32_t ms = 0;
+    while (ms < 100) {
         /* Task File Error Status (Bit 30 of PxIS) */
         if (port->is & (1 << 30)) {
             serial_print_hex32("[AHCI] TFES Detected! TFD: ", port->tfd);
@@ -53,8 +53,8 @@ int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_
             port->is = 0xFFFFFFFF;
             return 0;
         }
-        count++;
-        __asm__ volatile ("pause");
+        pit_wait_ms(1);
+        ms++;
     }
     panic("AHCI_POLL_TIMEOUT");
 }
@@ -149,11 +149,31 @@ void unice64_schedule(void) {
         task_bitmask &= ~(1 << current_task_idx);
         task_table[current_task_idx].in_use = false;
     }
+
+    /* Bitmask-Aware Round Robin */
+    int next_idx = (current_task_idx + 1) % MAX_TASKS;
+    while (!(task_bitmask & (1 << next_idx))) {
+        next_idx = (next_idx + 1) % MAX_TASKS;
+    }
     /* ... */
 }
 ```
 
-## 7. The Command Interface: `shell_main`
+## 7. Synchronous Fallback
+During hardware scanning and early boot (`kernel_scanning == true`), kernel logs use a synchronous fallback to prevent tasking-related hangs:
+
+```c
+void print(const char* s) {
+    if (tasking_is_scanning()) {
+        /* Direct Hardware Write */
+        for (int i = 0; s[i] != '\0'; i++) vga_write_char(s[i], attr);
+        return;
+    }
+    /* ... Proceed to Transient Slab Execution ... */
+}
+```
+
+## 8. The Command Interface: `shell_main`
 The scheduler selects the Shell Task, which executes `shell_main` in `programs/shell.c`.
 - [Link to shell.c](../programs/shell.c)
 

@@ -48,6 +48,12 @@ void print_worker(void) {
 void print(const char* s) {
     if (!s) return;
 
+    bool tasking_is_scanning(void);
+    if (tasking_is_scanning()) {
+        for (int i = 0; s[i] != '\0'; i++) vga_write_char(s[i], current_color_val);
+        return;
+    }
+
     int slab_id = slab_grab_transient();
     if (slab_id == -1) {
         for (int i = 0; s[i] != '\0'; i++) vga_write_char(s[i], current_color_val);

@@ -33,12 +33,15 @@ static int is_transmit_empty(void) {
     return inb(SERIAL_PORT + 5) & 0x20;
 }
 
+void pit_wait_ms(uint32_t ms);
+
 void serial_write_char(char c) {
-    int timeout = 1000000;
-    while (is_transmit_empty() == 0 && timeout--) {
-        __asm__ volatile ("pause");
+    int ms = 0;
+    while (is_transmit_empty() == 0 && ms < 100) {
+        pit_wait_ms(1);
+        ms++;
     }
-    if (timeout > 0) outb(SERIAL_PORT, c);
+    if (ms < 100) outb(SERIAL_PORT, c);
 }
 
 int serial_received(void) {
@@ -46,11 +49,12 @@ int serial_received(void) {
 }
 
 char serial_read_char(void) {
-    int timeout = 1000000;
-    while (serial_received() == 0 && timeout--) {
-        __asm__ volatile ("pause");
+    int ms = 0;
+    while (serial_received() == 0 && ms < 100) {
+        pit_wait_ms(1);
+        ms++;
     }
-    if (timeout > 0) return inb(SERIAL_PORT);
+    if (ms < 100) return inb(SERIAL_PORT);
     return 0;
 }
 

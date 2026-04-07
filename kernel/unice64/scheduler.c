@@ -108,20 +108,28 @@ void unice64_schedule(void) {
     /* Reset One-Shot Timer for next tick */
     apic_timer_init(1000000);
 
-    if (task_count < 2) return;
-
-    /* Active-Relay Round Robin: Skip TASK_WAITING tasks */
-    int next_idx = (current_task_idx + 1) % task_count;
-    int loop_count = 0;
-    while (task_table[next_idx].state != TASK_READY &&
-           task_table[next_idx].state != TASK_RUNNING &&
-           loop_count < task_count) {
-        next_idx = (next_idx + 1) % task_count;
-        loop_count++;
+    /* Bitmask Reaper: Cleanup Transient Tasks before switching away */
+    if (task_table[current_task_idx].state == TASK_ZOMBIE && task_table[current_task_idx].is_transient) {
+        void slab_release_transient(int id);
+        slab_release_transient(task_table[current_task_idx].slab_id);
+        task_bitmask &= ~(1 << current_task_idx);
+        task_table[current_task_idx].in_use = false;
     }
 
-    /* If no tasks are ready, use the first task (usually Idle) */
-    if (loop_count >= task_count) next_idx = 0;
+    if (task_bitmask == 0) return;
+
+    /* Active-Relay Round Robin (Bitmask Aware): Skip TASK_WAITING tasks and empty slots */
+    int next_idx = (current_task_idx + 1) % MAX_TASKS;
+    int loop_count = 0;
+    while (!(task_bitmask & (1 << next_idx)) ||
+           (task_table[next_idx].state != TASK_READY && task_table[next_idx].state != TASK_RUNNING)) {
+        next_idx = (next_idx + 1) % MAX_TASKS;
+        loop_count++;
+        if (loop_count >= MAX_TASKS) {
+            next_idx = 0; /* Fallback to Idle */
+            break;
+        }
+    }
 
     if (task_table[current_task_idx].state == TASK_RUNNING) {
         task_table[current_task_idx].state = TASK_READY;
