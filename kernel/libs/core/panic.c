@@ -14,38 +14,69 @@ void* get_xhci_base(void);
 uint64_t get_hhdm_offset(void);
 void serial_print_hex(const char* label, uint16_t val);
 
+void tasking_set_scanning(bool scanning);
+
 void forensic_panic(const char* message, cpu_state_t* state) {
+    /* Sovereign Emergency Protocol: Synchronous Logging */
+    tasking_set_scanning(true);
+    __asm__ volatile ("cli");
+
     /* Critical Alert: Red on Black */
     set_color(LIGHT_RED, BLACK);
 
-    print("\n!!! SOVEREIGN KERNEL PANIC !!!\n");
-    print("Autopsy Status: [ TERMINATED ]\n");
-    print("Failure Vector: ");
-    print(message);
-    print("\n\n");
+    /* Atomic Panic Report: One print call, one serial call */
+    static char panic_buf[2048];
+    int i = 0;
 
-    serial_write_str("\n[PANIC] !!! SOVEREIGN KERNEL EXCEPTION !!!\n");
-    serial_write_str("[PANIC] Error Signature: ");
-    serial_write_str(message);
-    serial_write_str("\n");
+    /* 1. Build VGA Console Report */
+    const char* vga_header = "\n!!! SOVEREIGN KERNEL PANIC !!!\nAutopsy Status: [ TERMINATED ]\nFailure Vector: ";
+    while (*vga_header) panic_buf[i++] = *vga_header++;
+    const char* m = message;
+    while (*m && i < 1000) panic_buf[i++] = *m++;
+    panic_buf[i++] = '\n';
+    panic_buf[i++] = '\n';
+    panic_buf[i] = '\0';
+    print(panic_buf);
 
+    /* 2. Build and Send Serial Report */
+    i = 0;
+    const char* ser_header = "\n[PANIC] !!! SOVEREIGN KERNEL EXCEPTION !!!\n[PANIC] Error Signature: ";
+    while (*ser_header) panic_buf[i++] = *ser_header++;
+    m = message;
+    while (*m && i < 1000) panic_buf[i++] = *m++;
+    panic_buf[i++] = '\n';
     if (state) {
-        serial_write_str("[AUTOPSY] CPU Register state capture successful.\n");
+        const char* autopsy_ok = "[AUTOPSY] CPU Register state capture successful.\n";
+        while (*autopsy_ok) panic_buf[i++] = *autopsy_ok++;
     }
 
-    /* Mandatory Capture: USB controller registers */
-    serial_write_str("[AUTOPSY] Scanning USB registers for mount failure state...\n");
     void* xhci_ptr = get_xhci_base();
     if (xhci_ptr) {
+        const char* usb_scan = "[AUTOPSY] Scanning USB registers...\n";
+        while (*usb_scan) panic_buf[i++] = *usb_scan++;
         uint64_t hhdm = get_hhdm_offset();
-        volatile uint32_t* op_regs = (uint32_t*)(hhdm + (uint64_t)xhci_ptr + 0x20); // USBCMD is at +0x20 in Operational Regs
-        serial_print_hex("XHCI_USBCMD: ", (uint16_t)(op_regs[0] >> 16));
-        serial_print_hex("", (uint16_t)(op_regs[0] & 0xFFFF));
-        serial_print_hex("XHCI_USBSTS: ", (uint16_t)(op_regs[1] >> 16));
-        serial_print_hex("", (uint16_t)(op_regs[1] & 0xFFFF));
+        volatile uint32_t* op_regs = (uint32_t*)(hhdm + (uint64_t)xhci_ptr + 0x20);
+
+        /* Inline Hex formatting to keep report atomic */
+        const char* hex = "0123456789ABCDEF";
+        const char* usbcmd_lbl = "XHCI_USBCMD: 0x";
+        while (*usbcmd_lbl) panic_buf[i++] = *usbcmd_lbl++;
+        uint32_t val = op_regs[0];
+        for (int b = 7; b >= 0; b--) panic_buf[i++] = hex[(val >> (b * 4)) & 0xF];
+        panic_buf[i++] = '\n';
+
+        const char* usbsts_lbl = "XHCI_USBSTS: 0x";
+        while (*usbsts_lbl) panic_buf[i++] = *usbsts_lbl++;
+        val = op_regs[1];
+        for (int b = 7; b >= 0; b--) panic_buf[i++] = hex[(val >> (b * 4)) & 0xF];
+        panic_buf[i++] = '\n';
     } else {
-        serial_write_str("XHCI Controller Not Found.\n");
+        const char* no_xhci = "XHCI Controller Not Found.\n";
+        while (*no_xhci) panic_buf[i++] = *no_xhci++;
     }
+
+    panic_buf[i] = '\0';
+    serial_write_str(panic_buf);
 
     for (;;) {
         __asm__ volatile ("hlt");
