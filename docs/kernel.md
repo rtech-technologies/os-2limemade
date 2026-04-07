@@ -1,7 +1,7 @@
 # OSx2 Limemade Kernel Internal Architecture
 
-## 1. Physical Memory Model
-The kernel executes at the 2MB physical address mark (`0x200000`) for direct hardware mapping and stability.
+## 1. High-Half Memory Model
+The kernel executes in the top 2GB of virtual address space (`0xffffffff80000000`).
 
 ## 2. Active-Relay Scheduling
 Tasks yield control voluntarily using `sys_yield()`, which triggers an `int $0x81`. The scheduler uses a round-robin approach, skipping tasks in the `TASK_WAITING` state.
