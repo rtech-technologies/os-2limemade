@@ -266,7 +266,20 @@ void rsl_execute_command(char* line) {
         rsl_settings();
     } else if (cstr_match_local(argv[0], "help")) {
         print("OSx2 Limemade Commands:\n");
-        print("ls, cd, cat, write, mkdir, rmdir, echo, color, copy, paste, run, settings, debug-dump, scan, help, exit\n");
+        print("ls, cd, cat, write, mkdir, rmdir, echo, color, copy, paste, run, DRAWtest, settings, debug-dump, scan, help, exit\n");
+    } else if (cstr_match_local(argv[0], "DRAWtest")) {
+        print("\n\n\n");
+        void draw_pixel(int x, int y, uint32_t color);
+        void pit_wait_ms(uint32_t ms);
+        void vga_clear(void);
+
+        for (int y = 100; y < 200; y++) {
+            for (int x = 100; x < 200; x++) {
+                draw_pixel(x, y, 0x00FF00); /* Emerald Square */
+            }
+        }
+        pit_wait_ms(2000);
+        vga_clear();
     } else if (cstr_match_local(argv[0], "run")) {
         if (argc > 1) {
             int rsl_execute_stream(const char* path);

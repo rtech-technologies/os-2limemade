@@ -135,14 +135,6 @@ void unice64_schedule(void) {
         task_table[current_task_idx].state = TASK_READY;
     }
 
-    /* Cleanup Transient Tasks before switching away */
-    if (task_table[current_task_idx].state == TASK_ZOMBIE && task_table[current_task_idx].is_transient) {
-        void slab_release_transient(int id);
-        slab_release_transient(task_table[current_task_idx].slab_id);
-        task_bitmask &= ~(1 << current_task_idx);
-        task_table[current_task_idx].in_use = false;
-    }
-
     current_task_idx = next_idx;
     task_table[current_task_idx].state = TASK_RUNNING;
 
