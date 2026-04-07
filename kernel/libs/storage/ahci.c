@@ -44,18 +44,23 @@ int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_
 
         if (i % 10000 == 0) serial_write_str(".");
 
-        /* 2. Manual Poll: Check PxIS, PxTFD, or PxCI based on mask/expected */
-        if (port->is & mask) {
+        /* Logic: Check for SILICON-Ready bits in multiple registers */
+        bool ci_clear = (port->ci & mask) == expected;
+        bool tfd_ready = (port->tfd & 0x88) == 0; /* Not Busy and Not DRQ */
+        bool is_fired = (port->is & mask);
+
+        if (mask == (1 << 0)) { /* Command Issue Poll */
+            if (ci_clear) return 0;
+        } else if (is_fired) { /* Interrupt Status Poll */
             port->is = 0xFFFFFFFF;
             return 0;
-        }
-
-        if (((port->tfd & mask) == expected) && ((port->ci & mask) == expected)) {
+        } else if (tfd_ready) { /* Task File Poll */
             return 0;
         }
     }
 
-    panic("AHCI_POLL_TIMEOUT");
+    /* Degraded Mode: Log timeout and return error instead of panicking immediately */
+    serial_write_str(" [AHCI_POLL_TIMEOUT]\n");
     return -1;
 }
 
@@ -138,10 +143,9 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     uint64_t phys_buffer = vmm_get_phys(buffer);
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
-    /* dw0: CFL=5, W=0, A=0, P=0, R=0, B=0, C=0, PMP=0 */
-    cmdhdr->dw0 = 5;
-    /* dw1: PRDTL=1, PRDBC=0 */
-    cmdhdr->dw1 = (1 << 16);
+    /* CFL=5 (5*4=20 bytes), PRDTL=1 */
+    cmdhdr->dw0 = 5 | (1 << 16);
+    cmdhdr->prdbc = 0;
 
     uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
     cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
@@ -182,10 +186,9 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     uint64_t phys_buffer = vmm_get_phys(buffer);
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
-    /* dw0: CFL=5, W=1, A=0, P=0, R=0, B=0, C=0, PMP=0 */
-    cmdhdr->dw0 = 5 | (1 << 6);
-    /* dw1: PRDTL=1, PRDBC=0 */
-    cmdhdr->dw1 = (1 << 16);
+    /* CFL=5, W=1, PRDTL=1 */
+    cmdhdr->dw0 = 5 | (1 << 6) | (1 << 16);
+    cmdhdr->prdbc = 0;
 
     uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
     cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);

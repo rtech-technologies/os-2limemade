@@ -84,6 +84,29 @@ void* slab_alloc(int id, size_t size) {
     return slab_alloc_aligned(id, size, 16);
 }
 
+void* malloc(size_t size);
+void free(void* ptr);
+
+/* Permanent Buffers: Used by core kernel subsystems (like FatFS) to avoid recycling */
+static uint8_t fatfs_buffer_shield[2048];
+static bool fatfs_shield_in_use = false;
+
+void* slab_alloc_persistent(size_t size) {
+    if (size <= 2048 && !fatfs_shield_in_use) {
+        fatfs_shield_in_use = true;
+        return fatfs_buffer_shield;
+    }
+    return malloc(size); /* Fallback to recycling heap if shield busy */
+}
+
+void slab_free_persistent(void* ptr) {
+    if (ptr == fatfs_buffer_shield) {
+        fatfs_shield_in_use = false;
+    } else {
+        free(ptr);
+    }
+}
+
 void slab_reset(int id) {
     if (id >= 0 && id < MAX_SLABS) slabs[id].offset = 0;
 }

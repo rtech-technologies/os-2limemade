@@ -27,10 +27,10 @@ typedef struct {
 } hba_cmd_tbl_t;
 
 typedef struct {
-    uint32_t dw0; /* cfl, a, w, p, r, b, c, pmp */
-    uint32_t dw1; /* prdtl, prdbc */
-    uint32_t ctba;
-    uint32_t ctbau;
+    uint32_t dw0;   /* [04:00] CFL, [05] A, [06] W, [07] P, [08] R, [09] B, [10] C, [15:12] PMP, [31:16] PRDTL */
+    uint32_t prdbc; /* [31:00] PRDBC (Byte Count Transferred) */
+    uint32_t ctba;  /* [31:07] CTBA, [06:00] Reserved */
+    uint32_t ctbau; /* [31:00] CTBAU */
     uint32_t rsv1[4];
 } hba_cmd_header_t;
 
