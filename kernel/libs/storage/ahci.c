@@ -35,14 +35,14 @@ void pit_wait_ms(uint32_t ms);
 
 int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_t timeout_loops) {
     (void)timeout_loops;
-    uint32_t ms = 0;
-    while (ms < 100) {
+    for (uint32_t i = 0; i < 1000000; i++) {
         /* Task File Error Status (Bit 30 of PxIS) */
         if (port->is & (1 << 30)) {
             serial_print_hex32("[AHCI] TFES Detected! TFD: ", port->tfd);
-            vga_print("[AHCI] Fatal silicon rejection. System halted.\n");
-            for(;;); /* HALT */
+            return -1;
         }
+
+        if (i % 10000 == 0) serial_write_str(".");
 
         /* 2. Manual Poll: Check PxIS, PxTFD, or PxCI based on mask/expected */
         if (port->is & mask) {
@@ -53,9 +53,6 @@ int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_
         if (((port->tfd & mask) == expected) && ((port->ci & mask) == expected)) {
             return 0;
         }
-
-        pit_wait_ms(1);
-        ms++;
     }
 
     panic("AHCI_POLL_TIMEOUT");
@@ -164,21 +161,12 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis[2] = (lba >> 24) & 0xFFFFFF;          /* LBA High 24 bits */
     fis[3] = count & 0xFFFF;                  /* Sector Count (16-bit) */
 
-    if (ahci_wait_status(port, 0x88, 0, 100) != 0) return -1;
+    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
 
     port->ci = (1 << 0);
 
-    /* Real Metal Poll: Wait for SILICON to clear CI bit (100ms) */
-    int ci_ms = 0;
-    while ((port->ci & (1 << 0)) && ci_ms < 100) {
-        if (port->is & (1 << 30)) {
-            serial_print_hex32("[AHCI] READ SILICON REJECTION! TFD: ", port->tfd);
-            for(;;);
-        }
-        pit_wait_ms(1);
-        ci_ms++;
-    }
-    if (ci_ms >= 100) panic("AHCI_CI_TIMEOUT");
+    /* Real Metal Poll: Wait for SILICON to clear CI bit */
+    if (ahci_wait_status(port, (1 << 0), 0, 1000000) != 0) return -1;
 
     port->is = 0xFFFFFFFF;
     return 0;
@@ -217,21 +205,12 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis[2] = (lba >> 24) & 0xFFFFFF;          /* LBA High 24 bits */
     fis[3] = count & 0xFFFF;                  /* Sector Count (16-bit) */
 
-    if (ahci_wait_status(port, 0x88, 0, 100) != 0) return -1;
+    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
 
     port->ci = (1 << 0);
 
-    /* Real Metal Poll: Wait for SILICON to clear CI bit (100ms) */
-    int ci_ms = 0;
-    while ((port->ci & (1 << 0)) && ci_ms < 100) {
-        if (port->is & (1 << 30)) {
-            serial_print_hex32("[AHCI] WRITE SILICON REJECTION! TFD: ", port->tfd);
-            for(;;);
-        }
-        pit_wait_ms(1);
-        ci_ms++;
-    }
-    if (ci_ms >= 100) panic("AHCI_CI_TIMEOUT");
+    /* Real Metal Poll: Wait for SILICON to clear CI bit */
+    if (ahci_wait_status(port, (1 << 0), 0, 1000000) != 0) return -1;
 
     port->is = 0xFFFFFFFF;
     return 0;
