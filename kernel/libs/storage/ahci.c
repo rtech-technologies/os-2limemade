@@ -35,14 +35,14 @@ void pit_wait_ms(uint32_t ms);
 
 int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_t timeout_loops) {
     (void)timeout_loops;
-    for (uint32_t i = 0; i < 1000000; i++) {
+    for (uint32_t i = 0; i < 100; i++) {
         /* Task File Error Status (Bit 30 of PxIS) */
         if (port->is & (1 << 30)) {
             serial_print_hex32("[AHCI] TFES Detected! TFD: ", port->tfd);
             return -1;
         }
 
-        if (i % 10000 == 0) serial_write_str(".");
+        if (i % 10 == 0) serial_write_str(".");
 
         /* Logic: Check for SILICON-Ready bits in multiple registers */
         bool ci_clear = (port->ci & mask) == expected;
@@ -57,6 +57,7 @@ int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_
         } else if (tfd_ready) { /* Task File Poll */
             return 0;
         }
+        pit_wait_ms(1);
     }
 
     /* Degraded Mode: Log timeout and return error instead of panicking immediately */

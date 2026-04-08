@@ -112,13 +112,28 @@ unice64_context_switch:
     add $task_t_context_OFFSET, %rsi # rsi = &next->context
 
     # Forensic Check: RSP Validity
+    # Supports Kernel Base (0xffffffff80000000) and Dynamic HHDM Base
     mov ctx_rsp(%rsi), %rax
+
+    # 1. Check if in Kernel Stack Range
     mov $0xffffffff80000000, %rbx
     cmp %rbx, %rax
-    jb 3f
+    jb 4f
     mov $0xffffffff80800000, %rbx
     cmp %rbx, %rax
-    jae 3f
+    jb 5f # Valid Kernel RSP
+
+4:
+    # 2. Check if in HHDM Range (Slab Stacks)
+    # Using g_hhdm_offset variable for validation
+    mov g_hhdm_offset(%rip), %rbx
+    test %rbx, %rbx
+    jz 3f # Offset not set, out of bounds
+
+    cmp %rbx, %rax
+    jb 3f # Truly Out of Bounds
+
+5: # RSP is Valid
 
     # Switch to next task's kernel stack
     mov %rax, %rsp

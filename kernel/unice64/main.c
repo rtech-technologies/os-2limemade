@@ -17,6 +17,7 @@ void forensic_panic(const char* message, void* state);
 void gdt_init(void);
 void pmm_init(void);
 void idt_init(void);
+uint64_t get_hhdm_offset(void);
 void apic_init(void);
 void apic_timer_init(uint32_t count);
 void tasking_init(void);
@@ -25,6 +26,8 @@ void slab_init(void);
 /* 32KB Sovereign Stack */
 __attribute__((used, section(".bss"), aligned(16)))
 static uint8_t kernel_stack[32768];
+
+uint64_t g_hhdm_offset = 0;
 
 /* The Ritual: Entry Point */
 void _start(void) {
@@ -37,6 +40,8 @@ void _start(void) {
 
     /* Sovereign Silicon Foundation */
     __asm__ volatile ("cli");
+    g_hhdm_offset = get_hhdm_offset();
+
     gdt_init();
     pmm_init();
     slab_init();
