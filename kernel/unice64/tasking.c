@@ -24,9 +24,14 @@ void shell_task(void) {
     while (1) { __asm__ volatile ("hlt"); }
 }
 
+void sovereign_service_orchestrator(void);
+
 void system_task(void) {
     vga_print("[UNICE64] System Maintenance Task Active.\n");
     while (1) {
+        /* Process Hardware/FS requests from other tasks */
+        sovereign_service_orchestrator();
+
         /* System Maintenance: Voluntary handover */
         sys_yield();
     }

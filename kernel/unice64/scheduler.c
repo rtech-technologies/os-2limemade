@@ -7,11 +7,23 @@ static uint8_t task_stacks[MAX_TASKS][TASK_STACK_SIZE] __attribute__((aligned(40
 static uint32_t task_bitmask = 0;
 static int task_count = 0;
 static int current_task_idx = 0;
+static uint64_t burst_counter = 0;
 
 void vga_print(const char* fmt, ...);
 void* pmm_alloc(uint64_t count);
 
 uint64_t get_hhdm_offset(void);
+uint64_t get_burst_count(void) { return burst_counter; }
+
+int get_ready_task_count(void) {
+    int count = 0;
+    for (int i = 0; i < MAX_TASKS; i++) {
+        if ((task_bitmask & (1 << i)) && (task_table[i].state == TASK_READY || task_table[i].state == TASK_RUNNING)) {
+            count++;
+        }
+    }
+    return count;
+}
 
 void unice64_scheduler_init(void) {
     task_count = 0;
@@ -113,6 +125,7 @@ void apic_timer_init(uint32_t count);
 void unice64_schedule(void) {
     /* Update UI Pulse */
     vga_pulse_cursor();
+    burst_counter++;
 
     /* Reset One-Shot Timer for next tick */
     apic_timer_init(1000000);

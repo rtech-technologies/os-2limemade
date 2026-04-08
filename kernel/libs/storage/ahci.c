@@ -220,6 +220,43 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     return 0;
 }
 
+int ahci_mechanical_sync(int p) {
+    if (!hba_base) return -1;
+    hba_port_t* port = &hba_base->ports[p];
+
+    /* Direct SATA Write bypass: Signature Stamp at LBA 0 */
+    uint32_t stamp = 0xEFBEADDE;
+    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
+    cmdhdr->dw0 = 5 | (1 << 6) | (1 << 16); /* CFL=5, W=1, PRDTL=1 */
+    cmdhdr->prdbc = 0;
+
+    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)port_ctba_virt[p];
+    for (int i=0; i < (int)sizeof(hba_cmd_tbl_t); i++) ((uint8_t*)cmdtbl)[i] = 0;
+
+    /* Use static slab address for synchronous writes */
+    static uint8_t sync_buf[512] __attribute__((aligned(16)));
+    for(int i=0; i<512; i++) sync_buf[i] = 0;
+    *(uint32_t*)sync_buf = stamp;
+
+    uint64_t phys_buf = vmm_get_phys(sync_buf);
+    cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buf & 0xFFFFFFFF);
+    cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buf >> 32);
+    cmdtbl->prdt_entry[0].dw3 = (511 & 0x3FFFFF) | (1U << 31);
+
+    uint32_t* fis = (uint32_t*)cmdtbl->cfis;
+    fis[0] = 0x27 | (1 << 15) | (0x35 << 16); /* WRITE DMA EXT */
+    fis[1] = (0 & 0xFFFFFF) | (0x40 << 24);   /* LBA 0 */
+    fis[2] = 0;
+    fis[3] = 1; /* 1 Sector */
+
+    if (ahci_wait_status(port, 0x88, 0, 100) != 0) return -1;
+    port->ci = (1 << 0);
+    if (ahci_wait_status(port, (1 << 0), 0, 100) != 0) return -1;
+
+    vga_print("[AHCI] Port %d: Mechanical Sync Success.\n", p);
+    return 0;
+}
+
 int satapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer);
 int satapi_eject(void* priv);
 int satapi_identify(void* priv);

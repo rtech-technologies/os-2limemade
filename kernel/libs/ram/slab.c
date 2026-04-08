@@ -11,7 +11,9 @@ uint64_t get_hhdm_offset(void);
 typedef struct slab_header {
     size_t size;
     bool is_used;
+    uint8_t padding[7];
     struct slab_header* next;
+    uint64_t reserved; /* 32-byte alignment */
 } slab_header_t;
 
 typedef struct {
@@ -116,9 +118,8 @@ size_t slab_get_usage(int id) {
     return 0;
 }
 
-void* malloc(size_t size) {
-    /* Use Slab 0 as Global System Heap with Recycling */
-    int id = 0;
+void* malloc_ext(int id, size_t size) {
+    if (id < 0 || id >= MAX_SLABS) return NULL;
     size = (size + 15) & ~15; /* Align */
 
     slab_header_t* search = slabs[id].first_block;
@@ -130,8 +131,8 @@ void* malloc(size_t size) {
         search = search->next;
     }
 
-    /* No free block found, bump allocate new block */
-    slab_header_t* new_block = (slab_header_t*)slab_alloc(id, size + sizeof(slab_header_t));
+    /* No free block found, bump allocate new block from requested slab */
+    slab_header_t* new_block = (slab_header_t*)slab_alloc_aligned(id, size + sizeof(slab_header_t), 32);
     if (!new_block) return NULL;
 
     new_block->size = size;
@@ -140,6 +141,10 @@ void* malloc(size_t size) {
     slabs[id].first_block = new_block;
 
     return (void*)((uint8_t*)new_block + sizeof(slab_header_t));
+}
+
+void* malloc(size_t size) {
+    return malloc_ext(0, size);
 }
 
 void free(void* ptr) {

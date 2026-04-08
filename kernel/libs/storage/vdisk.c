@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <limine.h>
+#include <include/ahci_hw.h>
 
 #include <kernel/libs/storage/vdisk.h>
 
@@ -98,6 +99,20 @@ int vdisk_eject_hw(int hw_id) {
     if (hw_id < 0 || hw_id >= hw_count) return -1;
     if (!hw_registry[hw_id].eject) return -1;
     return hw_registry[hw_id].eject(hw_registry[hw_id].private_data);
+}
+
+bool vdisk_is_busy(int hw_id) {
+    if (hw_id < 0 || hw_id >= hw_count) return false;
+
+    /* Hardware Status Check: AHCI Port Busy bit (BSY = bit 7 of TFD) */
+    void* get_hba_base(void);
+    hba_mem_t* hba = (hba_mem_t*)get_hba_base();
+    if (hba && !hw_registry[hw_id].is_atapi) {
+        int port = (int)(uint64_t)hw_registry[hw_id].private_data;
+        if (port < 32 && (hba->ports[port].tfd & 0x80)) return true;
+    }
+
+    return false;
 }
 
 uint64_t vdisk_get_offset(int hw_id) {

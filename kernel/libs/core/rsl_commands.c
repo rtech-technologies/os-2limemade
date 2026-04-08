@@ -2,6 +2,7 @@
 #include <include/vfs.h>
 #include <kernel/libs/storage/fatfs/ff.h>
 #include <kernel/unice64/task.h>
+#include <kernel/libs/core/services.h>
 
 int get_hw_disk_count(void);
 int get_connect_disk_count(void);
@@ -155,10 +156,11 @@ void rsl_execute_command(char* line) {
     if (argc == 0) return;
 
     if (cstr_match_local(argv[0], "ls")) {
-        if (argc > 1) {
-            void* path = resolve_path_local(curdir, argv[1]);
-            rsl_ls(path); release(path);
-        } else rsl_ls(curdir);
+        system_request_t req = { .type = REQ_FS_LS };
+        if (argc > 1) req.path = resolve_path_local(curdir, argv[1]);
+        else req.path = curdir;
+        sovereign_request_submit(&req);
+        if (argc > 1) release(req.path);
     } else if (cstr_match_local(argv[0], "cd")) {
         if (argc > 1) {
             void* new_path;
@@ -192,25 +194,27 @@ void rsl_execute_command(char* line) {
         }
     } else if (cstr_match_local(argv[0], "cat")) {
         if (argc > 1) {
-            void* path = resolve_path_local(curdir, argv[1]);
-            rsl_cat(path); release(path);
+            system_request_t req = { .type = REQ_FS_CAT, .path = resolve_path_local(curdir, argv[1]) };
+            sovereign_request_submit(&req);
+            release(req.path);
             print("\n");
         }
     } else if (cstr_match_local(argv[0], "write")) {
         if (argc > 1) {
-            void* path = resolve_path_local(curdir, argv[1]);
-            void* content;
-            if (argc > 2) content = str_create(argv[2]);
-            else content = input("Enter Content: ");
-            if (content) {
-                rsl_write(path, content); release(content);
+            system_request_t req = { .type = REQ_FS_WRITE, .path = resolve_path_local(curdir, argv[1]) };
+            if (argc > 2) req.content = str_create(argv[2]);
+            else req.content = input("Enter Content: ");
+            if (req.content) {
+                sovereign_request_submit(&req);
+                release(req.content);
             }
-            release(path);
+            release(req.path);
         }
     } else if (cstr_match_local(argv[0], "mkdir")) {
         if (argc > 1) {
-            void* path = resolve_path_local(curdir, argv[1]);
-            rsl_mkdir(path); release(path);
+            system_request_t req = { .type = REQ_FS_MKDIR, .path = resolve_path_local(curdir, argv[1]) };
+            sovereign_request_submit(&req);
+            release(req.path);
         }
     } else if (cstr_match_local(argv[0], "rmdir")) {
         if (argc > 1) {
@@ -240,33 +244,40 @@ void rsl_execute_command(char* line) {
         } else print("Clipboard empty.\n");
     } else if (cstr_match_local(argv[0], "mount")) {
         if (argc > 1) {
-            void* path = str_create(argv[1]);
-            rsl_mount(path); release(path);
+            system_request_t req = { .type = REQ_DISK_MOUNT, .path = str_create(argv[1]) };
+            sovereign_request_submit(&req);
+            release(req.path);
         }
     } else if (cstr_match_local(argv[0], "format")) {
         if (argc > 1) {
-            void* path = str_create(argv[1]);
-            rsl_format(path); release(path);
+            system_request_t req = { .type = REQ_DISK_FORMAT, .path = str_create(argv[1]) };
+            sovereign_request_submit(&req);
+            release(req.path);
         }
     } else if (cstr_match_local(argv[0], "stamp")) {
         if (argc > 1) {
-            void* path = str_create(argv[1]);
-            rsl_stamp(path); release(path);
+            system_request_t req = { .type = REQ_DISK_STAMP, .path = str_create(argv[1]) };
+            sovereign_request_submit(&req);
+            release(req.path);
         }
     } else if (cstr_match_local(argv[0], "eject")) {
         if (argc > 1) {
-            void* path = str_create(argv[1]);
-            rsl_eject(path); release(path);
+            system_request_t req = { .type = REQ_DISK_EJECT, .path = str_create(argv[1]) };
+            sovereign_request_submit(&req);
+            release(req.path);
         }
     } else if (cstr_match_local(argv[0], "debug-dump")) {
         rsl_debug_dump();
     } else if (cstr_match_local(argv[0], "scan")) {
-        rsl_scan();
+        system_request_t req = { .type = REQ_HARDWARE_SCAN };
+        sovereign_request_submit(&req);
     } else if (cstr_match_local(argv[0], "settings")) {
         rsl_settings();
     } else if (cstr_match_local(argv[0], "help")) {
-        print("OSx2 Limemade Commands:\n");
-        print("ls, cd, cat, write, mkdir, rmdir, echo, color, copy, paste, run, DRAWtest, settings, debug-dump, scan, help, exit\n");
+        print("OSx2 Sovereign RSL Commands:\n");
+        print("File: ls, cd, cat, write, mkdir, rmdir, exists, copy, paste\n");
+        print("Disk: mount, format, stamp, eject, scan\n");
+        print("Sys: echo, color, run, DRAWtest, settings, debug-dump, help, exit\n");
     } else if (cstr_match_local(argv[0], "DRAWtest")) {
         print("\n\n\n[DRAW] Visual Verification Signal Initiated...\n");
         void draw_pixel(int x, int y, uint32_t color);
@@ -337,6 +348,12 @@ void rsl_debug_dump(void) {
     print("\n[RTECH BOOT DIAGNOSTICS]\n");
     uint64_t cr3; __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
     vga_print("CR3 (Page Table): 0x%x\n", cr3);
+
+    uint64_t get_burst_count(void);
+    int get_ready_task_count(void);
+    vga_print("Multitasking Bursts: %d\n", get_burst_count());
+    vga_print("Active Tasks: %d\n", get_ready_task_count());
+
     for (int i = 0; i < 4; i++) {
         vga_print("Slab %d Usage: %d bytes\n", i, slab_get_usage(i));
     }
@@ -353,25 +370,52 @@ void rsl_format(void* path) {
 void rsl_stamp(void* path) {
     const char* p = str_to_cstr(path);
     int drive = p[0] - '0';
-    uint8_t sector[512] = {0};
-    /* Deprecated: Signature logic removed. We now use GPT/HBA status for Sovereign validation. */
-    if (disk_write(drive, sector, 0, 1) == RES_OK) print("Mechanical sync performed.\n");
+
+    int ahci_mechanical_sync(int drive);
+    if (ahci_mechanical_sync(drive) == 0) {
+        print("Mechanical sync successful: Sovereign Signature stamped at LBA 0.\n");
+    } else {
+        print("Error: Mechanical sync failed. Drive may be Read-Only or Busy.\n");
+    }
+    sys_yield();
 }
 
 void draw_pixel(int x, int y, uint32_t color);
 void rsl_draw_rrif(void* path, int x, int y) {
     vfs_handle_t* h = vfs_open(path, "r");
-    if (!h) return;
+    if (!h) {
+        print("Error: Could not open RRIF file.\n");
+        return;
+    }
+
     uint8_t header[8];
-    if (vfs_read(h, header, 8) < 8) { vfs_close(h); return; }
-    uint16_t w = *(uint16_t*)&header[4]; uint16_t h_img = *(uint16_t*)&header[6];
+    if (vfs_read(h, header, 8) < 8) {
+        vfs_close(h);
+        print("Error: Invalid RRIF header.\n");
+        return;
+    }
+
+    /* RRIF Check: Magic 'RRIF' */
+    if (header[0] != 'R' || header[1] != 'R' || header[2] != 'I' || header[3] != 'F') {
+        vfs_close(h);
+        print("Error: Not a valid RRIF image.\n");
+        return;
+    }
+
+    uint16_t w = *(uint16_t*)&header[4];
+    uint16_t h_img = *(uint16_t*)&header[6];
+
+    /* Optimization: Read line by line if possible, or pixel by pixel for simplicity in Sovereign */
     uint32_t pixel;
     for (int j = 0; j < h_img; j++) {
         for (int i = 0; i < w; i++) {
-            if (vfs_read(h, &pixel, 4) == 4) draw_pixel(x + i, y + j, pixel);
+            if (vfs_read(h, &pixel, 4) == 4) {
+                draw_pixel(x + i, y + j, pixel);
+            }
         }
     }
     vfs_close(h);
+    sys_yield();
 }
 
 void ahci_scan_remaining(void);
@@ -381,9 +425,16 @@ void rsl_scan(void) {
 }
 
 int vdisk_eject_hw(int hw_id);
+bool vdisk_is_busy(int hw_id);
 void rsl_eject(void* path) {
     const char* p = str_to_cstr(path);
     int drive = p[0] - '0';
+
+    if (vdisk_is_busy(drive)) {
+        print("Error: Drive is currently busy.\n");
+        return;
+    }
+
     if (vdisk_eject_hw(drive) == 0) {
         print("Eject successful.\n");
     } else {
