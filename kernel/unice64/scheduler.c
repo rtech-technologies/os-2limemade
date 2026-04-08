@@ -8,12 +8,17 @@ static uint32_t task_bitmask = 0;
 static int task_count = 0;
 static int current_task_idx = 0;
 static uint64_t burst_counter = 0;
+static int forced_next_task = -1;
 
 void vga_print(const char* fmt, ...);
 void* pmm_alloc(uint64_t count);
 
 uint64_t get_hhdm_offset(void);
 uint64_t get_burst_count(void) { return burst_counter; }
+
+void scheduler_force_task(int task_id) {
+    forced_next_task = task_id;
+}
 
 int get_ready_task_count(void) {
     int count = 0;
@@ -30,7 +35,7 @@ void unice64_scheduler_init(void) {
     current_task_idx = 0;
 }
 
-void register_task(void (*entry_point)(void), uint32_t slab_id) {
+int register_task(void (*entry_point)(void), uint32_t slab_id) {
     for (int i = 0; i < MAX_TASKS; i++) {
         if (!(task_bitmask & (1 << i))) {
             task_bitmask |= (1 << i);
@@ -57,13 +62,14 @@ void register_task(void (*entry_point)(void), uint32_t slab_id) {
             task_table[i].context.rsp = (uint64_t)stack;
 
             if (task_count <= i) task_count = i + 1;
-            vga_print("[UNICE64] Task registered in Slab %d\n", slab_id);
-            return;
+            vga_print("[UNICE64] Task %d registered in Slab %d\n", i, slab_id);
+            return i;
         }
     }
+    return -1;
 }
 
-void register_transient_task(void (*entry_point)(void), uint32_t slab_id, uint64_t arg) {
+int register_transient_task(void (*entry_point)(void), uint32_t slab_id, uint64_t arg) {
     for (int i = 0; i < MAX_TASKS; i++) {
         if (!(task_bitmask & (1 << i))) {
             task_bitmask |= (1 << i);
@@ -94,9 +100,11 @@ void register_transient_task(void (*entry_point)(void), uint32_t slab_id, uint64
             task_table[i].context.rsp = (uint64_t)stack;
 
             if (task_count <= i) task_count = i + 1;
-            return;
+            vga_print("[UNICE64] Transient Task %d spawned in Slab %d\n", i, slab_id);
+            return i;
         }
     }
+    return -1;
 }
 
 task_t* get_current_task(void) {
@@ -144,15 +152,23 @@ void unice64_schedule(void) {
     }
 
     /* 2. Selection Phase: Pick next task that is READY */
-    int start_search = (current_task_idx + 1) % MAX_TASKS;
     bool found = false;
 
-    for (int i = 0; i < MAX_TASKS; i++) {
-        int idx = (start_search + i) % MAX_TASKS;
-        if ((task_bitmask & (1 << idx)) && task_table[idx].state == TASK_READY) {
-            current_task_idx = idx;
-            found = true;
-            break;
+    if (forced_next_task != -1 && (task_bitmask & (1 << forced_next_task)) && task_table[forced_next_task].state == TASK_READY) {
+        current_task_idx = forced_next_task;
+        forced_next_task = -1;
+        found = true;
+    } else {
+        forced_next_task = -1;
+        int start_search = (current_task_idx + 1) % MAX_TASKS;
+
+        for (int i = 0; i < MAX_TASKS; i++) {
+            int idx = (start_search + i) % MAX_TASKS;
+            if ((task_bitmask & (1 << idx)) && task_table[idx].state == TASK_READY) {
+                current_task_idx = idx;
+                found = true;
+                break;
+            }
         }
     }
 

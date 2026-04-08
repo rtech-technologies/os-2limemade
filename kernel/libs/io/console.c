@@ -21,24 +21,26 @@ void set_color(color_t fg, color_t bg) {
     current_color_val = ((uint8_t)bg << 4) | ((uint8_t)fg & 0x0F);
 }
 
-static const char* volatile print_msg = NULL;
-static volatile bool print_done = true;
-static task_t* volatile print_caller = NULL;
+static const char* volatile current_print_msg = NULL;
+static task_t* volatile current_print_caller = NULL;
 
-void print_service_task(void) {
-    while (1) {
-        if (print_msg != NULL) {
-            const char* s = print_msg;
-            for (int i = 0; s[i] != '\0'; i++) {
-                vga_write_char(s[i], current_color_val);
-            }
-            print_msg = NULL;
-            print_done = true;
-            if (print_caller) print_caller->state = TASK_READY;
-            print_caller = NULL;
+static void print_worker_entry(void) {
+    if (current_print_msg) {
+        const char* s = current_print_msg;
+        for (int i = 0; s[i] != '\0'; i++) {
+            vga_write_char(s[i], current_color_val);
         }
-        sys_yield();
+        current_print_msg = NULL;
     }
+
+    if (current_print_caller) {
+        current_print_caller->state = TASK_READY;
+    }
+    current_print_caller = NULL;
+
+    task_t* self = get_current_task();
+    if (self) self->state = TASK_ZOMBIE;
+    sys_yield();
 }
 
 void print(const char* s) {
@@ -53,17 +55,34 @@ void print(const char* s) {
         return;
     }
 
-    /* Sovereign Active-Relay: Submit and wait via Scheduler */
-    while (!print_done) {
+    /* Wait for previous print worker to finish */
+    while (current_print_msg != NULL) {
         sys_yield();
     }
 
-    print_done = false;
-    print_msg = s;
-    print_caller = get_current_task();
+    task_t* caller = get_current_task();
+    current_print_msg = s;
+    current_print_caller = caller;
 
-    /* Yield the Operating System context - caller enters wait state */
-    if (print_caller) print_caller->state = TASK_WAITING;
+    /* Spawn Print Worker */
+    int register_transient_task(void (*entry)(void), uint32_t slab_id, uint64_t arg);
+    int tid = register_transient_task(print_worker_entry, 1, 0);
+
+    if (tid != -1) {
+        void scheduler_force_task(int task_id);
+        scheduler_force_task(tid);
+    } else {
+        /* Fallback: Direct Print */
+        for (int i = 0; s[i] != '\0'; i++) {
+            vga_write_char(s[i], current_color_val);
+        }
+        current_print_msg = NULL;
+        current_print_caller = NULL;
+        return;
+    }
+
+    /* Block caller and yield */
+    if (caller) caller->state = TASK_WAITING;
     sys_yield();
 }
 
@@ -187,7 +206,11 @@ char get_char(void) {
 
         /* Sovereign Active-Relay: Yield while waiting for input */
         task_t* current = get_current_task();
-        if (current) current->state = TASK_WAITING;
+        if (current) {
+            current->state = TASK_WAITING;
+            /* Force the system task to run to process potentially incoming serial data */
+            scheduler_force_task(1);
+        }
         sys_yield();
         if (current) current->state = TASK_RUNNING;
 

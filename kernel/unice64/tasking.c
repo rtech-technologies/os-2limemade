@@ -67,9 +67,6 @@ void tasking_init(void) {
     /* Register System Maintenance Task in Slab 1 */
     register_task(system_task, 1);
 
-    /* Register Print Service Task in Slab 1 (Shared with System) */
-    register_task(print_service_task, 1);
-
     /* Register Shell Task in Slab 2 */
     if (pending_shell_entry) {
         register_task(pending_shell_entry, 2);
@@ -77,7 +74,7 @@ void tasking_init(void) {
 
     /* Context Guard: Verify that tasks were registered correctly */
     extern int get_task_count(void);
-    PANIC_ON(get_task_count() < 2, "MULTITASKING_INIT: INSUFFICIENT SYSTEM TASKS");
+    PANIC_ON(get_task_count() < 3, "MULTITASKING_INIT: INSUFFICIENT SYSTEM TASKS");
 
     unice64_scheduler_init();
     vga_print("[UNICE64] Multitasking initialized.\n");

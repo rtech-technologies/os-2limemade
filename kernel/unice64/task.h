@@ -33,9 +33,10 @@ typedef struct {
 
 void unice64_schedule(void);
 void unice64_scheduler_init(void);
-void register_task(void (*entry_point)(void), uint32_t slab_id);
-void register_transient_task(void (*entry_point)(void), uint32_t slab_id, uint64_t arg);
+int register_task(void (*entry_point)(void), uint32_t slab_id);
+int register_transient_task(void (*entry_point)(void), uint32_t slab_id, uint64_t arg);
 void sys_yield(void);
+void scheduler_force_task(int task_id);
 task_t* get_current_task(void);
 
 #endif

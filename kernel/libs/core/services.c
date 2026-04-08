@@ -14,23 +14,17 @@ void register_service(service_func_t init_func) {
     }
 }
 
-static system_request_t* pending_request = NULL;
+static system_request_t* current_req = NULL;
 
-void sovereign_request_submit(system_request_t* req) {
-    task_t* current = get_current_task();
-    req->caller_task = current;
-    req->done = false;
-    pending_request = req;
+static void worker_task_entry(void) {
+    if (!current_req) {
+        task_t* self = get_current_task();
+        if (self) self->state = TASK_ZOMBIE;
+        sys_yield();
+        return;
+    }
 
-    /* Transition caller to wait state and yield */
-    if (current) current->state = TASK_WAITING;
-    sys_yield();
-}
-
-void sovereign_service_orchestrator(void) {
-    if (!pending_request) return;
-
-    system_request_t* req = pending_request;
+    system_request_t* req = current_req;
     req->result = 0;
 
     switch (req->type) {
@@ -67,7 +61,44 @@ void sovereign_service_orchestrator(void) {
     if (req->caller_task) {
         ((task_t*)req->caller_task)->state = TASK_READY;
     }
-    pending_request = NULL;
+    current_req = NULL;
+
+    /* Work complete, transition to zombie */
+    task_t* self = get_current_task();
+    if (self) self->state = TASK_ZOMBIE;
+    sys_yield();
+}
+
+void sovereign_request_submit(system_request_t* req) {
+    task_t* current = get_current_task();
+    req->caller_task = current;
+    req->done = false;
+    current_req = req;
+
+    /* Spawn worker task for this request */
+    int register_transient_task(void (*entry)(void), uint32_t slab_id, uint64_t arg);
+    int tid = register_transient_task(worker_task_entry, 3, 0);
+
+    if (tid != -1) {
+        /* Immediate Context Force to the worker */
+        void scheduler_force_task(int task_id);
+        scheduler_force_task(tid);
+    } else {
+        /* Degraded: Run synchronously in current context if spawn fails */
+        worker_task_entry();
+        return;
+    }
+
+    /* Transition caller to wait state and yield */
+    if (current) current->state = TASK_WAITING;
+    sys_yield();
+}
+
+void sovereign_service_orchestrator(void) {
+    /* Maintenance task now only performs background audits */
+    void ahci_hardware_audit(int p);
+    for (int i=0; i<8; i++) ahci_hardware_audit(i);
+    sys_yield();
 }
 
 void dispatch_event(kernel_event_t event) {
