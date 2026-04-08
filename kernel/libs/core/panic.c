@@ -101,8 +101,12 @@ void forensic_panic(const char* message, cpu_context_t* state) {
 
     panic_buf[idx] = '\0';
 
-    /* Deliver Atomic Report to Hardware */
-    print(panic_buf);
+    /* Deliver Atomic Report to Hardware - Use direct write bypass during panic */
+    void vga_write_char(char c, uint8_t color_attr);
+    void serial_write_str(const char* s);
+    for (int k = 0; panic_buf[k]; k++) {
+        vga_write_char(panic_buf[k], 0x4F); /* White on Red */
+    }
     serial_write_str(panic_buf);
 
     for (;;) {

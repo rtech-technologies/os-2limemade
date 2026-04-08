@@ -21,28 +21,24 @@ void set_color(color_t fg, color_t bg) {
     current_color_val = ((uint8_t)bg << 4) | ((uint8_t)fg & 0x0F);
 }
 
-int slab_grab_transient(void);
-void slab_release_transient(int id);
+static const char* volatile print_msg = NULL;
+static volatile bool print_done = true;
+static task_t* volatile print_caller = NULL;
 
-typedef struct {
-    const char* s;
-    volatile bool done;
-} print_request_t;
-
-void print_worker(void) {
-    task_t* current = get_current_task();
-    /* RDI Passing Protocol: s pointer is in RDI */
-    print_request_t* req = (print_request_t*)current->context.rdi;
-
-    if (req && req->s) {
-        for (int i = 0; req->s[i] != '\0'; i++) {
-            vga_write_char(req->s[i], current_color_val);
+void print_service_task(void) {
+    while (1) {
+        if (print_msg != NULL) {
+            const char* s = print_msg;
+            for (int i = 0; s[i] != '\0'; i++) {
+                vga_write_char(s[i], current_color_val);
+            }
+            print_msg = NULL;
+            print_done = true;
+            if (print_caller) print_caller->state = TASK_READY;
+            print_caller = NULL;
         }
-        req->done = true;
+        sys_yield();
     }
-
-    current->state = TASK_ZOMBIE;
-    sys_yield();
 }
 
 void print(const char* s) {
@@ -57,33 +53,18 @@ void print(const char* s) {
         return;
     }
 
-    int slab_id = slab_grab_transient();
-    if (slab_id == -1) {
-        /* Fallback if no transient slabs available */
-        for (int i = 0; s[i] != '\0'; i++) {
-            vga_write_char(s[i], current_color_val);
-        }
+    /* Sovereign Active-Relay: Submit and wait via Scheduler */
+    while (!print_done) {
         sys_yield();
-        return;
     }
 
-    /* Allocated from Slab 0 (System) to ensure visibility across task switch */
-    void* malloc(size_t size);
-    void free(void* ptr);
-    print_request_t* req = malloc(sizeof(print_request_t));
-    req->s = s;
-    req->done = false;
+    print_done = false;
+    print_msg = s;
+    print_caller = get_current_task();
 
-    /* RDI-Passing Protocol: s pointer is passed via context */
-    register_transient_task(print_worker, slab_id, (uint64_t)req);
-
-    /* Suspend App until worker finishes */
-    while (!req->done) {
-        sys_yield();
-        __asm__ volatile ("pause");
-    }
-
-    free(req);
+    /* Yield the Operating System context - caller enters wait state */
+    if (print_caller) print_caller->state = TASK_WAITING;
+    sys_yield();
 }
 
 static void print_num(uint32_t n, int base) {

@@ -9,7 +9,8 @@ void pit_wait_ms(uint32_t ms);
 
 void idle_task(void) {
     while (1) {
-        /* Low power state */
+        /* Sovereign Idle: Yield to allow other tasks to run */
+        sys_yield();
         __asm__ volatile ("pause");
     }
 }
@@ -52,12 +53,17 @@ void tasking_create_process(const char* name) {
     (void)name;
 }
 
+void print_service_task(void);
+
 void tasking_init(void) {
     /* Register Idle Task in Slab 0 */
     register_task(idle_task, 0);
 
     /* Register System Maintenance Task in Slab 1 */
     register_task(system_task, 1);
+
+    /* Register Print Service Task in Slab 1 (Shared with System) */
+    register_task(print_service_task, 1);
 
     /* Register Shell Task in Slab 2 */
     if (pending_shell_entry) {

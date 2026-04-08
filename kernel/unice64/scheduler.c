@@ -2,9 +2,6 @@
 #include <kernel/libs/storage/vdisk.h>
 #include <stddef.h>
 
-#define MAX_TASKS 16
-#define TASK_STACK_SIZE 16384
-
 static task_t task_table[MAX_TASKS];
 static uint8_t task_stacks[MAX_TASKS][TASK_STACK_SIZE] __attribute__((aligned(4096)));
 static uint32_t task_bitmask = 0;
@@ -34,13 +31,18 @@ void register_task(void (*entry_point)(void), uint32_t slab_id) {
             uint64_t stack_virt = (uint64_t)&task_stacks[i];
             task_table[i].kernel_stack_top = stack_virt + TASK_STACK_SIZE;
 
-            cpu_context_t* ctx = &task_table[i].context;
-            for (int k=0; k < (int)(sizeof(cpu_context_t)/8); k++) ((uint64_t*)ctx)[k] = 0;
-            ctx->rip = (uint64_t)entry_point;
-            ctx->cs = 0x08;
-            ctx->ss = 0x10;
-            ctx->rflags = 0x202;
-            ctx->rsp = task_table[i].kernel_stack_top - 16;
+            /* Initial Stack Frame for unice64_context_switch */
+            uint64_t* stack = (uint64_t*)task_table[i].kernel_stack_top;
+            *(--stack) = 0x10; /* SS */
+            *(--stack) = task_table[i].kernel_stack_top; /* RSP */
+            *(--stack) = 0x202; /* RFLAGS */
+            *(--stack) = 0x08; /* CS */
+            *(--stack) = (uint64_t)entry_point; /* RIP */
+
+            /* 15 General Purpose Registers */
+            for (int k = 0; k < 15; k++) *(--stack) = 0;
+
+            task_table[i].context.rsp = (uint64_t)stack;
 
             if (task_count <= i) task_count = i + 1;
             vga_print("[UNICE64] Task registered in Slab %d\n", slab_id);
@@ -63,14 +65,21 @@ void register_transient_task(void (*entry_point)(void), uint32_t slab_id, uint64
             void* slab_base = slab_get_base(slab_id);
             task_table[i].kernel_stack_top = (uint64_t)slab_base + (4 * 1024 * 1024);
 
-            cpu_context_t* ctx = &task_table[i].context;
-            for (int k=0; k < (int)(sizeof(cpu_context_t)/8); k++) ((uint64_t*)ctx)[k] = 0;
-            ctx->rip = (uint64_t)entry_point;
-            ctx->rdi = arg; /* RDI Passing Protocol */
-            ctx->cs = 0x08;
-            ctx->ss = 0x10;
-            ctx->rflags = 0x202;
-            ctx->rsp = task_table[i].kernel_stack_top - 16;
+            /* Initial Stack Frame */
+            uint64_t* stack = (uint64_t*)task_table[i].kernel_stack_top;
+            *(--stack) = 0x10; /* SS */
+            *(--stack) = task_table[i].kernel_stack_top; /* RSP */
+            *(--stack) = 0x202; /* RFLAGS */
+            *(--stack) = 0x08; /* CS */
+            *(--stack) = (uint64_t)entry_point; /* RIP */
+
+            /* 15 General Purpose Registers */
+            for (int k = 0; k < 15; k++) *(--stack) = 0;
+
+            /* RDI is at ctx_rdi (index 9 in the 15-register push block) */
+            stack[9] = arg;
+
+            task_table[i].context.rsp = (uint64_t)stack;
 
             if (task_count <= i) task_count = i + 1;
             return;
@@ -108,34 +117,37 @@ void unice64_schedule(void) {
     /* Reset One-Shot Timer for next tick */
     apic_timer_init(1000000);
 
-    /* Bitmask Reaper: Cleanup Transient Tasks before switching away */
-    if (task_table[current_task_idx].state == TASK_ZOMBIE && task_table[current_task_idx].is_transient) {
-        void slab_release_transient(int id);
-        slab_release_transient(task_table[current_task_idx].slab_id);
+    /* 1. Reaper Phase: Reclaim finished transient tasks */
+    if (task_table[current_task_idx].state == TASK_ZOMBIE) {
+        if (task_table[current_task_idx].is_transient) {
+            void slab_release_transient(int id);
+            slab_release_transient(task_table[current_task_idx].slab_id);
+        }
         task_bitmask &= ~(1 << current_task_idx);
         task_table[current_task_idx].in_use = false;
+    } else if (task_table[current_task_idx].state == TASK_RUNNING) {
+        /* Task yielded voluntarily, mark as READY to be picked again */
+        task_table[current_task_idx].state = TASK_READY;
     }
 
-    if (task_bitmask == 0) return;
+    /* 2. Selection Phase: Pick next task that is READY */
+    int start_search = (current_task_idx + 1) % MAX_TASKS;
+    bool found = false;
 
-    /* Active-Relay Round Robin (Bitmask Aware): Skip TASK_WAITING tasks and empty slots */
-    int next_idx = (current_task_idx + 1) % MAX_TASKS;
-    int loop_count = 0;
-    while (!(task_bitmask & (1 << next_idx)) ||
-           (task_table[next_idx].state != TASK_READY && task_table[next_idx].state != TASK_RUNNING)) {
-        next_idx = (next_idx + 1) % MAX_TASKS;
-        loop_count++;
-        if (loop_count >= MAX_TASKS) {
-            next_idx = 0; /* Fallback to Idle */
+    for (int i = 0; i < MAX_TASKS; i++) {
+        int idx = (start_search + i) % MAX_TASKS;
+        if ((task_bitmask & (1 << idx)) && task_table[idx].state == TASK_READY) {
+            current_task_idx = idx;
+            found = true;
             break;
         }
     }
 
-    if (task_table[current_task_idx].state == TASK_RUNNING) {
-        task_table[current_task_idx].state = TASK_READY;
+    /* 3. Fallback Phase: If no READY tasks, go to Idle (Task 0) */
+    if (!found) {
+        current_task_idx = 0;
     }
 
-    current_task_idx = next_idx;
     task_table[current_task_idx].state = TASK_RUNNING;
 
     /* Update Telemetry on every switch */

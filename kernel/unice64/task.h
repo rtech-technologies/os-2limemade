@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define MAX_TASKS 16
+#define TASK_STACK_SIZE 16384
+
 typedef enum {
     TASK_RUNNING,
     TASK_READY,
