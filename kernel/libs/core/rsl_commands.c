@@ -268,7 +268,7 @@ void rsl_execute_command(char* line) {
         print("OSx2 Limemade Commands:\n");
         print("ls, cd, cat, write, mkdir, rmdir, echo, color, copy, paste, run, DRAWtest, settings, debug-dump, scan, help, exit\n");
     } else if (cstr_match_local(argv[0], "DRAWtest")) {
-        print("\n\n\n");
+        print("\n\n\n[DRAW] Visual Verification Signal Initiated...\n");
         void draw_pixel(int x, int y, uint32_t color);
         void pit_wait_ms(uint32_t ms);
         void vga_clear(void);

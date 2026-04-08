@@ -23,6 +23,7 @@ SECTIONS
     } :rodata
 
     .data : ALIGN(4K) {
+        . = ALIGN(8);
         *(.limine_requests)
         *(.data .data.*)
     } :data
