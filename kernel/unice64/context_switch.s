@@ -3,6 +3,7 @@
 .extern get_current_task
 .extern unice64_schedule
 .extern forensic_panic
+.extern g_hhdm_offset
 
 # Static Offsets for task_t and cpu_context_t
 # task_t: id(4), state(4), context(168), slab_id(4), stack_top(8)
@@ -162,6 +163,7 @@ unice64_context_switch:
     mov ctx_rax(%rsi), %rax
     mov ctx_rsi(%rsi), %rsi # Restore RSI last
 
+    # Final Switch: Return to task code
     iretq
 
 # Forensic Panic Points

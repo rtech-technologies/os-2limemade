@@ -48,15 +48,21 @@ void print_worker(void) {
 void print(const char* s) {
     if (!s) return;
 
+    /* Pure hardware output during scanning or if scheduler is not yet active */
     bool tasking_is_scanning(void);
     if (tasking_is_scanning()) {
-        for (int i = 0; s[i] != '\0'; i++) vga_write_char(s[i], current_color_val);
+        for (int i = 0; s[i] != '\0'; i++) {
+            vga_write_char(s[i], current_color_val);
+        }
         return;
     }
 
     int slab_id = slab_grab_transient();
     if (slab_id == -1) {
-        for (int i = 0; s[i] != '\0'; i++) vga_write_char(s[i], current_color_val);
+        /* Fallback if no transient slabs available */
+        for (int i = 0; s[i] != '\0'; i++) {
+            vga_write_char(s[i], current_color_val);
+        }
         sys_yield();
         return;
     }
@@ -68,6 +74,7 @@ void print(const char* s) {
     req->s = s;
     req->done = false;
 
+    /* RDI-Passing Protocol: s pointer is passed via context */
     register_transient_task(print_worker, slab_id, (uint64_t)req);
 
     /* Suspend App until worker finishes */
