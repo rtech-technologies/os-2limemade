@@ -9,6 +9,7 @@ static int task_count = 0;
 static int current_task_idx = 0;
 static uint64_t burst_counter = 0;
 static int forced_next_task = -1;
+static volatile bool yield_signaled = false;
 
 void vga_print(const char* fmt, ...);
 void* pmm_alloc(uint64_t count);
@@ -18,6 +19,14 @@ uint64_t get_burst_count(void) { return burst_counter; }
 
 void scheduler_force_task(int task_id) {
     forced_next_task = task_id;
+}
+
+bool scheduler_should_switch(void) {
+    return yield_signaled;
+}
+
+void scheduler_clear_yield(void) {
+    yield_signaled = false;
 }
 
 int get_ready_task_count(void) {
@@ -124,7 +133,12 @@ void sovereign_yield(void) {
 void sys_yield(void) {
     bool tasking_is_scanning(void);
     if (tasking_is_scanning()) return;
-    __asm__ volatile ("int $0x81");
+
+    yield_signaled = true;
+    /* Sovereign Wait: The task pauses here until the APIC Timer validates the yield */
+    while (yield_signaled) {
+        __asm__ volatile ("pause");
+    }
 }
 
 void vga_pulse_cursor(void);
