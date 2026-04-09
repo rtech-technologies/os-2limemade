@@ -26,6 +26,7 @@ typedef struct {
     task_state_t state;
     cpu_context_t context;
     uint32_t slab_id;
+    int parent_id;
     uint64_t kernel_stack_top;
     bool is_transient;
     bool in_use;
@@ -38,5 +39,6 @@ int register_transient_task(void (*entry_point)(void), uint32_t slab_id, uint64_
 void sys_yield(void);
 void scheduler_force_task(int task_id);
 task_t* get_current_task(void);
+task_t* get_task_by_id(int id);
 
 #endif

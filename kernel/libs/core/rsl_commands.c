@@ -1,5 +1,6 @@
 #include <include/rsl.h>
 #include <include/vfs.h>
+#include <kernel/unice64/task.h>
 #include <kernel/libs/storage/fatfs/ff.h>
 #include <kernel/unice64/task.h>
 #include <kernel/libs/core/services.h>
@@ -356,6 +357,17 @@ void rsl_exit(void) {
     task_t* current = get_current_task();
     if (current) {
         vga_print("[UNICE64] Task %d signaled Exit. Terminating...\n", current->id);
+
+        /* Wake Parent Task immediately */
+        if (current->parent_id != -1) {
+            task_t* parent = get_task_by_id(current->parent_id);
+            if (parent && parent->state == TASK_WAITING) {
+                parent->state = TASK_READY;
+                void scheduler_force_task(int task_id);
+                scheduler_force_task(parent->id);
+            }
+        }
+
         current->state = TASK_ZOMBIE;
     }
     sys_yield();

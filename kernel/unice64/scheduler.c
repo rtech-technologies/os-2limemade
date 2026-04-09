@@ -45,12 +45,14 @@ void unice64_scheduler_init(void) {
 }
 
 int register_task(void (*entry_point)(void), uint32_t slab_id) {
+    task_t* current = get_current_task();
     for (int i = 0; i < MAX_TASKS; i++) {
         if (!(task_bitmask & (1 << i))) {
             task_bitmask |= (1 << i);
             task_table[i].id = i;
             task_table[i].state = TASK_READY;
             task_table[i].slab_id = slab_id;
+            task_table[i].parent_id = current ? (int)current->id : -1;
             task_table[i].is_transient = false;
             task_table[i].in_use = true;
 
@@ -84,12 +86,14 @@ int register_task(void (*entry_point)(void), uint32_t slab_id) {
 }
 
 int register_transient_task(void (*entry_point)(void), uint32_t slab_id, uint64_t arg) {
+    task_t* current = get_current_task();
     for (int i = 0; i < MAX_TASKS; i++) {
         if (!(task_bitmask & (1 << i))) {
             task_bitmask |= (1 << i);
             task_table[i].id = i;
             task_table[i].state = TASK_READY;
             task_table[i].slab_id = slab_id;
+            task_table[i].parent_id = current ? (int)current->id : -1;
             task_table[i].is_transient = true;
             task_table[i].in_use = true;
 
@@ -128,6 +132,12 @@ int register_transient_task(void (*entry_point)(void), uint32_t slab_id, uint64_
 
 task_t* get_current_task(void) {
     return &task_table[current_task_idx];
+}
+
+task_t* get_task_by_id(int id) {
+    if (id < 0 || id >= MAX_TASKS) return NULL;
+    if (!(task_bitmask & (1 << id))) return NULL;
+    return &task_table[id];
 }
 
 int get_task_count(void) {
@@ -185,17 +195,14 @@ void unice64_schedule(void) {
         forced_next_task = -1;
         found = true;
     } else if (forced_next_task != -1 && task_table[forced_next_task].state == TASK_WAITING) {
-        /* If forced task is still waiting, it can't run. Fall back to normal search. */
         forced_next_task = -1;
     }
 
     if (!found) {
-        forced_next_task = -1;
-        int start_search = (current_task_idx + 1) % MAX_TASKS;
-
-        for (int i = 0; i < MAX_TASKS; i++) {
-            int idx = (start_search + i) % MAX_TASKS;
-            /* OSx2 Sovereign Rule: ONLY run tasks that are READY. Skip WAITING/SLEEPING/ZOMBIE. */
+        /* Priority Selection: Check Tasks 1-15 first, Skip Idle (Task 0) if possible */
+        for (int i = 1; i < MAX_TASKS; i++) {
+            int idx = (current_task_idx + i) % MAX_TASKS;
+            if (idx == 0) continue;
             if ((task_bitmask & (1 << idx)) && task_table[idx].state == TASK_READY) {
                 current_task_idx = idx;
                 found = true;
@@ -204,9 +211,21 @@ void unice64_schedule(void) {
         }
     }
 
-    /* 3. Fallback Phase: If no READY tasks, go to Idle (Task 0) */
+    /* 3. Fallback Phase: If no other task is READY, go to Idle (Task 0) if it's READY */
     if (!found) {
-        current_task_idx = 0;
+        /* Last Second Audit: Check if any app became READY during the search */
+        for (int i = 1; i < MAX_TASKS; i++) {
+            if ((task_bitmask & (1 << i)) && task_table[i].state == TASK_READY) {
+                current_task_idx = i;
+                found = true;
+                break;
+            }
+        }
+
+        if (!found && task_table[0].state == TASK_READY) {
+            current_task_idx = 0;
+            found = true;
+        }
     }
 
     task_table[current_task_idx].state = TASK_RUNNING;

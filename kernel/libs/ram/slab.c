@@ -38,13 +38,13 @@ void slab_init(void) {
         slabs[i].base = (uintptr_t)ptr;
         slabs[i].offset = 0;
         slabs[i].active = false;
-        slabs[i].in_use = (i < 3); /* 0=Idle, 1=System, 2=Shell reserved */
+        slabs[i].in_use = (i < 5); /* 0=Idle, 1=System, 2=Shell, 3=Print, 4=Service */
         slab_count++;
     }
 }
 
 int slab_grab_transient(void) {
-    for (int i = 3; i < MAX_SLABS; i++) {
+    for (int i = 5; i < MAX_SLABS; i++) {
         if (!slabs[i].in_use) {
             slabs[i].in_use = true;
             slabs[i].offset = 0;
@@ -55,7 +55,7 @@ int slab_grab_transient(void) {
 }
 
 void slab_release_transient(int id) {
-    if (id >= 3 && id < MAX_SLABS) {
+    if (id >= 5 && id < MAX_SLABS) {
         slabs[id].in_use = false;
         slabs[id].offset = 0;
     }
