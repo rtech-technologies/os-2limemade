@@ -59,8 +59,13 @@ int register_task(void (*entry_point)(void), uint32_t slab_id) {
 
             /* Initial Stack Frame for unice64_context_switch */
             uint64_t* stack = (uint64_t*)task_table[i].kernel_stack_top;
+
+            /* ENFORCE: 16-byte Alignment for x86_64 */
+            stack = (uint64_t*)(((uintptr_t)stack) & ~0x0F);
+
             *(--stack) = 0x10; /* SS */
-            *(--stack) = task_table[i].kernel_stack_top; /* RSP */
+            stack--;
+            *stack = (uint64_t)stack + 8; /* RSP (Points to just after SS) */
             *(--stack) = 0x202; /* RFLAGS */
             *(--stack) = 0x08; /* CS */
             *(--stack) = (uint64_t)entry_point; /* RIP */
@@ -94,8 +99,13 @@ int register_transient_task(void (*entry_point)(void), uint32_t slab_id, uint64_
 
             /* Initial Stack Frame */
             uint64_t* stack = (uint64_t*)task_table[i].kernel_stack_top;
+
+            /* ENFORCE: 16-byte Alignment */
+            stack = (uint64_t*)(((uintptr_t)stack) & ~0x0F);
+
             *(--stack) = 0x10; /* SS */
-            *(--stack) = task_table[i].kernel_stack_top; /* RSP */
+            stack--;
+            *stack = (uint64_t)stack + 8; /* RSP */
             *(--stack) = 0x202; /* RFLAGS */
             *(--stack) = 0x08; /* CS */
             *(--stack) = (uint64_t)entry_point; /* RIP */
@@ -136,6 +146,8 @@ void sys_yield(void) {
 
     yield_signaled = true;
     /* Sovereign Wait: The task pauses here until the APIC Timer validates the yield */
+    /* ENFORCE: Ensure interrupts are ON during wait so the timer can actually fire! */
+    __asm__ volatile ("sti");
     while (yield_signaled) {
         __asm__ volatile ("pause");
     }
@@ -192,6 +204,11 @@ void unice64_schedule(void) {
     }
 
     task_table[current_task_idx].state = TASK_RUNNING;
+
+    /* Diagnostic Trace: Trace RIP of resumed task */
+    /* RIP is at index 15 in the context structure (after 15 GPRs) */
+    void serial_print_hex32(const char* label, uint32_t val);
+    serial_print_hex32("[SCHED] Resuming Task ", current_task_idx);
 
     /* Update Telemetry on every switch */
     telemetry_update(current_task_idx, "ACTIVE");

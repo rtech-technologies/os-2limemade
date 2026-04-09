@@ -96,7 +96,8 @@ void sovereign_request_submit(system_request_t* req) {
         worker_active = true;
         /* Spawn worker task for the queue */
         int register_transient_task(void (*entry)(void), uint32_t slab_id, uint64_t arg);
-        int tid = register_transient_task(worker_task_entry, 3, 0);
+        /* Use Slab 4 for Service Workers (Isolation) */
+        int tid = register_transient_task(worker_task_entry, 4, 0);
 
         if (tid != -1) {
             /* Immediate Context Force to the worker */

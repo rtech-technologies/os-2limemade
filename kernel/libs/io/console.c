@@ -78,7 +78,8 @@ void print(const char* s) {
     if (!print_worker_active) {
         print_worker_active = true;
         int register_transient_task(void (*entry)(void), uint32_t slab_id, uint64_t arg);
-        int tid = register_transient_task(print_worker_entry, 1, 0);
+        /* Use Slab 3 for Print Workers (Isolation from Core System Task) */
+        int tid = register_transient_task(print_worker_entry, 3, 0);
 
         if (tid != -1) {
             void scheduler_force_task(int task_id);
