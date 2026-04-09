@@ -55,6 +55,11 @@ static void worker_task_entry(void) {
         case REQ_HARDWARE_SCAN:
             rsl_scan();
             break;
+        case REQ_APP_SPAWN: {
+            int tasking_spawn_app(const char* path);
+            req->result = tasking_spawn_app(str_to_cstr(req->path));
+            break;
+        }
         }
 
         req->done = true;

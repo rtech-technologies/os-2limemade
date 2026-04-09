@@ -26,7 +26,8 @@ typedef enum {
     REQ_DISK_FORMAT,
     REQ_DISK_STAMP,
     REQ_DISK_EJECT,
-    REQ_HARDWARE_SCAN
+    REQ_HARDWARE_SCAN,
+    REQ_APP_SPAWN
 } system_req_type_t;
 
 typedef struct {

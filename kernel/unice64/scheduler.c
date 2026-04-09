@@ -184,12 +184,18 @@ void unice64_schedule(void) {
         current_task_idx = forced_next_task;
         forced_next_task = -1;
         found = true;
-    } else {
+    } else if (forced_next_task != -1 && task_table[forced_next_task].state == TASK_WAITING) {
+        /* If forced task is still waiting, it can't run. Fall back to normal search. */
+        forced_next_task = -1;
+    }
+
+    if (!found) {
         forced_next_task = -1;
         int start_search = (current_task_idx + 1) % MAX_TASKS;
 
         for (int i = 0; i < MAX_TASKS; i++) {
             int idx = (start_search + i) % MAX_TASKS;
+            /* OSx2 Sovereign Rule: ONLY run tasks that are READY. Skip WAITING/SLEEPING/ZOMBIE. */
             if ((task_bitmask & (1 << idx)) && task_table[idx].state == TASK_READY) {
                 current_task_idx = idx;
                 found = true;

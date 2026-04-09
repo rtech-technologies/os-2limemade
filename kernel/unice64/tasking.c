@@ -1,5 +1,6 @@
 #include "task.h"
 #include <include/rsl.h>
+#include <include/vfs.h>
 #include <include/panic.h>
 #include <stddef.h>
 
@@ -56,6 +57,57 @@ void tasking_create_kernel_thread(void (*entry)(void), const char* name) {
 
 void tasking_create_process(const char* name) {
     (void)name;
+}
+
+int tasking_spawn_app(const char* path) {
+    vga_print("[UNICE64] Spawning dynamic app: %s\n", path);
+
+    void* pstr = str_create(path);
+    vfs_handle_t* h = vfs_open(pstr, "r");
+    if (!h) {
+        vga_print("[UNICE64] Error: Could not open app binary.\n");
+        release(pstr);
+        return -1;
+    }
+
+    int slab_grab_transient(void);
+    int slab_id = slab_grab_transient();
+    if (slab_id == -1) {
+        vga_print("[UNICE64] Error: No available slabs for app.\n");
+        vfs_close(h);
+        release(pstr);
+        return -1;
+    }
+
+    void* slab_get_base(int id);
+    uint8_t* code_dest = (uint8_t*)slab_get_base(slab_id);
+
+    /* Load binary into slab */
+    int bytes_read = vfs_read(h, code_dest, 1024 * 1024); /* Max 1MB app for now */
+    if (bytes_read <= 0) {
+        vga_print("[UNICE64] Error: Failed to read app binary.\n");
+        void slab_release_transient(int id);
+        slab_release_transient(slab_id);
+        vfs_close(h);
+        release(pstr);
+        return -1;
+    }
+
+    vfs_close(h);
+    release(pstr);
+
+    /* Register loaded code as a transient task */
+    int tid = register_transient_task((void (*)(void))code_dest, slab_id, 0);
+    if (tid != -1) {
+        void scheduler_force_task(int task_id);
+        scheduler_force_task(tid);
+        vga_print("[UNICE64] App %s running in Task %d (Slab %d)\n", path, tid, slab_id);
+    } else {
+        void slab_release_transient(int id);
+        slab_release_transient(slab_id);
+    }
+
+    return tid;
 }
 
 void print_service_task(void);

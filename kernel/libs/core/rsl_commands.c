@@ -273,11 +273,17 @@ void rsl_execute_command(char* line) {
         sovereign_request_submit(&req);
     } else if (cstr_match_local(argv[0], "settings")) {
         rsl_settings();
+    } else if (cstr_match_local(argv[0], "exec")) {
+        if (argc > 1) {
+            system_request_t req = { .type = REQ_APP_SPAWN, .path = resolve_path_local(curdir, argv[1]) };
+            sovereign_request_submit(&req);
+            release(req.path);
+        }
     } else if (cstr_match_local(argv[0], "help")) {
         print("OSx2 Sovereign RSL Commands:\n");
         print("File: ls, cd, cat, write, mkdir, rmdir, exists, copy, paste\n");
         print("Disk: mount, format, stamp, eject, scan\n");
-        print("Sys: echo, color, run, DRAWtest, settings, debug-dump, help, exit\n");
+        print("Sys: echo, color, run, exec, DRAWtest, settings, debug-dump, help, exit, shutdown\n");
     } else if (cstr_match_local(argv[0], "DRAWtest")) {
         print("\n\n\n[DRAW] Visual Verification Signal Initiated...\n");
         void draw_pixel(int x, int y, uint32_t color);
@@ -297,6 +303,8 @@ void rsl_execute_command(char* line) {
             rsl_execute_stream(argv[1]);
         }
     } else if (cstr_match_local(argv[0], "exit")) {
+        rsl_exit();
+    } else if (cstr_match_local(argv[0], "shutdown")) {
         void rsl_shutdown(void);
         rsl_shutdown();
     } else {
@@ -341,6 +349,15 @@ void rsl_settings(void) {
     }
 
     release(choice);
+    sys_yield();
+}
+
+void rsl_exit(void) {
+    task_t* current = get_current_task();
+    if (current) {
+        vga_print("[UNICE64] Task %d signaled Exit. Terminating...\n", current->id);
+        current->state = TASK_ZOMBIE;
+    }
     sys_yield();
 }
 
