@@ -21,23 +21,28 @@ void set_color(color_t fg, color_t bg) {
     current_color_val = ((uint8_t)bg << 4) | ((uint8_t)fg & 0x0F);
 }
 
-static const char* volatile current_print_msg = NULL;
-static task_t* volatile current_print_caller = NULL;
+#define PRINT_QUEUE_SIZE 32
+static const char* print_queue[PRINT_QUEUE_SIZE];
+static task_t* print_callers[PRINT_QUEUE_SIZE];
+static int print_head = 0;
+static int print_tail = 0;
+static bool print_worker_active = false;
 
 static void print_worker_entry(void) {
-    if (current_print_msg) {
-        const char* s = current_print_msg;
+    while (print_head != print_tail) {
+        const char* s = print_queue[print_head];
         for (int i = 0; s[i] != '\0'; i++) {
             vga_write_char(s[i], current_color_val);
         }
-        current_print_msg = NULL;
+
+        task_t* caller = print_callers[print_head];
+        if (caller) caller->state = TASK_READY;
+
+        print_head = (print_head + 1) % PRINT_QUEUE_SIZE;
+        sys_yield();
     }
 
-    if (current_print_caller) {
-        current_print_caller->state = TASK_READY;
-    }
-    current_print_caller = NULL;
-
+    print_worker_active = false;
     task_t* self = get_current_task();
     if (self) self->state = TASK_ZOMBIE;
     sys_yield();
@@ -55,35 +60,46 @@ void print(const char* s) {
         return;
     }
 
-    /* Wait for previous print worker to finish */
-    while (current_print_msg != NULL) {
-        sys_yield();
+    /* Enqueue Print */
+    int next_tail = (print_tail + 1) % PRINT_QUEUE_SIZE;
+    if (next_tail == print_head) {
+        vga_write_char('!', current_color_val); /* Overflow Signal */
+        while (next_tail == print_head) {
+            sys_yield(); /* Wait for queue space */
+            next_tail = (print_tail + 1) % PRINT_QUEUE_SIZE;
+        }
     }
 
     task_t* caller = get_current_task();
-    current_print_msg = s;
-    current_print_caller = caller;
+    print_queue[print_tail] = s;
+    print_callers[print_tail] = caller;
+    print_tail = next_tail;
 
-    /* Spawn Print Worker */
-    int register_transient_task(void (*entry)(void), uint32_t slab_id, uint64_t arg);
-    int tid = register_transient_task(print_worker_entry, 1, 0);
+    if (!print_worker_active) {
+        print_worker_active = true;
+        int register_transient_task(void (*entry)(void), uint32_t slab_id, uint64_t arg);
+        int tid = register_transient_task(print_worker_entry, 1, 0);
 
-    if (tid != -1) {
-        void scheduler_force_task(int task_id);
-        scheduler_force_task(tid);
-    } else {
-        /* Fallback: Direct Print */
-        for (int i = 0; s[i] != '\0'; i++) {
-            vga_write_char(s[i], current_color_val);
+        if (tid != -1) {
+            void scheduler_force_task(int task_id);
+            scheduler_force_task(tid);
+        } else {
+            print_worker_active = false;
+            /* Emergency Fallback: Direct Print */
+            for (int i = 0; s[i] != '\0'; i++) {
+                vga_write_char(s[i], current_color_val);
+            }
+            /* Don't block caller if worker failed to spawn */
+            print_head = (print_head + 1) % PRINT_QUEUE_SIZE;
+            return;
         }
-        current_print_msg = NULL;
-        current_print_caller = NULL;
-        return;
     }
 
-    /* Block caller and yield */
-    if (caller) caller->state = TASK_WAITING;
-    sys_yield();
+    /* Block caller and yield until worker wakes us */
+    if (caller) {
+        caller->state = TASK_WAITING;
+        sys_yield();
+    }
 }
 
 static void print_num(uint32_t n, int base) {

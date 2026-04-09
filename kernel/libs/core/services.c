@@ -3,6 +3,8 @@
 #include <include/rsl.h>
 #include <stddef.h>
 
+void vga_print(const char* fmt, ...);
+
 #define MAX_SERVICES 16
 
 static service_func_t services[MAX_SERVICES];
@@ -14,20 +16,18 @@ void register_service(service_func_t init_func) {
     }
 }
 
-static system_request_t* current_req = NULL;
+#define REQ_QUEUE_SIZE 16
+static system_request_t* req_queue[REQ_QUEUE_SIZE];
+static int req_head = 0;
+static int req_tail = 0;
+static bool worker_active = false;
 
 static void worker_task_entry(void) {
-    if (!current_req) {
-        task_t* self = get_current_task();
-        if (self) self->state = TASK_ZOMBIE;
-        sys_yield();
-        return;
-    }
+    while (req_head != req_tail) {
+        system_request_t* req = req_queue[req_head];
+        req->result = 0;
 
-    system_request_t* req = current_req;
-    req->result = 0;
-
-    switch (req->type) {
+        switch (req->type) {
         case REQ_FS_LS:
             rsl_ls(req->path);
             break;
@@ -55,14 +55,18 @@ static void worker_task_entry(void) {
         case REQ_HARDWARE_SCAN:
             rsl_scan();
             break;
+        }
+
+        req->done = true;
+        if (req->caller_task) {
+            ((task_t*)req->caller_task)->state = TASK_READY;
+        }
+
+        req_head = (req_head + 1) % REQ_QUEUE_SIZE;
+        sys_yield(); /* Yield between requests to let callers wake up */
     }
 
-    req->done = true;
-    if (req->caller_task) {
-        ((task_t*)req->caller_task)->state = TASK_READY;
-    }
-    current_req = NULL;
-
+    worker_active = false;
     /* Work complete, transition to zombie */
     task_t* self = get_current_task();
     if (self) self->state = TASK_ZOMBIE;
@@ -73,20 +77,37 @@ void sovereign_request_submit(system_request_t* req) {
     task_t* current = get_current_task();
     req->caller_task = current;
     req->done = false;
-    current_req = req;
 
-    /* Spawn worker task for this request */
-    int register_transient_task(void (*entry)(void), uint32_t slab_id, uint64_t arg);
-    int tid = register_transient_task(worker_task_entry, 3, 0);
+    /* Enqueue Request */
+    int next_tail = (req_tail + 1) % REQ_QUEUE_SIZE;
+    if (next_tail == req_head) {
+        vga_print("[WARN] Sovereign Request Queue Full!\n");
+        /* Fallback: block caller and wait (it will eventually be picked up if it didn't enqueue, but that's bad)
+           Better: Spin until space available */
+        while (((req_tail + 1) % REQ_QUEUE_SIZE) == req_head) {
+            sys_yield();
+        }
+    }
 
-    if (tid != -1) {
-        /* Immediate Context Force to the worker */
-        void scheduler_force_task(int task_id);
-        scheduler_force_task(tid);
-    } else {
-        /* Degraded: Run synchronously in current context if spawn fails */
-        worker_task_entry();
-        return;
+    req_queue[req_tail] = req;
+    req_tail = (req_tail + 1) % REQ_QUEUE_SIZE;
+
+    if (!worker_active) {
+        worker_active = true;
+        /* Spawn worker task for the queue */
+        int register_transient_task(void (*entry)(void), uint32_t slab_id, uint64_t arg);
+        int tid = register_transient_task(worker_task_entry, 3, 0);
+
+        if (tid != -1) {
+            /* Immediate Context Force to the worker */
+            void scheduler_force_task(int task_id);
+            scheduler_force_task(tid);
+        } else {
+            worker_active = false;
+            /* Fatal: Could not spawn worker */
+            vga_print("[ERROR] Failed to spawn Sovereign Worker!\n");
+            return;
+        }
     }
 
     /* Transition caller to wait state and yield */
