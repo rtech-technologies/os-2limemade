@@ -12,6 +12,7 @@ typedef enum {
     TASK_READY,
     TASK_SLEEPING,
     TASK_WAITING,
+    TASK_INPUT_WAIT,
     TASK_ZOMBIE
 } task_state_t;
 

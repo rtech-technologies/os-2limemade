@@ -32,7 +32,8 @@ void scheduler_clear_yield(void) {
 int get_ready_task_count(void) {
     int count = 0;
     for (int i = 0; i < MAX_TASKS; i++) {
-        if ((task_bitmask & (1 << i)) && (task_table[i].state == TASK_READY || task_table[i].state == TASK_RUNNING)) {
+        if ((task_bitmask & (1 << i)) &&
+           (task_table[i].state == TASK_READY || task_table[i].state == TASK_RUNNING || task_table[i].state == TASK_INPUT_WAIT)) {
             count++;
         }
     }
@@ -190,7 +191,8 @@ void unice64_schedule(void) {
     /* 2. Selection Phase: Pick next task that is READY */
     bool found = false;
 
-    if (forced_next_task != -1 && (task_bitmask & (1 << forced_next_task)) && task_table[forced_next_task].state == TASK_READY) {
+    if (forced_next_task != -1 && (task_bitmask & (1 << forced_next_task)) &&
+       (task_table[forced_next_task].state == TASK_READY || task_table[forced_next_task].state == TASK_INPUT_WAIT)) {
         current_task_idx = forced_next_task;
         forced_next_task = -1;
         found = true;
@@ -203,7 +205,8 @@ void unice64_schedule(void) {
         for (int i = 1; i < MAX_TASKS; i++) {
             int idx = (current_task_idx + i) % MAX_TASKS;
             if (idx == 0) continue;
-            if ((task_bitmask & (1 << idx)) && task_table[idx].state == TASK_READY) {
+            if ((task_bitmask & (1 << idx)) &&
+               (task_table[idx].state == TASK_READY || task_table[idx].state == TASK_INPUT_WAIT)) {
                 current_task_idx = idx;
                 found = true;
                 break;
@@ -213,16 +216,17 @@ void unice64_schedule(void) {
 
     /* 3. Fallback Phase: If no other task is READY, go to Idle (Task 0) if it's READY */
     if (!found) {
-        /* Last Second Audit: Check if any app became READY during the search */
+        /* Last Second Audit: Check if any app became READY/INPUT_WAIT during the search */
         for (int i = 1; i < MAX_TASKS; i++) {
-            if ((task_bitmask & (1 << i)) && task_table[i].state == TASK_READY) {
+            if ((task_bitmask & (1 << i)) &&
+               (task_table[i].state == TASK_READY || task_table[i].state == TASK_INPUT_WAIT)) {
                 current_task_idx = i;
                 found = true;
                 break;
             }
         }
 
-        if (!found && task_table[0].state == TASK_READY) {
+        if (!found && (task_table[0].state == TASK_READY || task_table[0].state == TASK_INPUT_WAIT)) {
             current_task_idx = 0;
             found = true;
         }

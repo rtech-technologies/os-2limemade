@@ -266,7 +266,7 @@ char get_char(void) {
         /* Sovereign Active-Relay: Yield while waiting for input */
         task_t* current = get_current_task();
         if (current) {
-            current->state = TASK_WAITING;
+            current->state = TASK_INPUT_WAIT;
             /* Force the system task to run to process potentially incoming serial data */
             scheduler_force_task(1);
         }

@@ -1,4 +1,5 @@
 #include <kernel/libs/core/services.h>
+#include <kernel/unice64/task.h>
 #include <include/config.h>
 #include <limine.h>
 #include <stdint.h>
@@ -319,6 +320,13 @@ void telemetry_update(int task_id, const char* status) {
     const char* hb_chars = "|/-\\";
     buf[i++] = hb_chars[heartbeat++ % 4];
     buf[i++] = ' ';
+
+    /* INPUT_WAIT Override: Display tag if in waiting state */
+    task_t* cur = get_task_by_id(task_id);
+    if (cur && cur->state == TASK_INPUT_WAIT) {
+        const char* tag = "INPUT_WAIT ";
+        int j = 0; while (tag[j]) buf[i++] = tag[j++];
+    }
 
     int k = 0;
     while (status[k] && i < 60) buf[i++] = status[k++];
