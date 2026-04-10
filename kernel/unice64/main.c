@@ -66,42 +66,12 @@ void _start(void) {
     int hw_count = get_hw_disk_count();
     vga_print("[BOOT] Scanning %d detected hardware volumes...\n", hw_count);
 
-    static FATFS disk_fses[16];
-    int disk_idx = 0;
-
     for (int i = 0; i < hw_count; i++) {
-        vga_print("[BOOT] Attempting Mount (Drive %d)...\n", i);
-        if (f_mount(&disk_fses[i], i) == FR_OK) {
-            void internal_fs_ls(void* path, void* priv);
-            void internal_fs_cat(void* path, void* priv);
-            void internal_fs_write(void* path, void* content, void* priv);
-            void internal_fs_mkdir(void* path, void* priv);
-            void internal_fs_rmdir(void* path, void* priv);
-            bool internal_fs_exists(void* path, void* priv);
-
-            vfs_node_t node = {
-                .private_data = &disk_fses[i],
-                .ls = internal_fs_ls,
-                .cat = internal_fs_cat,
-                .write = internal_fs_write,
-                .mkdir = internal_fs_mkdir,
-                .rmdir = internal_fs_rmdir,
-                .exists = internal_fs_exists
-            };
-
-            if (!mount_success) {
-                const char* name = "BOOT";
-                int k = 0; while(name[k]) { node.name[k] = name[k]; k++; } node.name[k] = '\0';
-                vfs_register_node(node);
-                vga_print("[FS] Drive %d Registered as Primary BOOT:/ Volume.\n", i);
-                mount_success = true;
-            } else {
-                node.name[0] = 'D'; node.name[1] = 'I'; node.name[2] = 'S'; node.name[3] = 'K';
-                node.name[4] = '0' + disk_idx; node.name[5] = '\0';
-                vfs_register_node(node);
-                vga_print("[FS] Drive %d Registered as %s:/.\n", i, node.name);
-                disk_idx++;
-            }
+        vga_print("[BOOT] Verifying Volume %d...\n", i);
+        static FATFS tmp;
+        if (f_mount(&tmp, i) == FR_OK) {
+            vga_print("[FS] Volume %d verified as Sovereign.\n", i);
+            mount_success = true;
         }
     }
 
