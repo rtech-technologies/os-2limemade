@@ -256,7 +256,12 @@ char get_char(void) {
             }
         }
 
-        /* 2. Serial COM1 Polling (Printable Only + Control) */
+        /* 2. USB Keyboard Polling */
+        char usb_keyboard_poll(void);
+        char uc = usb_keyboard_poll();
+        if (uc) return uc;
+
+        /* 3. Serial COM1 Polling (Printable Only + Control) */
         if (serial_received()) {
             char c = serial_read_char();
             if (c == 27) return 27; /* ESC */
