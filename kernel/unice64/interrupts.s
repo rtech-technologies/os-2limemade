@@ -57,7 +57,7 @@ irq_timer_handler:
 
 .no_switch:
     # No yield signaled: Reset timer for next check (Wait again)
-    mov $1000000, %rdi
+    mov $500000, %rdi
     call apic_timer_init
 
     # Restore partial state

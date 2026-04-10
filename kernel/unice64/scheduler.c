@@ -173,7 +173,7 @@ void unice64_schedule(void) {
     burst_counter++;
 
     /* Reset One-Shot Timer for next tick */
-    apic_timer_init(1000000);
+    apic_timer_init(500000);
 
     /* 1. Reaper Phase: Reclaim finished transient tasks */
     if (task_table[current_task_idx].state == TASK_ZOMBIE) {

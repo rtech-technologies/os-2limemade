@@ -132,7 +132,7 @@ void _start(void) {
 
     /* Initialize APIC for system_ticks (One-Shot Mode) */
     apic_init();
-    apic_timer_init(1000000);
+    apic_timer_init(500000);
 
     /* The main thread becomes an observer or a task. */
     vga_print("[INIT] Handing control to RSL Shell...\n");
