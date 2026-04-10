@@ -1,4 +1,5 @@
 #include <kernel/libs/core/services.h>
+#include <kernel/unice64/task.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -25,7 +26,7 @@ void serial_print_hex(const char* label, uint16_t val);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
 void* bump_alloc(size_t size);
 uint64_t vmm_get_phys(void* virt);
-void vga_print(const char* fmt, ...);
+void serial_print(const char* fmt, ...);
 void forensic_panic(const char* message, void* state);
 
 #define panic(msg) forensic_panic(msg, NULL)
@@ -42,8 +43,6 @@ int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_
             return -1;
         }
 
-        if (i % 10 == 0) serial_write_str(".");
-
         /* Logic: Check for SILICON-Ready bits in multiple registers */
         bool ci_clear = (port->ci & mask) == expected;
         bool tfd_ready = (port->tfd & 0x88) == 0; /* Not Busy and Not DRQ */
@@ -57,7 +56,15 @@ int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_
         } else if (tfd_ready) { /* Task File Poll */
             return 0;
         }
-        pit_wait_ms(1);
+
+        /* Non-Blocking: If scheduler is active, yield instead of hard stall */
+        bool tasking_is_scanning(void);
+        if (!tasking_is_scanning()) {
+            sys_yield();
+        } else {
+            pit_wait_ms(1);
+            if (i % 10 == 0) serial_write_str(".");
+        }
     }
 
     /* Degraded Mode: Log timeout and return error instead of panicking immediately */
@@ -111,11 +118,11 @@ void ahci_force_port_reset(int port_no) {
     }
 
     if ((port->ssts & 0x0F) == 0x03) {
-        vga_print("[AHCI] PORT %d: LINK ESTABLISHED\n", port_no);
+        serial_print("[AHCI] PORT %d: LINK ESTABLISHED\n", port_no);
         port->cmd |= 0x0010;
         ahci_port_start(port_no);
     } else {
-        vga_print("[AHCI] PORT %d: MECHANICAL FAILURE\n", port_no);
+        serial_print("[AHCI] PORT %d: MECHANICAL FAILURE\n", port_no);
     }
 }
 
@@ -123,6 +130,9 @@ void ahci_hardware_audit(int p) {
     if (!hba_base) return;
     if (!(hba_base->pi & (1 << p))) return;
     hba_port_t* port = &hba_base->ports[p];
+
+    /* SKIP: If port is "LIVE" (Busy or DRQ set), skip audit to avoid collision */
+    if (port->tfd & 0x88) return;
 
     uint32_t ssts = port->ssts;
     if ((ssts & 0x0F) == 0x03) {
@@ -253,7 +263,7 @@ int ahci_mechanical_sync(int p) {
     port->ci = (1 << 0);
     if (ahci_wait_status(port, (1 << 0), 0, 100) != 0) return -1;
 
-    vga_print("[AHCI] Port %d: Mechanical Sync Success.\n", p);
+    serial_print("[AHCI] Port %d: Mechanical Sync Success.\n", p);
     return 0;
 }
 
@@ -266,7 +276,7 @@ int rtech_iso_init(int drive);
 
 void ahci_scan_remaining(void) {
     if (!hba_base) return;
-    vga_print("[AHCI] Performing extended scan (Ports 9-31)...\n");
+    serial_write_str("[AHCI] Performing extended scan (Ports 9-31)...\n");
     void* slab_alloc_aligned(int id, size_t size, size_t align);
     for (int p = 9; p < 32; p++) {
         if (hba_base->pi & (1 << p)) {
@@ -276,7 +286,7 @@ void ahci_scan_remaining(void) {
             port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
 
             if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
-                vga_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);
+                serial_write_str("[AHCI] FATAL: Port Heap Allocation Failure.\n");
                 continue;
             }
 
@@ -313,7 +323,7 @@ void ahci_scan_remaining(void) {
                         .is_atapi = false
                     };
                     register_hardware_disk(sata_disk);
-                    vga_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
+                    serial_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
                 } else if (sig == 0xEB140101) { /* ATAPI */
                     vdisk_node_t cdrom = {
                         .name = "SATA_CD",
@@ -344,14 +354,13 @@ void ahci_scan_remaining(void) {
                     }
 
                     register_hardware_disk(cdrom);
-                    vga_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
+                    serial_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
 
                     /* ISO Discovery Handshake */
                     rtech_iso_init(get_hw_disk_count() - 1);
                 }
             }
         }
-        vga_print("[AHCI] No SATA/AHCI Controller found.\n");
     }
 }
 
@@ -362,7 +371,7 @@ void ahci_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
         if (hba_base != NULL) return; /* Shield: Already Initialized */
 
-        vga_print("[INIT] Scanning PCI for SATA/AHCI controllers...\n");
+        serial_write_str("[INIT] Scanning PCI for SATA/AHCI controllers...\n");
         bool found = false;
         for (int bus = 0; bus < 256; bus++) {
             for (int slot = 0; slot < 32; slot++) {
@@ -398,7 +407,7 @@ void ahci_service(kernel_event_t event) {
                             port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
 
                             if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
-                                vga_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);
+                                serial_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);
                                 continue;
                             }
 
@@ -435,7 +444,7 @@ void ahci_service(kernel_event_t event) {
                                         .is_atapi = false
                                     };
                                     register_hardware_disk(sata_disk);
-                                    vga_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
+                                    serial_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
                                 } else if (sig == 0xEB140101) { /* ATAPI */
                                     vdisk_node_t cdrom = {
                                         .name = "SATA_CD",
@@ -464,7 +473,7 @@ void ahci_service(kernel_event_t event) {
                     }
 
                     register_hardware_disk(cdrom);
-                    vga_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
+                    serial_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
 
                     /* ISO Discovery Handshake */
                     rtech_iso_init(get_hw_disk_count() - 1);
@@ -483,7 +492,7 @@ void ahci_service(kernel_event_t event) {
             if (found) break;
         }
         if (!found) {
-            vga_print("[AHCI] No SATA/AHCI Controller found. Entering Degraded Mode.\n");
+            serial_write_str("[AHCI] No SATA/AHCI Controller found. Entering Degraded Mode.\n");
         }
     }
 }

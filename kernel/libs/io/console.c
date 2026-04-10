@@ -5,6 +5,7 @@
 
 void vga_write_char(char c, uint8_t color_val);
 void serial_write_char(char c);
+void serial_write_str(const char* s);
 char serial_read_char(void);
 int serial_received(void);
 
@@ -139,6 +140,47 @@ void vga_print(const char* fmt, ...) {
             }
         } else {
             vga_write_char(fmt[i], current_color_val);
+        }
+    }
+    __builtin_va_end(args);
+}
+
+static void serial_print_num(uint32_t n, int base) {
+    char buf[32];
+    int i = 0;
+    if (n == 0) {
+        serial_write_char('0');
+        return;
+    }
+    const char* digits = "0123456789ABCDEF";
+    while (n > 0) {
+        buf[i++] = digits[n % base];
+        n /= base;
+    }
+    while (i > 0) {
+        serial_write_char(buf[--i]);
+    }
+}
+
+void serial_print(const char* fmt, ...) {
+    __builtin_va_list args;
+    __builtin_va_start(args, fmt);
+
+    for (int i = 0; fmt[i] != '\0'; i++) {
+        if (fmt[i] == '%' && fmt[i+1] != '\0') {
+            i++;
+            if (fmt[i] == 'd') {
+                int n = __builtin_va_arg(args, int);
+                serial_print_num(n, 10);
+            } else if (fmt[i] == 'x') {
+                uint32_t n = __builtin_va_arg(args, uint32_t);
+                serial_print_num(n, 16);
+            } else if (fmt[i] == 's') {
+                char* s = __builtin_va_arg(args, char*);
+                serial_write_str(s);
+            }
+        } else {
+            serial_write_char(fmt[i]);
         }
     }
     __builtin_va_end(args);
