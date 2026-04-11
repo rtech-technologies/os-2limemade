@@ -31,6 +31,18 @@ static bool cmd_cycle = true;
 static int event_idx = 0;
 static bool event_cycle = true;
 
+static xhci_trb_t* ep0_rings[64];
+
+static xhci_trb_t* xhci_alloc_ring(void) {
+    void* slab_alloc_aligned(int id, size_t size, size_t align);
+    xhci_trb_t* ring = slab_alloc_aligned(0, 4096, 64);
+    if (!ring) return NULL;
+    for (int i = 0; i < 256; i++) {
+        ring[i].ptr = 0; ring[i].status = 0; ring[i].control = 0;
+    }
+    return ring;
+}
+
 /* Scancode Map: USB HID to ASCII (Partial) */
 static char usb_map[256] = {
     [0x04] = 'a', [0x05] = 'b', [0x06] = 'c', [0x07] = 'd', [0x08] = 'e', [0x09] = 'f',
@@ -154,7 +166,10 @@ void xhci_setup_device(int port) {
     /* 1. Enable Slot */
     xhci_trb_t cmd = {0};
     cmd.control = (TRB_TYPE_ENABLE_SLOT << 10);
-    if (xhci_send_command(&cmd) != 0) return;
+    if (xhci_send_command(&cmd) != 0) {
+        serial_write_str("[XHCI] Error: ENABLE_SLOT failed.\n");
+        return;
+    }
 
     xhci_trb_t* ev = &event_ring[event_idx];
     int slot_id = (ev->control >> 24) & 0xFF;
@@ -164,16 +179,33 @@ void xhci_setup_device(int port) {
     /* 2. Setup Device Context and Address Device */
     void* slab_alloc_aligned(int id, size_t size, size_t align);
     dev_contexts[slot_id] = slab_alloc_aligned(0, sizeof(xhci_dev_ctx_t), 64);
+    for(int i=0; i<(int)sizeof(xhci_dev_ctx_t)/4; i++) ((uint32_t*)dev_contexts[slot_id])[i] = 0;
     dcbaap[slot_id] = vmm_get_phys(dev_contexts[slot_id]);
 
+    /* Allocate EP0 Transfer Ring */
+    ep0_rings[slot_id] = xhci_alloc_ring();
+
+    /* Prepare Input Context */
     xhci_input_ctx_t* ictx = slab_alloc_aligned(0, sizeof(xhci_input_ctx_t), 64);
-    ictx->add_flags = 0x03; /* Slot and Control Endpoint */
-    ictx->slot.info[0] = (1 << 27) | (port + 1); /* 1 Context, Root Port Num */
+    for(int i=0; i<(int)sizeof(xhci_input_ctx_t)/4; i++) ((uint32_t*)ictx)[i] = 0;
+
+    ictx->add_flags = 0x03; /* Slot and EP0 */
+
+    /* Slot Context */
+    ictx->slot.info[0] = (1 << 27) | (port + 1); /* 1 Context Entry, Root Port Num */
+    ictx->slot.info[1] = (0 << 16); /* Root Hub Port Number 0 (QEMU default) */
+
+    /* EP0 Context (Control Endpoint) */
+    uint64_t ep_phys = vmm_get_phys(ep0_rings[slot_id]);
+    ictx->ep[0].info[1] = (4 << 3) | (64 << 16); /* Type: Control, Max Packet: 64 */
+    ictx->ep[0].tr_ptr = ep_phys | 1; /* Dequeue Pointer + DCS=1 */
 
     cmd.ptr = vmm_get_phys(ictx);
     cmd.control = (TRB_TYPE_ADDRESS_DEVICE << 10) | (slot_id << 24);
     if (xhci_send_command(&cmd) == 0) {
         serial_print("[XHCI] Device Address assigned to Slot %d.\n", slot_id);
+    } else {
+        serial_write_str("[XHCI] Error: ADDRESS_DEVICE failed.\n");
     }
 }
 
