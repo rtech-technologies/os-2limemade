@@ -187,7 +187,7 @@ void serial_print(const char* fmt, ...) {
 }
 
 /* Scancode to ASCII (Simplified US-QWERTY) */
-static char scancode_map[128] = {
+static char __attribute__((used)) scancode_map[128] = {
     0,  27, '1', '2', '3', '4', '5', '6', '7', '8',	/* 9 */
   '9', '0', '-', '=', '\b',	/* Backspace */
   '\t',			/* Tab */
@@ -203,7 +203,7 @@ static char scancode_map[128] = {
   ' ',	/* Space bar */
 };
 
-static char shift_scancode_map[128] = {
+static char __attribute__((used)) shift_scancode_map[128] = {
     0,  27, '!', '@', '#', '$', '%', '^', '&', '*',	/* 9 */
   '(', ')', '_', '+', '\b',	/* Backspace */
   '\t',			/* Tab */
@@ -219,65 +219,87 @@ static char shift_scancode_map[128] = {
   ' ',	/* Space bar */
 };
 
-static bool shift_pressed = false;
+static bool __attribute__((used)) shift_pressed = false;
+
+#define KBD_BUF_SIZE 64
+static char kbd_buffer[KBD_BUF_SIZE];
+static int kbd_head = 0;
+static int kbd_tail = 0;
+
+void kbd_push(char c) {
+    if (!c || c == (char)-1) return;
+    int next = (kbd_tail + 1) % KBD_BUF_SIZE;
+    if (next != kbd_head) {
+        kbd_buffer[kbd_tail] = c;
+        kbd_tail = next;
+    }
+}
+
+char kbd_pop(void) {
+    if (kbd_head == kbd_tail) return 0;
+    char c = kbd_buffer[kbd_head];
+    kbd_head = (kbd_head + 1) % KBD_BUF_SIZE;
+    return c;
+}
+
+void hw_poll(void) {
+    #include <include/config.h>
+
+    /* 1. PS/2 Keyboard Polling */
+#if defined(CONFIG_INTERFACE_ALL) || defined(CONFIG_INTERFACE_PS2)
+    uint8_t status = inb(0x64);
+    if (status & 1) {
+        uint8_t scancode = inb(0x60);
+        if (!(status & 0x20)) { /* Not Mouse Data */
+            if (scancode == 0x2A || scancode == 0x36) shift_pressed = true;
+            else if (scancode == 0xAA || scancode == 0xB6) shift_pressed = false;
+            else if (!(scancode & 0x80)) {
+                if (scancode == 0x01) kbd_push(27);
+                else if (scancode < 128) {
+                    char c = shift_pressed ? shift_scancode_map[scancode] : scancode_map[scancode];
+                    if (c) kbd_push(c);
+                }
+            }
+        }
+    }
+#endif
+
+    /* 2. USB Keyboard/Mouse Polling */
+#if defined(CONFIG_INTERFACE_ALL) || defined(CONFIG_INTERFACE_USB)
+    char usb_keyboard_poll(void);
+    char uc = usb_keyboard_poll();
+    if (uc) kbd_push(uc);
+#endif
+
+    /* 3. Serial COM1 Polling */
+    if (serial_received()) {
+        char c = serial_read_char();
+        if (c == '\n' || c == '\r' || c == '\b' || c == 27 || (c >= 32 && c <= 126)) {
+            kbd_push(c);
+        }
+    }
+
+    /* 4. PS/2 Mouse Polling */
+#if defined(CONFIG_INTERFACE_ALL) || defined(CONFIG_INTERFACE_PS2)
+    void mouse_poll(void);
+    mouse_poll();
+#endif
+}
 
 char get_char(void) {
     while (1) {
-        /* 1. PS/2 Keyboard Polling */
-        uint8_t status = inb(0x64);
-        if (status & 1) {
-            uint8_t scancode = inb(0x60);
-
-            /* Filter out mouse data (if bit 5 is set) */
-            if (status & 0x20) continue;
-
-            /* Check for shift pressed/released */
-            if (scancode == 0x2A || scancode == 0x36) {
-                shift_pressed = true;
-                continue;
-            }
-            if (scancode == 0xAA || scancode == 0xB6) {
-                shift_pressed = false;
-                continue;
-            }
-
-            /* Special case: ENTER Release scancode (0x1C | 0x80 = 0x9C) */
-            if (scancode == 0x9C) return -1; /* Special Enter Release code */
-
-            /* All other release scancodes (scancode | 0x80) are ignored */
-            if (scancode & 0x80) continue;
-
-            /* Break Signal: Escape (scancode 0x01) */
-            if (scancode == 0x01) return 27;
-
-            if (scancode < 128) {
-                char c = shift_pressed ? shift_scancode_map[scancode] : scancode_map[scancode];
-                if (c) return c;
-            }
-        }
-
-        /* 2. USB Keyboard Polling */
-        char usb_keyboard_poll(void);
-        char uc = usb_keyboard_poll();
-        if (uc) return uc;
-
-        /* 3. Serial COM1 Polling (Printable Only + Control) */
-        if (serial_received()) {
-            char c = serial_read_char();
-            if (c == 27) return 27; /* ESC */
-            if (c == '\n' || c == '\r' || c == '\b' || (c >= 32 && c <= 126)) return c;
-        }
+        hw_poll();
+        char c = kbd_pop();
+        if (c) return c;
 
         /* Sovereign Active-Relay: Yield while waiting for input */
         task_t* current = get_current_task();
         if (current) {
             current->state = TASK_INPUT_WAIT;
-            /* Force the system task to run to process potentially incoming serial data */
             scheduler_force_task(1);
         }
         sys_yield();
         if (current) current->state = TASK_RUNNING;
-
         __asm__ volatile ("pause");
     }
 }

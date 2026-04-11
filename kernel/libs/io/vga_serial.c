@@ -330,6 +330,23 @@ void telemetry_update(int task_id, const char* status) {
 
     int k = 0;
     while (status[k] && i < 60) buf[i++] = status[k++];
+
+    /* Mouse Telemetry: [X:pos Y:pos] */
+    #include <include/mouse.h>
+    mouse_state_t* ms = get_mouse_state();
+    if (ms && ms->active) {
+        buf[i++] = ' '; buf[i++] = '['; buf[i++] = 'M'; buf[i++] = ':';
+        /* Very simplified integer to string for telemetry */
+        buf[i++] = (ms->x / 100 % 10) + '0';
+        buf[i++] = (ms->x / 10 % 10) + '0';
+        buf[i++] = (ms->x % 10) + '0';
+        buf[i++] = ',';
+        buf[i++] = (ms->y / 100 % 10) + '0';
+        buf[i++] = (ms->y / 10 % 10) + '0';
+        buf[i++] = (ms->y % 10) + '0';
+        buf[i++] = ']';
+    }
+
     buf[i] = '\0';
 
     /* Draw at bottom left in Emerald (0x00FF88) */

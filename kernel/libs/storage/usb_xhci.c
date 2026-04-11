@@ -1,4 +1,5 @@
 #include <kernel/libs/core/services.h>
+#include <kernel/unice64/task.h>
 #include <limine.h>
 #include <stdint.h>
 #include <stddef.h>
@@ -6,13 +7,14 @@
 #include <kernel/libs/storage/vdisk.h>
 #include <kernel/libs/core/pci.h>
 #include <include/xhci.h>
+#include <include/mouse.h>
+#include <include/config.h>
 
 void serial_write_str(const char* s);
 void serial_print(const char* fmt, ...);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
 uint64_t get_hhdm_offset(void);
 uint64_t vmm_get_phys(void* virt);
-void xhci_rt_write(uint32_t reg, uint32_t val);
 
 static void* xhci_base = NULL;
 static uint32_t xhci_cap_len = 0;
@@ -36,6 +38,24 @@ static char usb_map[256] = {
     [0x28] = '\n', [0x2C] = ' ', [0x2A] = '\b', [0x2B] = '\t'
 };
 
+void xhci_rt_write(uint32_t reg, uint32_t val) {
+    if (!xhci_base) return;
+    *(volatile uint32_t*)((uint8_t*)xhci_base + xhci_rt_off + reg) = val;
+}
+
+uint32_t xhci_rt_read(uint32_t reg) {
+    if (!xhci_base) return 0;
+    return *(volatile uint32_t*)((uint8_t*)xhci_base + xhci_rt_off + reg);
+}
+
+static inline void xhci_op_write(uint32_t reg, uint32_t val) {
+    *(volatile uint32_t*)((uint8_t*)xhci_base + xhci_cap_len + reg) = val;
+}
+
+static inline uint32_t xhci_op_read(uint32_t reg) {
+    return *(volatile uint32_t*)((uint8_t*)xhci_base + xhci_cap_len + reg);
+}
+
 char usb_keyboard_poll(void) {
     if (!xhci_base || !event_ring) return 0;
 
@@ -47,12 +67,23 @@ char usb_keyboard_poll(void) {
     char result = 0;
 
     if (type == 32) { /* Transfer Event */
-        /* In Sovereign Boot Protocol, the keyboard report is at the TRB pointer */
-        /* This simplified driver assumes the first HID device is configured */
         uint8_t* report = (uint8_t*)(ev->ptr);
-        if (report && report[2] != 0) {
-            uint8_t code = report[2];
-            result = usb_map[code];
+        if (report) {
+            /* Basic HID Detection: Keyboard vs Mouse */
+            if (report[1] == 0 && report[2] != 0) { /* Keyboard Report */
+                uint8_t code = report[2];
+                result = usb_map[code];
+            } else if (report[0] & 0x07 || report[1] != 0 || report[2] != 0) { /* Mouse Report */
+                mouse_state_t* ms = get_mouse_state();
+                if (ms) {
+                    ms->left_button = report[0] & 0x01;
+                    ms->right_button = report[0] & 0x02;
+                    ms->middle_button = report[0] & 0x04;
+                    ms->x += (int8_t)report[1];
+                    ms->y += (int8_t)report[2];
+                    ms->active = true;
+                }
+            }
         }
     }
 
@@ -60,68 +91,35 @@ char usb_keyboard_poll(void) {
     event_idx = (event_idx + 1) % 256;
     if (event_idx == 0) event_cycle = !event_cycle;
 
-    /* Update Dequeue Pointer in Runtime Registers */
+    /* Update Dequeue Pointer */
     uint64_t erdp_phys = vmm_get_phys(&event_ring[event_idx]);
-    xhci_rt_write(XHCI_RT_ERDP(0), (uint32_t)erdp_phys | 0x08); /* Set EHB to clear busy */
+    xhci_rt_write(XHCI_RT_ERDP(0), (uint32_t)erdp_phys | 0x08);
     xhci_rt_write(XHCI_RT_ERDP(0) + 4, (uint32_t)(erdp_phys >> 32));
 
     return result;
-}
-
-void* get_xhci_base(void) {
-    return xhci_base;
-}
-
-static inline void xhci_op_write(uint32_t reg, uint32_t val) {
-    *(volatile uint32_t*)((uint8_t*)xhci_base + xhci_cap_len + reg) = val;
-}
-
-static inline uint32_t xhci_op_read(uint32_t reg) {
-    return *(volatile uint32_t*)((uint8_t*)xhci_base + xhci_cap_len + reg);
-}
-
-void xhci_rt_write(uint32_t reg, uint32_t val) {
-    *(volatile uint32_t*)((uint8_t*)xhci_base + xhci_rt_off + reg) = val;
-}
-
-uint32_t xhci_rt_read(uint32_t reg) {
-    return *(volatile uint32_t*)((uint8_t*)xhci_base + xhci_rt_off + reg);
 }
 
 void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
     (void)bus; (void)slot; (void)func;
     uint32_t hccparams1 = *(volatile uint32_t*)((uint8_t*)base + 0x10);
     uint32_t xecp = (hccparams1 >> 16) & 0xFFFF;
-
     if (xecp == 0) return;
 
     volatile uint32_t* ext_cap = (volatile uint32_t*)((uint8_t*)base + (xecp << 2));
-
     while (ext_cap) {
         uint32_t cap_id = *ext_cap & 0xFF;
         if (cap_id == 1) { /* USB Legacy Support */
-            serial_write_str("[XHCI] USB Legacy Support found. Requesting Handover...\n");
+            serial_write_str("[XHCI] Requesting BIOS Handover...\n");
             *ext_cap |= (1 << 24); /* OS Owned Semaphore */
-
             int timeout = 1000;
-            while ((*ext_cap & (1 << 16)) && timeout--) { /* BIOS Owned Semaphore */
-                /* Wait for BIOS to release */
+            while ((*ext_cap & (1 << 16)) && timeout--) {
                 for(volatile int i=0; i<10000; i++);
             }
-
-            if (timeout <= 0) {
-                serial_write_str("[XHCI] Handover TIMEOUT. Forcing Control.\n");
-                *ext_cap &= ~(1 << 16);
-            } else {
-                serial_write_str("[XHCI] Handover Successful.\n");
-            }
-
-            /* Disable Legacy SMIs to ensure exclusive OS ownership */
+            if (timeout <= 0) *ext_cap &= ~(1 << 16);
             volatile uint32_t* legsup_ctl = ext_cap + 1;
-            *legsup_ctl &= 0x1F00FFFF; /* Mask out SMI enable bits */
+            *legsup_ctl &= 0x1F00FFFF;
             break;
         }
-
         uint32_t next = (*ext_cap >> 8) & 0xFF;
         if (next == 0) break;
         ext_cap += next;
@@ -129,109 +127,56 @@ void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
 }
 
 void usb_xhci_service(kernel_event_t event) {
+#if !defined(CONFIG_INTERFACE_PS2)
     if (event == EVENT_INIT) {
-        serial_write_str("[INIT] Scanning PCI bus for XHCI controllers...\n");
-
+        serial_write_str("[INIT] Scanning for XHCI...\n");
         for (int bus = 0; bus < 256; bus++) {
             for (int slot = 0; slot < 32; slot++) {
                 for (int func = 0; func < 8; func++) {
-                    uint32_t vendor_device = pci_config_read(bus, slot, func, 0);
-                    if ((vendor_device & 0xFFFF) == 0xFFFF) continue;
-
                     uint32_t class_info = pci_config_read(bus, slot, func, 0x08);
-                    uint8_t base_class = (class_info >> 24) & 0xFF;
-                    uint8_t sub_class = (class_info >> 16) & 0xFF;
-                    uint8_t prog_if = (class_info >> 8) & 0xFF;
-
-                    if (base_class == 0x0C && sub_class == 0x03 && prog_if == 0x30) {
-                        /* PS/2 Emulation Check: Disable if active to avoid collision */
-                        uint32_t leg_ctl_sts = pci_config_read(bus, slot, func, 0x04);
-                        if (leg_ctl_sts & (1 << 2)) {
-                            serial_write_str("[XHCI] Disabling BIOS PS/2 Emulation for Sovereign Keyboard Control.\n");
-                            pci_config_write(bus, slot, func, 0x04, leg_ctl_sts & ~(1 << 2));
-                        }
-
-                        serial_write_str("[INIT] Found XHCI Controller.\n");
+                    if (((class_info >> 24) & 0xFF) == 0x0C && ((class_info >> 16) & 0xFF) == 0x03 && ((class_info >> 8) & 0xFF) == 0x30) {
                         pci_enable_master(bus, slot, func);
-
                         uint32_t bar0 = pci_config_read(bus, slot, func, 0x10);
-                        uint64_t hhdm = get_hhdm_offset();
-                        xhci_base = (void*)(hhdm + (uint64_t)(bar0 & 0xFFFFFFF0));
-
+                        xhci_base = (void*)(get_hhdm_offset() + (uint64_t)(bar0 & 0xFFFFFFF0));
                         xhci_bios_handover(bus, slot, func, xhci_base);
 
-                        /* XHCI Controller Initialization Sequence */
                         xhci_cap_len = *(volatile uint8_t*)xhci_base;
                         xhci_rt_off = *(volatile uint32_t*)((uint8_t*)xhci_base + XHCI_CAP_RTSOFF);
 
-                        /* 1. Stop Controller */
                         xhci_op_write(XHCI_OP_USBCMD, xhci_op_read(XHCI_OP_USBCMD) & ~0x01);
-                        while(!(xhci_op_read(XHCI_OP_USBSTS) & 0x01)); /* Wait for HCHalted */
-
-                        /* 2. Reset Controller */
+                        while(!(xhci_op_read(XHCI_OP_USBSTS) & 0x01));
                         xhci_op_write(XHCI_OP_USBCMD, 0x02);
-                        while(xhci_op_read(XHCI_OP_USBCMD) & 0x02); /* Wait for Reset to clear */
-                        while(xhci_op_read(XHCI_OP_USBSTS) & 0x800); /* Wait for Controller Not Ready to clear */
+                        while(xhci_op_read(XHCI_OP_USBCMD) & 0x02);
 
-                        serial_write_str("[XHCI] Controller Reset Successful.\n");
-
-                        /* 3. Initialize Data Structures (Linear Slab Allocation) */
                         void* slab_alloc_aligned(int id, size_t size, size_t align);
-
                         xhci_trb_t* cmd_ring = slab_alloc_aligned(0, 4096, 64);
                         event_ring = slab_alloc_aligned(0, 4096, 64);
                         erst = slab_alloc_aligned(0, 4096, 64);
                         dcbaap = slab_alloc_aligned(0, 4096, 64);
 
-                        for(int i=0; i<256; i++) {
-                            cmd_ring[i].ptr = 0; cmd_ring[i].status = 0; cmd_ring[i].control = 0;
-                            event_ring[i].ptr = 0; event_ring[i].status = 0; event_ring[i].control = 0;
-                        }
+                        xhci_op_write(XHCI_OP_CONFIG, *(volatile uint32_t*)((uint8_t*)xhci_base + 0x04) & 0xFF);
+                        xhci_op_write(XHCI_OP_DCBAAP, (uint32_t)vmm_get_phys(dcbaap));
+                        xhci_op_write(XHCI_OP_DCBAAP + 4, (uint32_t)(vmm_get_phys(dcbaap) >> 32));
+                        xhci_op_write(XHCI_OP_CRCR, (uint32_t)vmm_get_phys(cmd_ring) | 1);
+                        xhci_op_write(XHCI_OP_CRCR + 4, (uint32_t)(vmm_get_phys(cmd_ring) >> 32));
 
-                        /* 4. Configure Operational Registers */
-                        uint32_t max_slots = *(volatile uint32_t*)((uint8_t*)xhci_base + XHCI_CAP_HCSPARAMS1) & 0xFF;
-                        xhci_op_write(XHCI_OP_CONFIG, max_slots);
-
-                        uint64_t dcbaap_phys = vmm_get_phys(dcbaap);
-                        xhci_op_write(XHCI_OP_DCBAAP, (uint32_t)dcbaap_phys);
-                        xhci_op_write(XHCI_OP_DCBAAP + 4, (uint32_t)(dcbaap_phys >> 32));
-
-                        uint64_t cr_phys = vmm_get_phys(cmd_ring);
-                        xhci_op_write(XHCI_OP_CRCR, (uint32_t)cr_phys | 1); /* Set RCS=1 */
-                        xhci_op_write(XHCI_OP_CRCR + 4, (uint32_t)(cr_phys >> 32));
-
-                        /* 5. Configure Event Ring (Runtime Registers) */
                         erst[0].ptr = vmm_get_phys(event_ring);
                         erst[0].size = 256;
-
                         xhci_rt_write(XHCI_RT_ERSTSZ(0), 1);
-                        uint64_t erst_phys = vmm_get_phys(erst);
-                        xhci_rt_write(XHCI_RT_ERSTBA(0), (uint32_t)erst_phys);
-                        xhci_rt_write(XHCI_RT_ERSTBA(0) + 4, (uint32_t)(erst_phys >> 32));
+                        xhci_rt_write(XHCI_RT_ERSTBA(0), (uint32_t)vmm_get_phys(erst));
+                        xhci_rt_write(XHCI_RT_ERSTBA(0) + 4, (uint32_t)(vmm_get_phys(erst) >> 32));
+                        xhci_rt_write(XHCI_RT_ERDP(0), (uint32_t)vmm_get_phys(event_ring));
+                        xhci_rt_write(XHCI_RT_ERDP(0) + 4, (uint32_t)(vmm_get_phys(event_ring) >> 32));
 
-                        uint64_t erdp_phys = vmm_get_phys(event_ring);
-                        xhci_rt_write(XHCI_RT_ERDP(0), (uint32_t)erdp_phys);
-                        xhci_rt_write(XHCI_RT_ERDP(0) + 4, (uint32_t)(erdp_phys >> 32));
-
-                        /* 6. Start Controller */
                         xhci_op_write(XHCI_OP_USBCMD, xhci_op_read(XHCI_OP_USBCMD) | 0x01);
-                        while(xhci_op_read(XHCI_OP_USBSTS) & 0x01); /* Wait for HCHalted to clear */
-
-                        serial_write_str("[XHCI] Multitasking Controller Online.\n");
-
-                        /* 7. Initial Port Status Scan */
-                        uint32_t port_count = *(volatile uint32_t*)((uint8_t*)xhci_base + 0x04) >> 24;
-                        for(uint32_t i=0; i<port_count; i++) {
-                            uint32_t port_reg = 0x400 + (i * 0x10);
-                            uint32_t portsc = xhci_op_read(port_reg);
-                            if (portsc & 0x01) { /* Current Connect Status */
-                                serial_print("[XHCI] Device detected on Port %d\n", i);
-                            }
-                        }
+                        while(xhci_op_read(XHCI_OP_USBSTS) & 0x01);
+                        serial_write_str("[XHCI] Online.\n");
+                        return;
                     }
                     if (func == 0 && !(pci_config_read(bus, slot, 0, 0x0C) & 0x800000)) break;
                 }
             }
         }
     }
+#endif
 }

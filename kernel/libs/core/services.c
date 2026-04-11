@@ -122,10 +122,27 @@ void sovereign_request_submit(system_request_t* req) {
 }
 
 void sovereign_service_orchestrator(void) {
+    #include <include/config.h>
     /* Maintenance task now only performs background audits */
     void ahci_hardware_audit(int p);
     for (int i=0; i<8; i++) ahci_hardware_audit(i);
+
+    /* Background Mouse Polling for PS/2 */
+#if defined(CONFIG_INTERFACE_ALL) || defined(CONFIG_INTERFACE_PS2)
+    #include <include/mouse.h>
+    mouse_poll();
+#endif
+
     sys_yield();
+}
+
+void mouse_service(kernel_event_t event) {
+    #include <include/config.h>
+    if (event == EVENT_INIT) {
+#if defined(CONFIG_INTERFACE_ALL) || defined(CONFIG_INTERFACE_PS2)
+        mouse_init();
+#endif
+    }
 }
 
 void dispatch_event(kernel_event_t event) {
@@ -138,6 +155,7 @@ void dispatch_event(kernel_event_t event) {
         register_service(nvme_service);
         register_service(ahci_service);
         register_service(vdisk_service);
+        register_service(mouse_service);
     }
 
     for (int i = 0; i < service_count; i++) {
