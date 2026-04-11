@@ -1,107 +1,16 @@
 #include <kernel/libs/core/services.h>
+#include <kernel/unice64/task.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
 #include <kernel/libs/storage/vdisk.h>
 #include <kernel/libs/core/pci.h>
+#include <include/ahci_hw.h>
 
 void* malloc(size_t size);
 void free(void* ptr);
 
 void serial_write_str(const char* s);
-
-/* AHCI HBA Structures (Physical) */
-typedef struct {
-    uint8_t  fis_type;
-    uint8_t  pmport:4;
-    uint8_t  rsv0:3;
-    uint8_t  c:1;
-    uint8_t  command;
-    uint8_t  featurel;
-    uint8_t  lba0;
-    uint8_t  lba1;
-    uint8_t  lba2;
-    uint8_t  device;
-    uint8_t  lba3;
-    uint8_t  lba4;
-    uint8_t  lba5;
-    uint8_t  featureh;
-    uint8_t  countl;
-    uint8_t  counth;
-    uint8_t  icc;
-    uint8_t  control;
-    uint8_t  rsv1[4];
-} fis_reg_h2d_t;
-
-typedef struct {
-    uint32_t dba;
-    uint32_t dbau;
-    uint32_t rsv0;
-    uint32_t dbc:22;
-    uint32_t rsv1:9;
-    uint32_t i:1;
-} hba_prdt_entry_t;
-
-typedef struct {
-    uint8_t  cfis[64];
-    uint8_t  acmd[16];
-    uint8_t  rsv[48];
-    hba_prdt_entry_t prdt_entry[1];
-} hba_cmd_tbl_t;
-
-typedef struct {
-    uint8_t  cfl:5;
-    uint8_t  a:1;
-    uint8_t  w:1;
-    uint8_t  p:1;
-    uint8_t  r:1;
-    uint8_t  b:1;
-    uint8_t  c:1;
-    uint8_t  rsv0:1;
-    uint8_t  pmp:4;
-    uint16_t prdtl;
-    volatile uint32_t prdbc;
-    uint32_t ctba;
-    uint32_t ctbau;
-    uint32_t rsv1[4];
-} hba_cmd_header_t;
-
-typedef struct {
-    uint32_t clb;
-    uint32_t clbu;
-    uint32_t fb;
-    uint32_t fbu;
-    uint32_t is;
-    uint32_t ie;
-    uint32_t cmd;
-    uint32_t rsv0;
-    uint32_t tfd;
-    uint32_t sig;
-    uint32_t ssts;
-    uint32_t sctl;
-    uint32_t serr;
-    uint32_t sact;
-    uint32_t ci;
-    uint32_t sntf;
-    uint32_t fbs;
-    uint32_t devslp;
-    uint32_t rsv1[11]; /* (18 * 4) = 72 bytes. 128 - 72 = 56 bytes. 56 / 4 = 14. */
-    uint32_t rsv2[3]; /* More Padding */
-} hba_port_t;
-
-typedef struct {
-    uint32_t cap;
-    uint32_t ghc;
-    uint32_t is;
-    uint32_t pi;
-    uint32_t vs;
-    uint32_t bccc;
-    uint32_t bccd;
-    uint32_t cap2;
-    uint32_t bohc;
-    uint8_t  rsv[0x100 - 0x24]; /* Pad to 0x100 where ports start */
-    hba_port_t ports[32];
-} hba_mem_t;
 
 static hba_mem_t* hba_base = NULL;
 static void* port_clb_virt[32];
@@ -127,6 +36,7 @@ void vga_print(const char* fmt, ...);
 void pit_wait_ms(uint32_t ms);
 
 void ahci_force_port_reset(hba_port_t *port, int port_no) {
+    (void)port_no;
     port->serr = 0xFFFFFFFF;
     port->is = 0xFFFFFFFF;
     port->cmd &= ~0x0001;
@@ -148,11 +58,11 @@ void ahci_force_port_reset(hba_port_t *port, int port_no) {
     }
 
     if ((port->ssts & 0x0F) == 0x03) {
-        vga_print("[AHCI] PORT %d: LINK ESTABLISHED\n", port_no);
+        serial_write_str("[AHCI] Port established link.\n");
         port->cmd |= 0x0010;
         port->cmd |= 0x0001;
     } else {
-        vga_print("[AHCI] PORT %d: MECHANICAL FAILURE\n", port_no);
+        serial_write_str("[AHCI] Port failed link.\n");
     }
 }
 
@@ -178,7 +88,7 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 
     /* SATA Test for ATAPI: Reject generic SATA reads on ATAPI signatures */
     if (port->sig == 0xEB140101) {
-        vga_print("[AHCI] Port %d: Rejected SATA Read on ATAPI device.\n", p);
+        serial_write_str("[AHCI] Rejected SATA Read on ATAPI device.\n");
         return -1;
     }
 
@@ -221,18 +131,24 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
         __asm__ volatile ("pause");
     }
 
+    port->is = 0xFFFFFFFF; /* Clear Interrupt Status before command */
     port->ci = (1 << 0);
     while ((port->ci & (1 << 0)) && timeout--) {
+        if (port->is & (1 << 30)) { /* TFES: Task File Error Status */
+            serial_write_str("[AHCI] Port fatal TFES during read.\n");
+            return -1;
+        }
         if (port->tfd & (1 << 0)) { /* ERR bit */
-            vga_print("[AHCI] Port %d READ ERROR: TFD 0x%x\n", p, port->tfd);
+            serial_write_str("[AHCI] Port ERR during read.\n");
             return -1;
         }
         __asm__ volatile ("pause");
     }
     if (timeout <= 0) {
-        vga_print("[AHCI] Port %d READ TIMEOUT\n", p);
+        serial_write_str("[AHCI] Port timeout during read.\n");
         return -1;
     }
+    sys_yield();
     return 0;
 }
 
@@ -243,7 +159,7 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 
     /* SATA Test for ATAPI: Reject generic SATA writes on ATAPI signatures */
     if (port->sig == 0xEB140101) {
-        vga_print("[AHCI] Port %d: Rejected SATA Write on ATAPI device.\n", p);
+        serial_write_str("[AHCI] Rejected SATA Write on ATAPI device.\n");
         return -1;
     }
 
@@ -286,18 +202,24 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
         __asm__ volatile ("pause");
     }
 
+    port->is = 0xFFFFFFFF; /* Clear Interrupt Status before command */
     port->ci = (1 << 0);
     while ((port->ci & (1 << 0)) && timeout--) {
+        if (port->is & (1 << 30)) { /* TFES: Task File Error Status */
+            serial_write_str("[AHCI] Port fatal TFES during write.\n");
+            return -1;
+        }
         if (port->tfd & (1 << 0)) {
-            vga_print("[AHCI] Port %d WRITE ERROR: TFD 0x%x\n", p, port->tfd);
+            serial_write_str("[AHCI] Port ERR during write.\n");
             return -1;
         }
         __asm__ volatile ("pause");
     }
     if (timeout <= 0) {
-        vga_print("[AHCI] Port %d WRITE TIMEOUT\n", p);
+        serial_write_str("[AHCI] Port timeout during write.\n");
         return -1;
     }
+    sys_yield();
     return 0;
 }
 
@@ -310,7 +232,7 @@ int rtech_iso_init(int drive);
 
 void ahci_scan_remaining(void) {
     if (!hba_base) return;
-    vga_print("[AHCI] Performing extended scan (Ports 9-31)...\n");
+    serial_write_str("[AHCI] Performing extended scan (Ports 9-31)...\n");
     void* slab_alloc_aligned(int id, size_t size, size_t align);
     for (int p = 9; p < 32; p++) {
         if (hba_base->pi & (1 << p)) {
@@ -320,7 +242,7 @@ void ahci_scan_remaining(void) {
             port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
 
             if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
-                vga_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);
+                serial_write_str("[AHCI] FATAL: Port Heap Allocation Failure.\n");
                 continue;
             }
 
@@ -337,7 +259,12 @@ void ahci_scan_remaining(void) {
             cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
             cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
-            ahci_force_port_reset(&hba_base->ports[p], p);
+            /* Skip full reset if port is already live, but ensure engine is running */
+            if ((hba_base->ports[p].ssts & 0x0F) != 0x03) {
+                ahci_force_port_reset(&hba_base->ports[p], p);
+            } else {
+                ahci_port_start(&hba_base->ports[p]);
+            }
 
             /* Signature Delay: Wait for hardware to update registers after reset */
             pit_wait_ms(10);
@@ -356,7 +283,7 @@ void ahci_scan_remaining(void) {
                         .is_atapi = false
                     };
                     register_hardware_disk(sata_disk);
-                    vga_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
+                    serial_write_str("[AHCI] SATA Hard Disk Online.\n");
                 } else if (sig == 0xEB140101) { /* ATAPI */
                     vdisk_node_t cdrom = {
                         .name = "SATA_CD",
@@ -387,7 +314,7 @@ void ahci_scan_remaining(void) {
                     }
 
                     register_hardware_disk(cdrom);
-                    vga_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
+                    serial_write_str("[AHCI] ATAPI/SCSI Device Online.\n");
 
                     /* ISO Discovery Handshake */
                     rtech_iso_init(get_hw_disk_count() - 1);
@@ -401,7 +328,7 @@ void ahci_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
         if (hba_base != NULL) return; /* Shield: Already Initialized */
 
-        vga_print("[INIT] Scanning PCI for SATA/AHCI controllers...\n");
+        serial_write_str("[INIT] Scanning PCI for SATA/AHCI controllers...\n");
         for (int bus = 0; bus < 256; bus++) {
             for (int slot = 0; slot < 32; slot++) {
                 for (int func = 0; func < 8; func++) {
@@ -437,7 +364,7 @@ void ahci_service(kernel_event_t event) {
                             port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
 
                             if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
-                                vga_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);
+                                serial_write_str("[AHCI] FATAL: Port Heap Allocation Failure.\n");
                                 continue;
                             }
 
@@ -454,7 +381,12 @@ void ahci_service(kernel_event_t event) {
                             cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
                             cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
-                            ahci_force_port_reset(&hba_base->ports[p], p);
+                            /* Skip full reset if port is already live, but ensure engine is running */
+                            if ((hba_base->ports[p].ssts & 0x0F) != 0x03) {
+                                ahci_force_port_reset(&hba_base->ports[p], p);
+                            } else {
+                                ahci_port_start(&hba_base->ports[p]);
+                            }
 
                             /* Signature Delay: Wait for hardware to update registers after reset */
                             pit_wait_ms(10);
@@ -473,7 +405,7 @@ void ahci_service(kernel_event_t event) {
                                         .is_atapi = false
                                     };
                                     register_hardware_disk(sata_disk);
-                                    vga_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
+                                    serial_write_str("[AHCI] SATA Hard Disk Online.\n");
                                 } else if (sig == 0xEB140101) { /* ATAPI */
                                     vdisk_node_t cdrom = {
                                         .name = "SATA_CD",
@@ -502,7 +434,7 @@ void ahci_service(kernel_event_t event) {
                     }
 
                     register_hardware_disk(cdrom);
-                    vga_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
+                    serial_write_str("[AHCI] ATAPI/SCSI Device Online.\n");
 
                     /* ISO Discovery Handshake */
                     rtech_iso_init(get_hw_disk_count() - 1);
