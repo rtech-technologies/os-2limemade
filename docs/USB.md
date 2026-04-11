@@ -22,14 +22,25 @@ The XHCI service is registered during `EVENT_INIT` and follows a strict sequence
 
 ## 3. The Device State Machine
 
-To move a device from "plugged-in" to "operational," the `xhci_monitor_task` processes the following pipeline:
+To move a device from "plugged-in" to "operational," the `xhci_monitor_task` (a persistent kernel task) processes the following pipeline:
 
 1.  **Port Reset:** Detects a connection via `PORTSC` bits and issues a Port Reset.
-2.  **Enable Slot:** Sends an `ENABLE_SLOT` Command TRB. The controller returns a unique **Slot ID**.
-3.  **Address Device:** Allocates a Device Context in the `DCBAAP` and sends an `ADDRESS_DEVICE` Command TRB using an Input Context to initialize the default control endpoint (EP0).
+2.  **Enable Slot:** Sends an `ENABLE_SLOT` Command TRB to the Command Ring. The controller returns a unique **Slot ID** via a Command Completion Event.
+3.  **Addressing Handshake:**
+    *   **Input Context:** Allocates a 2KB (64-byte aligned) `xhci_input_ctx_t`.
+    *   **Slot Identity:** Populates the Slot Context with the root port number and context entries.
+    *   **EP0 Pipe:** Allocates a dedicated Transfer Ring for Endpoint 0 (Control) and maps it in the EP0 Context.
+    *   **Address Device:** Sends an `ADDRESS_DEVICE` Command TRB pointing to the Input Context.
 4.  **Endpoint Configuration:** For HID devices (Keyboard/Mouse), the driver configures Interrupt IN endpoints to receive asynchronous reports.
 
-## 4. Input Processing (Active Spawner)
+## 4. Command Ring & Doorbells
+
+Sending commands to the XHCI controller follows the "Active Spawner" model:
+*   **Link TRBs:** The Command Ring uses Link TRBs (Type 6) to support seamless wraparound.
+*   **Cycle Bits:** The OS toggles the Cycle Bit (DCS) on every TRB to signal ownership to the hardware.
+*   **Doorbell Kick:** After pushing a TRB, the OS writes to Doorbell 0 (Host Controller) to wake the internal processing engine.
+
+## 5. Input Processing (Active Spawner)
 
 OSx2 uses an event-driven polling model for USB input:
 
@@ -37,7 +48,7 @@ OSx2 uses an event-driven polling model for USB input:
 *   **HID Router:** The `usb_keyboard_poll` function (called by `get_char`) parses these events, identifies the report type (Keyboard vs Mouse), and updates the system state.
 *   **Non-Blocking:** If the scheduler is active, the driver yields (`sys_yield`) during hardware stalls, ensuring the system remains responsive.
 
-## 5. QEMU Integration
+## 6. QEMU Integration
 
 USB support is enabled in the testing environment via the `Makefile`:
 ```makefile
