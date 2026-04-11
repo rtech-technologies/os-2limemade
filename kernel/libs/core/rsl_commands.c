@@ -172,6 +172,7 @@ void rsl_draw_rrif(void* path, int x, int y) {
         for (int i = 0; i < w; i++) {
             if (vfs_read(h, &pixel, 4) == 4) draw_pixel(x + i, y + j, pixel);
         }
+        sys_yield();
     }
     vfs_close(h);
 }

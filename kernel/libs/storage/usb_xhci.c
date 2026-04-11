@@ -16,8 +16,7 @@ void* get_xhci_base(void) {
 }
 
 void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
-    uint64_t hhdm = get_hhdm_offset();
-    uint32_t cap_length = *(volatile uint8_t*)base;
+    (void)bus; (void)slot; (void)func;
     uint32_t hccparams1 = *(volatile uint32_t*)((uint8_t*)base + 0x10);
     uint32_t xecp = (hccparams1 >> 16) & 0xFFFF;
 
