@@ -42,4 +42,41 @@ typedef struct {
     uint32_t rsvd;
 } __attribute__((packed)) xhci_erst_entry_t;
 
+/* XHCI TRB Types */
+#define TRB_TYPE_NORMAL         1
+#define TRB_TYPE_SETUP_STAGE    2
+#define TRB_TYPE_DATA_STAGE     3
+#define TRB_TYPE_STATUS_STAGE   4
+#define TRB_TYPE_ENABLE_SLOT    9
+#define TRB_TYPE_ADDRESS_DEVICE 11
+#define TRB_TYPE_CONFIG_EP      12
+#define TRB_TYPE_TRANSFER_EV    32
+#define TRB_TYPE_CMD_COMP_EV    33
+#define TRB_TYPE_PORT_STATUS_EV 34
+
+/* XHCI Device Context Structures */
+typedef struct {
+    uint32_t info[2];
+    uint32_t reserved[30];
+} __attribute__((packed)) xhci_slot_ctx_t;
+
+typedef struct {
+    uint32_t info[2];
+    uint64_t tr_ptr;
+    uint32_t reserved[28];
+} __attribute__((packed)) xhci_ep_ctx_t;
+
+typedef struct {
+    xhci_slot_ctx_t slot;
+    xhci_ep_ctx_t   ep[31];
+} __attribute__((packed)) xhci_dev_ctx_t;
+
+typedef struct {
+    uint32_t drop_flags;
+    uint32_t add_flags;
+    uint32_t reserved[6];
+    xhci_slot_ctx_t slot;
+    xhci_ep_ctx_t   ep[31];
+} __attribute__((packed)) xhci_input_ctx_t;
+
 #endif

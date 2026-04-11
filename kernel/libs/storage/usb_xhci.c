@@ -20,10 +20,14 @@ static void* xhci_base = NULL;
 static uint32_t xhci_cap_len = 0;
 static uint32_t xhci_rt_off = 0;
 
+static xhci_trb_t* cmd_ring = NULL;
 static xhci_trb_t* event_ring = NULL;
 static xhci_erst_entry_t* erst = NULL;
 static uint64_t* dcbaap = NULL;
+static void* input_context = NULL;
 
+static int cmd_ring_idx = 0;
+static bool cmd_cycle = true;
 static int event_idx = 0;
 static bool event_cycle = true;
 
@@ -48,6 +52,11 @@ uint32_t xhci_rt_read(uint32_t reg) {
     return *(volatile uint32_t*)((uint8_t*)xhci_base + xhci_rt_off + reg);
 }
 
+static inline void xhci_db_write(uint32_t reg, uint32_t val) {
+    uint32_t dboff = *(volatile uint32_t*)((uint8_t*)xhci_base + XHCI_CAP_DBOFF);
+    *(volatile uint32_t*)((uint8_t*)xhci_base + dboff + reg) = val;
+}
+
 static inline void xhci_op_write(uint32_t reg, uint32_t val) {
     *(volatile uint32_t*)((uint8_t*)xhci_base + xhci_cap_len + reg) = val;
 }
@@ -66,14 +75,17 @@ char usb_keyboard_poll(void) {
     uint8_t type = (ev->control >> 10) & 0x3F;
     char result = 0;
 
-    if (type == 32) { /* Transfer Event */
+    if (type == TRB_TYPE_TRANSFER_EV) {
+        /* XHCI Transfer Event: Data is pointed to by the TRB ptr */
+        /* For HID Boot Protocol, reports are usually small buffers */
         uint8_t* report = (uint8_t*)(ev->ptr);
         if (report) {
-            /* Basic HID Detection: Keyboard vs Mouse */
-            if (report[1] == 0 && report[2] != 0) { /* Keyboard Report */
+            /* Byte 0 is usually buttons (mouse) or modifier (kbd) */
+            /* In Sovereign Simplified Protocol, we look at the usage patterns */
+            if (report[1] == 0 && report[2] != 0) { /* Likely Keyboard */
                 uint8_t code = report[2];
                 result = usb_map[code];
-            } else if (report[0] & 0x07 || report[1] != 0 || report[2] != 0) { /* Mouse Report */
+            } else { /* Likely Mouse */
                 mouse_state_t* ms = get_mouse_state();
                 if (ms) {
                     ms->left_button = report[0] & 0x01;
@@ -97,6 +109,95 @@ char usb_keyboard_poll(void) {
     xhci_rt_write(XHCI_RT_ERDP(0) + 4, (uint32_t)(erdp_phys >> 32));
 
     return result;
+}
+
+int xhci_send_command(xhci_trb_t* trb) {
+    if (!cmd_ring) return -1;
+
+    int idx = cmd_ring_idx;
+    cmd_ring[idx].ptr = trb->ptr;
+    cmd_ring[idx].status = trb->status;
+    uint32_t control = (trb->control & ~0x01) | (cmd_cycle ? 1 : 0);
+    cmd_ring[idx].control = control;
+
+    cmd_ring_idx++;
+    if (cmd_ring_idx == 255) {
+        /* Command Ring Link TRB (Type 6, TC=1) */
+        cmd_ring[255].ptr = vmm_get_phys(cmd_ring);
+        cmd_ring[255].status = 0;
+        cmd_ring[255].control = (6 << 10) | (1 << 1) | (cmd_cycle ? 1 : 0);
+        cmd_ring_idx = 0;
+        cmd_cycle = !cmd_cycle;
+    }
+
+    xhci_db_write(0, 0); /* Ring Doorbell 0 (Host Controller) */
+
+    /* Wait for Completion Event */
+    int timeout = 1000;
+    while(timeout--) {
+        xhci_trb_t* ev = &event_ring[event_idx];
+        if ((ev->control & 0x01) == (uint32_t)event_cycle) {
+            uint8_t type = (ev->control >> 10) & 0x3F;
+            if (type == TRB_TYPE_CMD_COMP_EV) return 0;
+        }
+        void pit_wait_ms(uint32_t ms);
+        pit_wait_ms(1);
+    }
+    return -1;
+}
+
+static xhci_dev_ctx_t* dev_contexts[64];
+
+void xhci_setup_device(int port) {
+    serial_print("[XHCI] Initializing Device on Port %d\n", port);
+
+    /* 1. Enable Slot */
+    xhci_trb_t cmd = {0};
+    cmd.control = (TRB_TYPE_ENABLE_SLOT << 10);
+    if (xhci_send_command(&cmd) != 0) return;
+
+    xhci_trb_t* ev = &event_ring[event_idx];
+    int slot_id = (ev->control >> 24) & 0xFF;
+    if (slot_id == 0) return;
+    serial_print("[XHCI] Slot %d enabled.\n", slot_id);
+
+    /* 2. Setup Device Context and Address Device */
+    void* slab_alloc_aligned(int id, size_t size, size_t align);
+    dev_contexts[slot_id] = slab_alloc_aligned(0, sizeof(xhci_dev_ctx_t), 64);
+    dcbaap[slot_id] = vmm_get_phys(dev_contexts[slot_id]);
+
+    xhci_input_ctx_t* ictx = slab_alloc_aligned(0, sizeof(xhci_input_ctx_t), 64);
+    ictx->add_flags = 0x03; /* Slot and Control Endpoint */
+    ictx->slot.info[0] = (1 << 27) | (port + 1); /* 1 Context, Root Port Num */
+
+    cmd.ptr = vmm_get_phys(ictx);
+    cmd.control = (TRB_TYPE_ADDRESS_DEVICE << 10) | (slot_id << 24);
+    if (xhci_send_command(&cmd) == 0) {
+        serial_print("[XHCI] Device Address assigned to Slot %d.\n", slot_id);
+    }
+}
+
+void xhci_monitor_task(void) {
+    if (!xhci_base) return;
+    uint32_t port_count = *(volatile uint32_t*)((uint8_t*)xhci_base + 0x04) >> 24;
+
+    while(1) {
+        for(uint32_t i=0; i<port_count; i++) {
+            uint32_t port_reg = 0x400 + (i * 0x10);
+            uint32_t portsc = xhci_op_read(port_reg);
+
+            if (portsc & 0x01) { /* Connected */
+                if (!(portsc & 0x02)) { /* Not Enabled */
+                    /* Reset Port */
+                    xhci_op_write(port_reg, portsc | (1 << 4));
+                    for(volatile int k=0; k<100000; k++);
+                    xhci_setup_device(i);
+                }
+            }
+        }
+        void sys_yield(void);
+        sys_yield();
+    }
 }
 
 void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
@@ -149,10 +250,11 @@ void usb_xhci_service(kernel_event_t event) {
                         while(xhci_op_read(XHCI_OP_USBCMD) & 0x02);
 
                         void* slab_alloc_aligned(int id, size_t size, size_t align);
-                        xhci_trb_t* cmd_ring = slab_alloc_aligned(0, 4096, 64);
+                        cmd_ring = slab_alloc_aligned(0, 4096, 64);
                         event_ring = slab_alloc_aligned(0, 4096, 64);
                         erst = slab_alloc_aligned(0, 4096, 64);
                         dcbaap = slab_alloc_aligned(0, 4096, 64);
+                        input_context = slab_alloc_aligned(0, 4096, 64);
 
                         xhci_op_write(XHCI_OP_CONFIG, *(volatile uint32_t*)((uint8_t*)xhci_base + 0x04) & 0xFF);
                         xhci_op_write(XHCI_OP_DCBAAP, (uint32_t)vmm_get_phys(dcbaap));
@@ -171,6 +273,10 @@ void usb_xhci_service(kernel_event_t event) {
                         xhci_op_write(XHCI_OP_USBCMD, xhci_op_read(XHCI_OP_USBCMD) | 0x01);
                         while(xhci_op_read(XHCI_OP_USBSTS) & 0x01);
                         serial_write_str("[XHCI] Online.\n");
+
+                        /* Spawn Monitor Task */
+                        void tasking_create_kernel_thread(void (*entry)(void), const char* name);
+                        tasking_create_kernel_thread(xhci_monitor_task, "xhci_monitor");
                         return;
                     }
                     if (func == 0 && !(pci_config_read(bus, slot, 0, 0x0C) & 0x800000)) break;
