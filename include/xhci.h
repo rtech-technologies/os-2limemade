@@ -48,8 +48,11 @@ typedef struct {
 #define TRB_TYPE_DATA_STAGE     3
 #define TRB_TYPE_STATUS_STAGE   4
 #define TRB_TYPE_ENABLE_SLOT    9
+#define TRB_TYPE_DISABLE_SLOT   10
 #define TRB_TYPE_ADDRESS_DEVICE 11
 #define TRB_TYPE_CONFIG_EP      12
+#define TRB_TYPE_EVAL_CONTEXT   13
+#define TRB_TYPE_RESET_EP       14
 #define TRB_TYPE_TRANSFER_EV    32
 #define TRB_TYPE_CMD_COMP_EV    33
 #define TRB_TYPE_PORT_STATUS_EV 34

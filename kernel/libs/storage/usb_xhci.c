@@ -7,6 +7,7 @@
 #include <kernel/libs/storage/vdisk.h>
 #include <kernel/libs/core/pci.h>
 #include <include/xhci.h>
+#include <include/usb.h>
 #include <include/mouse.h>
 #include <include/config.h>
 
@@ -32,8 +33,40 @@ static int event_idx = 0;
 static bool event_cycle = true;
 static volatile int last_cmd_status = -1;
 static volatile int last_cmd_slot = -1;
+static volatile int last_transfer_status[64][32];
 
-static xhci_trb_t* ep0_rings[64];
+typedef enum {
+    USB_TYPE_UNKNOWN,
+    USB_TYPE_HUB,
+    USB_TYPE_KBD,
+    USB_TYPE_MOUSE,
+    USB_TYPE_MSC
+} usb_device_type_t;
+
+typedef struct {
+    uint8_t num;
+    uint8_t type; /* 1=Isoch, 2=Bulk, 3=Interrupt */
+    uint8_t dir;  /* 0=Out, 1=In */
+    uint16_t max_packet;
+    uint8_t interval;
+} usb_endpoint_info_t;
+
+typedef struct {
+    int slot_id;
+    int port;
+    usb_device_type_t type;
+    usb_device_descriptor_t desc;
+    usb_endpoint_info_t eps[31];
+    int ep_count;
+    int bulk_in_idx;
+    int bulk_out_idx;
+} xhci_device_t;
+
+static xhci_device_t usb_devices[64];
+
+static xhci_trb_t* ep_rings[64][32];
+
+int xhci_transfer(int slot, int ep, xhci_trb_t* trb);
 
 static xhci_trb_t* xhci_alloc_ring(void) {
     void* slab_alloc_aligned(int id, size_t size, size_t align);
@@ -53,7 +86,21 @@ static char usb_map[256] = {
     [0x16] = 's', [0x17] = 't', [0x18] = 'u', [0x19] = 'v', [0x1A] = 'w', [0x1B] = 'x',
     [0x1C] = 'y', [0x1D] = 'z', [0x1E] = '1', [0x1F] = '2', [0x20] = '3', [0x21] = '4',
     [0x22] = '5', [0x23] = '6', [0x24] = '7', [0x25] = '8', [0x26] = '9', [0x27] = '0',
-    [0x28] = '\n', [0x2C] = ' ', [0x2A] = '\b', [0x2B] = '\t'
+    [0x28] = '\n', [0x2C] = ' ', [0x2A] = '\b', [0x2B] = '\t', [0x2D] = '-', [0x2E] = '=',
+    [0x2F] = '[', [0x30] = ']', [0x31] = '\\', [0x33] = ';', [0x34] = '\'', [0x36] = ',',
+    [0x37] = '.', [0x38] = '/'
+};
+
+static char usb_shift_map[256] = {
+    [0x04] = 'A', [0x05] = 'B', [0x06] = 'C', [0x07] = 'D', [0x08] = 'E', [0x09] = 'F',
+    [0x0A] = 'G', [0x0B] = 'H', [0x0C] = 'I', [0x0D] = 'J', [0x0E] = 'K', [0x0F] = 'L',
+    [0x10] = 'M', [0x11] = 'N', [0x12] = 'O', [0x13] = 'P', [0x14] = 'Q', [0x15] = 'R',
+    [0x16] = 'S', [0x17] = 'T', [0x18] = 'U', [0x19] = 'V', [0x1A] = 'W', [0x1B] = 'X',
+    [0x1C] = 'Y', [0x1D] = 'Z', [0x1E] = '!', [0x1F] = '@', [0x20] = '#', [0x21] = '$',
+    [0x22] = '%', [0x23] = '^', [0x24] = '&', [0x25] = '*', [0x26] = '(', [0x27] = ')',
+    [0x28] = '\n', [0x2C] = ' ', [0x2A] = '\b', [0x2B] = '\t', [0x2D] = '_', [0x2E] = '+',
+    [0x2F] = '{', [0x30] = '}', [0x31] = '|', [0x33] = ':', [0x34] = '"', [0x36] = '<',
+    [0x37] = '>', [0x38] = '?'
 };
 
 void xhci_rt_write(uint32_t reg, uint32_t val) {
@@ -90,14 +137,28 @@ void xhci_handle_events(void) {
         uint8_t type = (ev->control >> 10) & 0x3F;
 
         if (type == TRB_TYPE_TRANSFER_EV) {
+            int slot_id = (ev->control >> 24) & 0xFF;
+            int ep_idx = (ev->control >> 16) & 0x1F;
+            last_transfer_status[slot_id][ep_idx] = (ev->status >> 24) & 0xFF;
+
             /* TRB Pointer translated via HHDM */
             uint64_t report_phys = ev->ptr;
             uint8_t* report = (uint8_t*)(report_phys + get_hhdm_offset());
             if (report) {
-                if (report[1] == 0 && report[2] != 0) { /* Keyboard */
+                if (usb_devices[slot_id].type == USB_TYPE_KBD && ep_idx != 0) {
+                    uint8_t modifiers = report[0];
                     uint8_t code = report[2];
-                    kbd_push(usb_map[code]);
-                } else { /* Mouse */
+                    bool shift = (modifiers & 0x02) || (modifiers & 0x20);
+                    if (shift) kbd_push(usb_shift_map[code]);
+                    else kbd_push(usb_map[code]);
+
+                    /* Re-queue the Interrupt In TRB */
+                    xhci_trb_t t_trb = {0};
+                    t_trb.ptr = report_phys;
+                    t_trb.status = 8;
+                    t_trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5); /* IOC=1 */
+                    xhci_transfer(slot_id, ep_idx, &t_trb);
+                } else if (usb_devices[slot_id].type == USB_TYPE_MOUSE && ep_idx != 0) {
                     mouse_state_t* ms = get_mouse_state();
                     if (ms) {
                         ms->left_button = report[0] & 0x01;
@@ -107,6 +168,12 @@ void xhci_handle_events(void) {
                         ms->y += (int8_t)report[2];
                         ms->active = true;
                     }
+                    /* Re-queue */
+                    xhci_trb_t t_trb = {0};
+                    t_trb.ptr = report_phys;
+                    t_trb.status = 8;
+                    t_trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5); /* IOC=1 */
+                    xhci_transfer(slot_id, ep_idx, &t_trb);
                 }
             }
         } else if (type == TRB_TYPE_CMD_COMP_EV) {
@@ -155,11 +222,103 @@ int xhci_send_command(xhci_trb_t* trb) {
     int timeout = 1000;
     while(timeout--) {
         xhci_handle_events();
-        if (last_cmd_status != -1) return (last_cmd_status == 1) ? 0 : -1;
+        if (last_cmd_status != -1) return (last_cmd_status == 1) ? 0 : (int)last_cmd_status;
         void pit_wait_ms(uint32_t ms);
         pit_wait_ms(1);
     }
     return -1;
+}
+
+int xhci_ring_doorbell(int slot, int dball) {
+    xhci_db_write(slot * 4, dball);
+    return 0;
+}
+
+static int ring_indices[64][32];
+static bool ring_cycles[64][32];
+static bool rings_init = false;
+
+int xhci_transfer(int slot, int ep, xhci_trb_t* trb) {
+    if (!rings_init) {
+        for(int s=0; s<64; s++) {
+            for(int e=0; e<32; e++) {
+                ring_cycles[s][e] = true;
+                last_transfer_status[s][e] = -1;
+            }
+        }
+        rings_init = true;
+    }
+
+    last_transfer_status[slot][ep] = -1;
+    xhci_trb_t* ring = ep_rings[slot][ep];
+    if (!ring) return -1;
+
+    int idx = ring_indices[slot][ep];
+    ring[idx].ptr = trb->ptr;
+    ring[idx].status = trb->status;
+    ring[idx].control = (trb->control & ~0x01) | (ring_cycles[slot][ep] ? 1 : 0);
+
+    ring_indices[slot][ep] = (idx + 1) % 256;
+    if (ring_indices[slot][ep] == 255) {
+        /* Link TRB to loop back */
+        ring[255].ptr = vmm_get_phys(ring);
+        ring[255].status = 0;
+        ring[255].control = (6 << 10) | (1 << 1) | (ring_cycles[slot][ep] ? 1 : 0);
+        ring_indices[slot][ep] = 0;
+        ring_cycles[slot][ep] = !ring_cycles[slot][ep];
+    }
+
+    xhci_ring_doorbell(slot, ep + 1);
+    return 0;
+}
+
+int xhci_wait_transfer(int slot, int ep) {
+    int timeout = 1000;
+    while(timeout--) {
+        xhci_handle_events();
+        if (last_transfer_status[slot][ep] != -1) return (last_transfer_status[slot][ep] == 1) ? 0 : (int)last_transfer_status[slot][ep];
+        pit_wait_ms(1);
+    }
+    return -1;
+}
+
+int xhci_control_transfer(int slot, usb_setup_packet_t* setup, void* data, int len) {
+    xhci_trb_t trb = {0};
+
+    /* 1. Setup Stage */
+    trb.ptr = *(uint64_t*)setup;
+    trb.status = 8; /* Setup length */
+    trb.control = (TRB_TYPE_SETUP_STAGE << 10) | (1 << 6); /* IDT=1 */
+    if (len > 0) trb.control |= (1 << 14); /* TRT: Data Out (2) or Data In (3) */
+    /* For simplicity, assume Get Descriptor is Data In */
+    if (setup->bmRequestType & 0x80) trb.control |= (3 << 14);
+    else trb.control |= (2 << 14);
+
+    xhci_transfer(slot, 0, &trb);
+
+    /* 2. Data Stage */
+    if (len > 0) {
+        trb.ptr = vmm_get_phys(data);
+        trb.status = len;
+        trb.control = (TRB_TYPE_DATA_STAGE << 10);
+        if (setup->bmRequestType & 0x80) trb.control |= (1 << 16); /* DIR=In */
+        xhci_transfer(slot, 0, &trb);
+    }
+
+    /* 3. Status Stage */
+    trb.ptr = 0;
+    trb.status = 0;
+    trb.control = (TRB_TYPE_STATUS_STAGE << 10) | (1 << 5); /* IOC=1 */
+    if (len > 0 && (setup->bmRequestType & 0x80)) {
+        /* If data was In, status is Out */
+    } else if (len > 0) {
+        trb.control |= (1 << 16); /* DIR=In */
+    } else {
+        trb.control |= (1 << 16); /* DIR=In for No Data */
+    }
+
+    xhci_transfer(slot, 0, &trb);
+    return xhci_wait_transfer(slot, 0);
 }
 
 static xhci_dev_ctx_t* dev_contexts[64];
@@ -187,7 +346,7 @@ void xhci_setup_device(int port) {
     dcbaap[slot_id] = vmm_get_phys(dev_contexts[slot_id]);
 
     /* Allocate EP0 Transfer Ring */
-    ep0_rings[slot_id] = xhci_alloc_ring();
+    ep_rings[slot_id][0] = xhci_alloc_ring();
 
     /* Prepare Input Context */
     xhci_input_ctx_t* ictx = slab_alloc_aligned(0, sizeof(xhci_input_ctx_t), 64);
@@ -217,7 +376,7 @@ void xhci_setup_device(int port) {
     if (speed == 3) max_packet_size = 64; // High Speed
     else if (speed == 4) max_packet_size = 512; // Super Speed
 
-    uint64_t ep_phys = vmm_get_phys(ep0_rings[slot_id]);
+    uint64_t ep_phys = vmm_get_phys(ep_rings[slot_id][0]);
     ictx->ep[0].info[1] = (4 << 3) | (max_packet_size << 16); /* Type: Control, Max Packet */
     ictx->ep[0].tr_ptr = ep_phys | 1; /* Dequeue Pointer + DCS=1 */
 
@@ -225,6 +384,193 @@ void xhci_setup_device(int port) {
     cmd.control = (TRB_TYPE_ADDRESS_DEVICE << 10) | (slot_id << 24);
     if (xhci_send_command(&cmd) == 0) {
         serial_print("[XHCI] Device Address assigned to Slot %d (Speed %d).\n", slot_id, speed);
+
+        /* Fetch Device Descriptor */
+        usb_device_descriptor_t ddesc = {0};
+        usb_setup_packet_t setup = {0};
+        setup.bmRequestType = 0x80;
+        setup.bRequest = USB_REQ_GET_DESCRIPTOR;
+        setup.wValue = (USB_DESC_DEVICE << 8);
+        setup.wLength = sizeof(usb_device_descriptor_t);
+
+        if (xhci_control_transfer(slot_id, &setup, &ddesc, sizeof(ddesc)) == 0) {
+            serial_print("[USB] Device Found: Vendor=0x%x Product=0x%x\n", ddesc.idVendor, ddesc.idProduct);
+            usb_devices[slot_id].slot_id = slot_id;
+            usb_devices[slot_id].port = port;
+            usb_devices[slot_id].desc = ddesc;
+
+            /* Fetch Configuration Descriptor (Header only first) */
+            usb_config_descriptor_t cdesc = {0};
+            setup.bRequest = USB_REQ_GET_DESCRIPTOR;
+            setup.wValue = (USB_DESC_CONFIG << 8);
+            setup.wLength = sizeof(cdesc);
+            if (xhci_control_transfer(slot_id, &setup, &cdesc, sizeof(cdesc)) == 0) {
+                /* Fetch full Configuration Tree */
+                uint8_t* full_cfg = slab_alloc_aligned(0, cdesc.wTotalLength, 64);
+                setup.wLength = cdesc.wTotalLength;
+                if (xhci_control_transfer(slot_id, &setup, full_cfg, cdesc.wTotalLength) == 0) {
+                    serial_print("[USB] Configuration loaded (%d bytes).\n", cdesc.wTotalLength);
+
+                    /* Parse for Interfaces and Endpoints */
+                    uint8_t* ptr = full_cfg;
+                    usb_devices[slot_id].ep_count = 0;
+                    while (ptr < full_cfg + cdesc.wTotalLength) {
+                        uint8_t len = ptr[0];
+                        uint8_t type = ptr[1];
+                        if (type == 0x04) { /* Interface */
+                            usb_interface_descriptor_t* iface = (usb_interface_descriptor_t*)ptr;
+                            if (iface->bInterfaceClass == 0x03) { /* HID */
+                                if (iface->bInterfaceProtocol == 1) {
+                                    serial_write_str("[USB] Identified KEYBOARD.\n");
+                                    usb_devices[slot_id].type = USB_TYPE_KBD;
+                                } else if (iface->bInterfaceProtocol == 2) {
+                                    serial_write_str("[USB] Identified MOUSE.\n");
+                                    usb_devices[slot_id].type = USB_TYPE_MOUSE;
+                                }
+                            } else if (iface->bInterfaceClass == 0x08) { /* MSC */
+                                serial_write_str("[USB] Identified MASS STORAGE.\n");
+                                usb_devices[slot_id].type = USB_TYPE_MSC;
+                            }
+                        } else if (type == 0x05) { /* Endpoint */
+                            usb_endpoint_descriptor_t* ep = (usb_endpoint_descriptor_t*)ptr;
+                            int ec = usb_devices[slot_id].ep_count;
+                            if (ec < 31) {
+                                usb_devices[slot_id].eps[ec].num = ep->bEndpointAddress & 0x0F;
+                                usb_devices[slot_id].eps[ec].dir = (ep->bEndpointAddress & 0x80) ? 1 : 0;
+                                usb_devices[slot_id].eps[ec].type = ep->bmAttributes & 0x03;
+                                usb_devices[slot_id].eps[ec].max_packet = ep->wMaxPacketSize;
+                                usb_devices[slot_id].eps[ec].interval = ep->bInterval;
+                                usb_devices[slot_id].ep_count++;
+                            }
+                        }
+                        ptr += len;
+                    }
+
+                    /* Set Configuration 1 */
+                    setup.bmRequestType = 0x00;
+                    setup.bRequest = USB_REQ_SET_CONFIGURATION;
+                    setup.wValue = 1;
+                    setup.wIndex = 0;
+                    setup.wLength = 0;
+                    xhci_control_transfer(slot_id, &setup, NULL, 0);
+
+                    /* Configure Endpoints in xHC context */
+                    xhci_input_ctx_t* c_ictx = slab_alloc_aligned(0, sizeof(xhci_input_ctx_t), 64);
+                    for(int i=0; i<(int)sizeof(xhci_input_ctx_t)/4; i++) ((uint32_t*)c_ictx)[i] = 0;
+
+                    c_ictx->add_flags = 0x01; /* Slot Context always added */
+
+                    /* Copy current Slot Context */
+                    c_ictx->slot = dev_contexts[slot_id]->slot;
+                    int max_ep = 0;
+
+                    for (int i = 0; i < usb_devices[slot_id].ep_count; i++) {
+                        usb_endpoint_info_t* ep_info = &usb_devices[slot_id].eps[i];
+                        int ep_idx = (ep_info->num * 2) + (ep_info->dir == 1 ? 1 : 0) - 1;
+                        if (ep_idx < 0 || ep_idx >= 31) continue;
+
+                        c_ictx->add_flags |= (1 << (ep_idx + 1));
+                        ep_rings[slot_id][ep_idx + 1] = xhci_alloc_ring();
+
+                        uint32_t type = 0;
+                        if (ep_info->type == 2) type = (ep_info->dir == 1) ? 6 : 2; /* Bulk In/Out */
+                        else if (ep_info->type == 3) type = (ep_info->dir == 1) ? 7 : 3; /* Interrupt In/Out */
+
+                        c_ictx->ep[ep_idx].info[1] = (type << 3) | (ep_info->max_packet << 16) | (ep_info->interval << 8);
+                        c_ictx->ep[ep_idx].tr_ptr = vmm_get_phys(ep_rings[slot_id][ep_idx + 1]) | 1;
+
+                        if (ep_info->type == 2) {
+                            if (ep_info->dir == 1) usb_devices[slot_id].bulk_in_idx = ep_idx + 1;
+                            else usb_devices[slot_id].bulk_out_idx = ep_idx + 1;
+                        }
+
+                        if (ep_idx + 1 > max_ep) max_ep = ep_idx + 1;
+                    }
+
+                    /* Update Context Entries in Slot Context */
+                    c_ictx->slot.info[0] = (c_ictx->slot.info[0] & ~(0x1F << 27)) | ((max_ep + 1) << 27);
+
+                    xhci_trb_t c_cmd = {0};
+                    c_cmd.ptr = vmm_get_phys(c_ictx);
+                    c_cmd.control = (TRB_TYPE_CONFIG_EP << 10) | (slot_id << 24);
+                    if (xhci_send_command(&c_cmd) == 0) {
+                        serial_print("[USB] Endpoints configured for Slot %d.\n", slot_id);
+
+                        /* Preliminary MSC Discovery */
+                        if (usb_devices[slot_id].type == USB_TYPE_MSC) {
+                            int xhci_msc_read(void* priv, uint64_t lba, uint32_t count, void* buffer);
+
+                            /* Fetch Capacity */
+                            uint8_t cap_buf[8];
+                            usb_msc_cbw_t cbw = {0};
+                            cbw.dCBWSignature = MSC_CBW_SIGNATURE;
+                            cbw.dCBWTag = 0x12345678;
+                            cbw.dCBWDataTransferLength = 8;
+                            cbw.bmCBWFlags = 0x80; /* In */
+                            cbw.bCBWLUN = 0;
+                            cbw.bCBWCBLength = 10;
+                            cbw.CBWCB[0] = 0x25; /* READ CAPACITY(10) */
+
+                            xhci_trb_t t_trb = {0};
+                            t_trb.ptr = vmm_get_phys(&cbw);
+                            t_trb.status = sizeof(cbw);
+                            t_trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5);
+                            xhci_transfer(slot_id, usb_devices[slot_id].bulk_out_idx, &t_trb);
+                            xhci_wait_transfer(slot_id, usb_devices[slot_id].bulk_out_idx);
+
+                            t_trb.ptr = vmm_get_phys(cap_buf);
+                            t_trb.status = 8;
+                            t_trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5);
+                            xhci_transfer(slot_id, usb_devices[slot_id].bulk_in_idx, &t_trb);
+                            xhci_wait_transfer(slot_id, usb_devices[slot_id].bulk_in_idx);
+
+                            usb_msc_csw_t csw = {0};
+                            t_trb.ptr = vmm_get_phys(&csw);
+                            t_trb.status = sizeof(csw);
+                            t_trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5);
+                            xhci_transfer(slot_id, usb_devices[slot_id].bulk_in_idx, &t_trb);
+                            xhci_wait_transfer(slot_id, usb_devices[slot_id].bulk_in_idx);
+
+                            uint32_t max_lba = (cap_buf[0] << 24) | (cap_buf[1] << 16) | (cap_buf[2] << 8) | cap_buf[3];
+
+                            int xhci_msc_write(void* priv, uint64_t lba, uint32_t count, void* buffer);
+                            /* Register MSC as Physical Volume */
+                            vdisk_node_t msc = {
+                                .name = "USB_STICK",
+                                .sector_size = 512,
+                                .total_lba = max_lba + 1,
+                                .partition_offset = 0,
+                                .read_lba = xhci_msc_read,
+                                .write_lba = xhci_msc_write,
+                                .is_atapi = false,
+                                .private_data = (void*)(uint64_t)slot_id
+                            };
+                            void register_hardware_disk(vdisk_node_t node);
+                            register_hardware_disk(msc);
+                        }
+
+                        /* Kick off Interrupt In transfers for HID */
+                        if (usb_devices[slot_id].type == USB_TYPE_KBD || usb_devices[slot_id].type == USB_TYPE_MOUSE) {
+                            for (int i = 0; i < usb_devices[slot_id].ep_count; i++) {
+                                usb_endpoint_info_t* ep_info = &usb_devices[slot_id].eps[i];
+                                if (ep_info->type == 3 && ep_info->dir == 1) { /* Interrupt In */
+                                    int ep_idx = (ep_info->num * 2) + 1;
+                                    void* report_buf = slab_alloc_aligned(0, ep_info->max_packet, 64);
+                                    xhci_trb_t t_trb = {0};
+                                    t_trb.ptr = vmm_get_phys(report_buf);
+                                    t_trb.status = ep_info->max_packet;
+                                    t_trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5); /* IOC=1 */
+                                    xhci_transfer(slot_id, ep_idx, &t_trb);
+                                    serial_print("[USB] Interrupt In started for Slot %d EP %d\n", slot_id, ep_idx);
+                                }
+                            }
+                        }
+                    } else {
+                        serial_print("[USB] Error: CONFIG_EP failed for Slot %d.\n", slot_id);
+                    }
+                }
+            }
+        }
     } else {
         serial_print("[XHCI] Error: ADDRESS_DEVICE failed for Slot %d.\n", slot_id);
     }
@@ -319,6 +665,108 @@ void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
         if (next == 0) break;
         ext_cap += next;
     }
+}
+
+int xhci_msc_read(void* priv, uint64_t lba, uint32_t count, void* buffer) {
+    int slot = (int)(uint64_t)priv;
+    int ep_out = usb_devices[slot].bulk_out_idx;
+    int ep_in = usb_devices[slot].bulk_in_idx;
+
+    if (ep_out == 0 || ep_in == 0) return -1;
+
+    usb_msc_cbw_t cbw = {0};
+    cbw.dCBWSignature = MSC_CBW_SIGNATURE;
+    cbw.dCBWTag = 0xDEADBEEF;
+    cbw.dCBWDataTransferLength = count * 512;
+    cbw.bmCBWFlags = 0x80; /* Data In */
+    cbw.bCBWLUN = 0;
+    cbw.bCBWCBLength = 10;
+
+    /* SCSI READ(10) */
+    cbw.CBWCB[0] = 0x28;
+    cbw.CBWCB[2] = (lba >> 24) & 0xFF;
+    cbw.CBWCB[3] = (lba >> 16) & 0xFF;
+    cbw.CBWCB[4] = (lba >> 8) & 0xFF;
+    cbw.CBWCB[5] = lba & 0xFF;
+    cbw.CBWCB[7] = (count >> 8) & 0xFF;
+    cbw.CBWCB[8] = count & 0xFF;
+
+    /* 1. Send CBW */
+    xhci_trb_t trb = {0};
+    trb.ptr = vmm_get_phys(&cbw);
+    trb.status = sizeof(cbw);
+    trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5); /* IOC */
+    xhci_transfer(slot, ep_out, &trb);
+    if (xhci_wait_transfer(slot, ep_out) != 0) return -1;
+
+    /* 2. Read Data */
+    trb.ptr = vmm_get_phys(buffer);
+    trb.status = count * 512;
+    trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5); /* IOC */
+    xhci_transfer(slot, ep_in, &trb);
+    if (xhci_wait_transfer(slot, ep_in) != 0) return -1;
+
+    /* 3. Read CSW */
+    usb_msc_csw_t csw = {0};
+    trb.ptr = vmm_get_phys(&csw);
+    trb.status = sizeof(csw);
+    trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5); /* IOC */
+    xhci_transfer(slot, ep_in, &trb);
+    if (xhci_wait_transfer(slot, ep_in) != 0) return -1;
+
+    if (csw.bCSWStatus != 0) return -1;
+    return 0;
+}
+
+int xhci_msc_write(void* priv, uint64_t lba, uint32_t count, void* buffer) {
+    int slot = (int)(uint64_t)priv;
+    int ep_out = usb_devices[slot].bulk_out_idx;
+    int ep_in = usb_devices[slot].bulk_in_idx;
+
+    if (ep_out == 0 || ep_in == 0) return -1;
+
+    usb_msc_cbw_t cbw = {0};
+    cbw.dCBWSignature = MSC_CBW_SIGNATURE;
+    cbw.dCBWTag = 0x87654321;
+    cbw.dCBWDataTransferLength = count * 512;
+    cbw.bmCBWFlags = 0x00; /* Data Out */
+    cbw.bCBWLUN = 0;
+    cbw.bCBWCBLength = 10;
+
+    /* SCSI WRITE(10) */
+    cbw.CBWCB[0] = 0x2A;
+    cbw.CBWCB[2] = (lba >> 24) & 0xFF;
+    cbw.CBWCB[3] = (lba >> 16) & 0xFF;
+    cbw.CBWCB[4] = (lba >> 8) & 0xFF;
+    cbw.CBWCB[5] = lba & 0xFF;
+    cbw.CBWCB[7] = (count >> 8) & 0xFF;
+    cbw.CBWCB[8] = count & 0xFF;
+
+    /* 1. Send CBW */
+    xhci_trb_t trb = {0};
+    trb.ptr = vmm_get_phys(&cbw);
+    trb.status = sizeof(cbw);
+    trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5); /* IOC */
+    xhci_transfer(slot, ep_out, &trb);
+    if (xhci_wait_transfer(slot, ep_out) != 0) return -1;
+
+    /* 2. Write Data */
+    trb.ptr = vmm_get_phys(buffer);
+    trb.status = count * 512;
+    trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5); /* IOC */
+    xhci_transfer(slot, ep_out, &trb);
+    if (xhci_wait_transfer(slot, ep_out) != 0) return -1;
+
+    /* 3. Read CSW */
+    usb_msc_csw_t csw = {0};
+    trb.ptr = vmm_get_phys(&csw);
+    trb.status = sizeof(csw);
+    trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5); /* IOC */
+    xhci_transfer(slot, ep_in, &trb);
+    if (xhci_wait_transfer(slot, ep_in) != 0) return -1;
+
+    if (csw.bCSWStatus != 0) return -1;
+    return 0;
 }
 
 void usb_xhci_service(kernel_event_t event) {
