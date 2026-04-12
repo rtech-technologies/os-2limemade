@@ -129,7 +129,7 @@ void sovereign_service_orchestrator(void) {
 
     /* Background Mouse Polling for PS/2 */
 #if defined(CONFIG_INTERFACE_ALL) || defined(CONFIG_INTERFACE_PS2)
-    #include <include/mouse.h>
+    void mouse_poll(void);
     mouse_poll();
 #endif
 
@@ -138,6 +138,7 @@ void sovereign_service_orchestrator(void) {
 
 void mouse_service(kernel_event_t event) {
     #include <include/config.h>
+    void mouse_init(void);
     if (event == EVENT_INIT) {
 #if defined(CONFIG_INTERFACE_ALL) || defined(CONFIG_INTERFACE_PS2)
         mouse_init();

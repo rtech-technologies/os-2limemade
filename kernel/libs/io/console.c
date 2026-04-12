@@ -264,14 +264,7 @@ void hw_poll(void) {
     }
 #endif
 
-    /* 2. USB Keyboard/Mouse Polling */
-#if defined(CONFIG_INTERFACE_ALL) || defined(CONFIG_INTERFACE_USB)
-    char usb_keyboard_poll(void);
-    char uc = usb_keyboard_poll();
-    if (uc) kbd_push(uc);
-#endif
-
-    /* 3. Serial COM1 Polling */
+    /* 2. Serial COM1 Polling */
     if (serial_received()) {
         char c = serial_read_char();
         if (c == '\n' || c == '\r' || c == '\b' || c == 27 || (c >= 32 && c <= 126)) {

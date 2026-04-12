@@ -16,6 +16,8 @@ void idle_task(void) {
     }
 }
 
+void usb_main_task(void);
+
 void shell_main(void);
 
 void shell_task(void) {
@@ -118,6 +120,9 @@ void tasking_init(void) {
 
     /* Register System Maintenance Task in Slab 1 */
     register_task(system_task, 1);
+
+    /* Register USB Maintenance Task in Slab 6 */
+    register_task(usb_main_task, 6);
 
     /* Register Shell Task in Slab 2 */
     if (pending_shell_entry) {
