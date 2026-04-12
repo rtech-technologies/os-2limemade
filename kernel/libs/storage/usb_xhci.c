@@ -194,6 +194,8 @@ void xhci_setup_device(int port) {
     if (!ictx) return;
     for(int i=0; i<(int)sizeof(xhci_input_ctx_t)/4; i++) ((uint32_t*)ictx)[i] = 0;
 
+    /* xHCI Hardware Mandate: Input Context MUST be zeroed before use */
+    ictx->drop_flags = 0;
     ictx->add_flags = 0x03; /* Slot and EP0 */
 
     /* Get Port Speed from PORTSC */
@@ -201,9 +203,14 @@ void xhci_setup_device(int port) {
     uint32_t portsc = xhci_op_read(port_reg);
     uint32_t speed = (portsc >> 10) & 0x0F;
 
-    /* Slot Context: Context Entries = 1 (EP0), Speed, Root Port Num */
-    ictx->slot.info[0] = (1 << 27) | (speed << 20) | (port + 1);
-    ictx->slot.info[1] = (port + 1); /* Root Hub Port Number */
+    /* Slot Context:
+       - Context Entries = 1 (EP0)
+       - Speed (bits 20-23)
+       - Root Port Num (bits 16-23 in Slot Context Info 1)
+       - Max Exit Latency = 0 (bits 0-15 in Slot Context Info 1)
+    */
+    ictx->slot.info[0] = (1 << 27) | (speed << 20);
+    ictx->slot.info[1] = ((port + 1) << 16); /* Root Hub Port Number, Latency=0 */
 
     /* EP0 Context (Control Endpoint) */
     uint32_t max_packet_size = 8;

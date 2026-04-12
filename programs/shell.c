@@ -21,17 +21,25 @@ void shell_main(void) {
     /* Boot Menu Choice-Gate */
     print("\n1. Install OSx2 to SATA HDD\n");
     print("2. Enter Safe Mode (CD-ROM Only)\n");
-    void* choice = input("\nSelect Option (1/2): ");
 
-    if (choice) {
-        if (str_match(choice, "1")) {
-            print("Preparing Installation...\n");
-            int rsl_execute_stream(const char* path);
-            rsl_execute_stream("BOOT:/install.rsl");
-        } else if (str_match(choice, "2")) {
-            print("Entering Safe Mode...\n");
+    while(1) {
+        void* choice = input("\nSelect Option (1/2): ");
+        if (choice) {
+            if (str_match(choice, "1")) {
+                print("Preparing Installation...\n");
+                int rsl_execute_stream(const char* path);
+                rsl_execute_stream("BOOT:/install.rsl");
+                release(choice);
+                break;
+            } else if (str_match(choice, "2")) {
+                print("Entering Safe Mode...\n");
+                release(choice);
+                break;
+            } else {
+                print("Invalid choice. Try again.\n");
+                release(choice);
+            }
         }
-        release(choice);
     }
 
     while (1) {
