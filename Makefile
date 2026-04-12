@@ -48,8 +48,8 @@ run: iso $(SATA_DISK)
 		-device ich9-ahci,id=ahci \
 		-device ide-hd,drive=d0,bus=ahci.0 \
 		-device qemu-xhci,id=xhci \
+		-device usb-tablet,bus=xhci.0 \
 		-device usb-kbd,bus=xhci.0 \
-		-device usb-mouse,bus=xhci.0 \
 		-nodefaults -vga std
 
 $(SATA_DISK):

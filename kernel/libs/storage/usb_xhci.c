@@ -15,6 +15,7 @@ void serial_print(const char* fmt, ...);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
 uint64_t get_hhdm_offset(void);
 uint64_t vmm_get_phys(void* virt);
+void pit_wait_ms(uint32_t ms);
 
 static void* xhci_base = NULL;
 static uint32_t xhci_cap_len = 0;
@@ -24,7 +25,6 @@ static xhci_trb_t* cmd_ring = NULL;
 static xhci_trb_t* event_ring = NULL;
 static xhci_erst_entry_t* erst = NULL;
 static uint64_t* dcbaap = NULL;
-static void* input_context = NULL;
 
 static int cmd_ring_idx = 0;
 static bool cmd_cycle = true;
@@ -322,45 +322,80 @@ void usb_xhci_service(kernel_event_t event) {
             for (int slot = 0; slot < 32; slot++) {
                 for (int func = 0; func < 8; func++) {
                     uint32_t class_info = pci_config_read(bus, slot, func, 0x08);
-                    if (((class_info >> 24) & 0xFF) == 0x0C && ((class_info >> 16) & 0xFF) == 0x03 && ((class_info >> 8) & 0xFF) == 0x30) {
-                        pci_enable_master(bus, slot, func);
-                        uint32_t bar0 = pci_config_read(bus, slot, func, 0x10);
-                        xhci_base = (void*)(get_hhdm_offset() + (uint64_t)(bar0 & 0xFFFFFFF0));
-                        xhci_bios_handover(bus, slot, func, xhci_base);
+                    if (((class_info >> 24) & 0xFF) == 0x0C && ((class_info >> 16) & 0xFF) == 0x03) {
+                        uint8_t prog_if = (class_info >> 8) & 0xFF;
+                        serial_print("[PCI] USB Controller Found: %d:%d:%d (ProgIF: 0x%x)\n", bus, slot, func, prog_if);
 
-                        xhci_cap_len = *(volatile uint8_t*)xhci_base;
-                        xhci_rt_off = *(volatile uint32_t*)((uint8_t*)xhci_base + XHCI_CAP_RTSOFF);
+                        if (prog_if == 0x30) { /* xHCI (USB 3.0) */
+                            pci_enable_master(bus, slot, func);
+                            uint32_t bar0 = pci_config_read(bus, slot, func, 0x10);
+                            xhci_base = (void*)(get_hhdm_offset() + (uint64_t)(bar0 & 0xFFFFFFF0));
 
-                        xhci_op_write(XHCI_OP_USBCMD, xhci_op_read(XHCI_OP_USBCMD) & ~0x01);
-                        while(!(xhci_op_read(XHCI_OP_USBSTS) & 0x01));
-                        xhci_op_write(XHCI_OP_USBCMD, 0x02);
-                        while(xhci_op_read(XHCI_OP_USBCMD) & 0x02);
+                            /* Hardware Presence Validation */
+                            if (*(volatile uint32_t*)xhci_base == 0xFFFFFFFF) {
+                                serial_write_str("[XHCI] Error: Hardware reported 0xFFFFFFFF (Ghost Device). Aborting.\n");
+                                xhci_base = NULL;
+                                continue;
+                            }
 
-                        void* slab_alloc_aligned(int id, size_t size, size_t align);
-                        cmd_ring = slab_alloc_aligned(0, 4096, 64);
-                        event_ring = slab_alloc_aligned(0, 4096, 64);
-                        erst = slab_alloc_aligned(0, 4096, 64);
-                        dcbaap = slab_alloc_aligned(0, 4096, 64);
-                        input_context = slab_alloc_aligned(0, 4096, 64);
+                            xhci_bios_handover(bus, slot, func, xhci_base);
 
-                        xhci_op_write(XHCI_OP_CONFIG, *(volatile uint32_t*)((uint8_t*)xhci_base + 0x04) & 0xFF);
-                        xhci_op_write(XHCI_OP_DCBAAP, (uint32_t)vmm_get_phys(dcbaap));
-                        xhci_op_write(XHCI_OP_DCBAAP + 4, (uint32_t)(vmm_get_phys(dcbaap) >> 32));
-                        xhci_op_write(XHCI_OP_CRCR, (uint32_t)vmm_get_phys(cmd_ring) | 1);
-                        xhci_op_write(XHCI_OP_CRCR + 4, (uint32_t)(vmm_get_phys(cmd_ring) >> 32));
+                            xhci_cap_len = *(volatile uint8_t*)xhci_base;
+                            if (xhci_cap_len == 0xFF) {
+                                serial_write_str("[XHCI] Error: Invalid Capability Length. Aborting.\n");
+                                xhci_base = NULL;
+                                continue;
+                            }
+                            xhci_rt_off = *(volatile uint32_t*)((uint8_t*)xhci_base + XHCI_CAP_RTSOFF);
 
-                        erst[0].ptr = vmm_get_phys(event_ring);
-                        erst[0].size = 256;
-                        xhci_rt_write(XHCI_RT_ERSTSZ(0), 1);
-                        xhci_rt_write(XHCI_RT_ERSTBA(0), (uint32_t)vmm_get_phys(erst));
-                        xhci_rt_write(XHCI_RT_ERSTBA(0) + 4, (uint32_t)(vmm_get_phys(erst) >> 32));
-                        xhci_rt_write(XHCI_RT_ERDP(0), (uint32_t)vmm_get_phys(event_ring));
-                        xhci_rt_write(XHCI_RT_ERDP(0) + 4, (uint32_t)(vmm_get_phys(event_ring) >> 32));
+                            /* Stop and Reset Controller */
+                            xhci_op_write(XHCI_OP_USBCMD, xhci_op_read(XHCI_OP_USBCMD) & ~0x01);
+                            int timeout = 1000;
+                            while(!(xhci_op_read(XHCI_OP_USBSTS) & 0x01) && timeout--) pit_wait_ms(1);
 
-                        xhci_op_write(XHCI_OP_USBCMD, xhci_op_read(XHCI_OP_USBCMD) | 0x01);
-                        while(xhci_op_read(XHCI_OP_USBSTS) & 0x01);
-                        serial_write_str("[XHCI] Online.\n");
-                        return;
+                            xhci_op_write(XHCI_OP_USBCMD, 0x02);
+                            timeout = 1000;
+                            while((xhci_op_read(XHCI_OP_USBCMD) & 0x02) && timeout--) pit_wait_ms(1);
+
+                            void* slab_alloc_aligned(int id, size_t size, size_t align);
+                            cmd_ring = slab_alloc_aligned(0, 4096, 64);
+                            event_ring = slab_alloc_aligned(0, 4096, 64);
+                            erst = slab_alloc_aligned(0, 4096, 64);
+                            dcbaap = slab_alloc_aligned(0, 4096, 64);
+                            for(int k=0; k<1024; k++) dcbaap[k] = 0;
+
+                            /* Scratchpad Buffers */
+                            uint32_t hcsparams2 = *(volatile uint32_t*)((uint8_t*)xhci_base + 0x08);
+                            uint32_t max_scratchpads = (hcsparams2 >> 21) & 0x1F;
+                            if (max_scratchpads > 0) {
+                                uint64_t* scratch_array = slab_alloc_aligned(0, max_scratchpads * 8, 64);
+                                for (uint32_t k = 0; k < max_scratchpads; k++) {
+                                    void* buf = slab_alloc_aligned(0, 4096, 4096);
+                                    scratch_array[k] = vmm_get_phys(buf);
+                                }
+                                dcbaap[0] = vmm_get_phys(scratch_array);
+                            }
+
+                            xhci_op_write(XHCI_OP_CONFIG, *(volatile uint32_t*)((uint8_t*)xhci_base + 0x04) & 0xFF);
+                            xhci_op_write(XHCI_OP_DCBAAP, (uint32_t)vmm_get_phys(dcbaap));
+                            xhci_op_write(XHCI_OP_DCBAAP + 4, (uint32_t)(vmm_get_phys(dcbaap) >> 32));
+                            xhci_op_write(XHCI_OP_CRCR, (uint32_t)vmm_get_phys(cmd_ring) | 1);
+                            xhci_op_write(XHCI_OP_CRCR + 4, (uint32_t)(vmm_get_phys(cmd_ring) >> 32));
+
+                            erst[0].ptr = vmm_get_phys(event_ring);
+                            erst[0].size = 256;
+                            xhci_rt_write(XHCI_RT_ERSTSZ(0), 1);
+                            xhci_rt_write(XHCI_RT_ERSTBA(0), (uint32_t)vmm_get_phys(erst));
+                            xhci_rt_write(XHCI_RT_ERSTBA(0) + 4, (uint32_t)(vmm_get_phys(erst) >> 32));
+                            xhci_rt_write(XHCI_RT_ERDP(0), (uint32_t)vmm_get_phys(event_ring) | 0x08);
+                            xhci_rt_write(XHCI_RT_ERDP(0) + 4, (uint32_t)(vmm_get_phys(event_ring) >> 32));
+
+                            xhci_op_write(XHCI_OP_USBCMD, xhci_op_read(XHCI_OP_USBCMD) | 0x01);
+                            timeout = 1000;
+                            while((xhci_op_read(XHCI_OP_USBSTS) & 0x01) && timeout--) pit_wait_ms(1);
+                            serial_write_str("[XHCI] Online.\n");
+                            return;
+                        }
                     }
                     if (func == 0 && !(pci_config_read(bus, slot, 0, 0x0C) & 0x800000)) break;
                 }

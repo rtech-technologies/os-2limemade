@@ -234,11 +234,6 @@ void unice64_schedule(void) {
 
     task_table[current_task_idx].state = TASK_RUNNING;
 
-    /* Diagnostic Trace: Trace RIP of resumed task */
-    /* RIP is at index 15 in the context structure (after 15 GPRs) */
-    void serial_print_hex32(const char* label, uint32_t val);
-    serial_print_hex32("[SCHED] Resuming Task ", current_task_idx);
-
     /* Update Telemetry on every switch */
     telemetry_update(current_task_idx, "ACTIVE");
 }
