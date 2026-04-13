@@ -60,6 +60,7 @@ typedef struct {
     int ep_count;
     int bulk_in_idx;
     int bulk_out_idx;
+    uint8_t last_report[8];
 } xhci_device_t;
 
 static xhci_device_t usb_devices[64];
@@ -167,7 +168,6 @@ void xhci_handle_events(void) {
             uint8_t* report = (uint8_t*)(report_phys + get_hhdm_offset());
             if (report) {
                 if (usb_devices[slot_id].type == USB_TYPE_KBD && ep_idx != 0) {
-                    static uint8_t last_report[8] = {0};
                     uint8_t modifiers = report[0];
 
                     /* 1. Check for releases of the repeat key */
@@ -193,7 +193,7 @@ void xhci_handle_events(void) {
 
                         bool was_pressed = false;
                         for (int j = 2; j < 8; j++) {
-                            if (last_report[j] == code) {
+                            if (usb_devices[slot_id].last_report[j] == code) {
                                 was_pressed = true;
                                 break;
                             }
@@ -210,7 +210,7 @@ void xhci_handle_events(void) {
                             }
                         }
                     }
-                    for (int i = 0; i < 8; i++) last_report[i] = report[i];
+                    for (int i = 0; i < 8; i++) usb_devices[slot_id].last_report[i] = report[i];
 
                     /* Re-queue the Interrupt In TRB */
                     xhci_trb_t t_trb = {0};

@@ -45,10 +45,17 @@ Sending commands to the XHCI controller follows the "Active Spawner" model:
 OSx2 uses an event-driven polling model for USB input:
 
 *   **Transfer Events:** When a keyboard or mouse report is received, the controller posts a `TRB_TYPE_TRANSFER_EV` to the Event Ring.
-*   **HID Router:** The `usb_keyboard_poll` function (called by `get_char`) parses these events, identifies the report type (Keyboard vs Mouse), and updates the system state.
+*   **HID Router:** The `xhci_handle_events` function (called by the `usb_main_task`) parses these events, identifies the report type (Keyboard vs Mouse), and updates the system state. Keyboard events are pushed to the kernel's scancode buffer.
 *   **Non-Blocking:** If the scheduler is active, the driver yields (`sys_yield`) during hardware stalls, ensuring the system remains responsive.
 
-## 6. QEMU Integration
+## 6. Telemetry Monitor
+
+The Sovereign Telemetry Monitor (bottom row of the console) displays the state of the USB subsystem:
+
+*   **`[M:X,Y]`**: The **'M'** stands for **Mouse**. It displays the real-time X and Y coordinates received from the HID Mouse or Tablet device. These values are updated whenever a HID report is processed by the xHCI event ring.
+*   **`INPUT_WAIT`**: Indicates that the active task (e.g., the RSL Shell) is waiting for a USB keyboard or mouse event, causing the scheduler to yield to the background system task to maintain "Mechanical Truth" in power efficiency.
+
+## 7. QEMU Integration
 
 USB support is enabled in the testing environment via the `Makefile`:
 ```makefile
