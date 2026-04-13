@@ -213,7 +213,13 @@ void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
 }
 
 void vga_write_char(char c, uint8_t color_attr) {
-    serial_write_char(c);
+    if (c == '\b') {
+        serial_write_char('\b');
+        serial_write_char(' ');
+        serial_write_char('\b');
+    } else {
+        serial_write_char(c);
+    }
 
     /* Ignore non-printable gibberish except for key control codes */
     if ((uint8_t)c < 32 && c != '\n' && c != '\r' && c != '\b' && c != '\t') return;

@@ -66,17 +66,8 @@ static xhci_device_t usb_devices[64];
 
 static xhci_trb_t* ep_rings[64][32];
 
-int xhci_transfer(int slot, int ep, xhci_trb_t* trb);
+void kbd_push(char c);
 
-static xhci_trb_t* xhci_alloc_ring(void) {
-    void* slab_alloc_aligned(int id, size_t size, size_t align);
-    xhci_trb_t* ring = slab_alloc_aligned(0, 4096, 64);
-    if (!ring) return NULL;
-    for (int i = 0; i < 256; i++) {
-        ring[i].ptr = 0; ring[i].status = 0; ring[i].control = 0;
-    }
-    return ring;
-}
 
 /* Scancode Map: USB HID to ASCII (Partial) */
 static char usb_map[256] = {
@@ -88,7 +79,8 @@ static char usb_map[256] = {
     [0x22] = '5', [0x23] = '6', [0x24] = '7', [0x25] = '8', [0x26] = '9', [0x27] = '0',
     [0x28] = '\n', [0x2C] = ' ', [0x2A] = '\b', [0x2B] = '\t', [0x2D] = '-', [0x2E] = '=',
     [0x2F] = '[', [0x30] = ']', [0x31] = '\\', [0x33] = ';', [0x34] = '\'', [0x36] = ',',
-    [0x37] = '.', [0x38] = '/'
+    [0x37] = '.', [0x38] = '/', [0x29] = 27 /* Esc */, [0x4C] = 127 /* Del */,
+    [0x35] = '`'
 };
 
 static char usb_shift_map[256] = {
@@ -100,8 +92,37 @@ static char usb_shift_map[256] = {
     [0x22] = '%', [0x23] = '^', [0x24] = '&', [0x25] = '*', [0x26] = '(', [0x27] = ')',
     [0x28] = '\n', [0x2C] = ' ', [0x2A] = '\b', [0x2B] = '\t', [0x2D] = '_', [0x2E] = '+',
     [0x2F] = '{', [0x30] = '}', [0x31] = '|', [0x33] = ':', [0x34] = '"', [0x36] = '<',
-    [0x37] = '>', [0x38] = '?'
+    [0x37] = '>', [0x38] = '?', [0x29] = 27, [0x4C] = 127, [0x35] = '~'
 };
+
+static uint8_t repeat_key = 0;
+static uint8_t repeat_modifiers = 0;
+static uint64_t next_repeat_tick = 0;
+
+int xhci_transfer(int slot, int ep, xhci_trb_t* trb);
+uint64_t get_system_ticks(void);
+
+void xhci_handle_repeat(void) {
+    if (repeat_key == 0) return;
+    uint64_t now = get_system_ticks();
+    if (now >= next_repeat_tick) {
+        bool shift = (repeat_modifiers & 0x02) || (repeat_modifiers & 0x20);
+        char c = shift ? usb_shift_map[repeat_key] : usb_map[repeat_key];
+        if (c) kbd_push(c);
+        next_repeat_tick = now + 50; /* 50ms repeat rate */
+    }
+}
+
+static xhci_trb_t* xhci_alloc_ring(void) {
+    void* slab_alloc_aligned(int id, size_t size, size_t align);
+    xhci_trb_t* ring = slab_alloc_aligned(0, 4096, 64);
+    if (!ring) return NULL;
+    for (int i = 0; i < 256; i++) {
+        ring[i].ptr = 0; ring[i].status = 0; ring[i].control = 0;
+    }
+    return ring;
+}
+
 
 void xhci_rt_write(uint32_t reg, uint32_t val) {
     if (!xhci_base) return;
@@ -146,11 +167,50 @@ void xhci_handle_events(void) {
             uint8_t* report = (uint8_t*)(report_phys + get_hhdm_offset());
             if (report) {
                 if (usb_devices[slot_id].type == USB_TYPE_KBD && ep_idx != 0) {
+                    static uint8_t last_report[8] = {0};
                     uint8_t modifiers = report[0];
-                    uint8_t code = report[2];
-                    bool shift = (modifiers & 0x02) || (modifiers & 0x20);
-                    if (shift) kbd_push(usb_shift_map[code]);
-                    else kbd_push(usb_map[code]);
+
+                    /* 1. Check for releases of the repeat key */
+                    if (repeat_key != 0) {
+                        bool still_pressed = false;
+                        for (int i = 2; i < 8; i++) {
+                            if (report[i] == repeat_key) {
+                                still_pressed = true;
+                                break;
+                            }
+                        }
+                        if (!still_pressed) {
+                            repeat_key = 0;
+                        } else {
+                            repeat_modifiers = modifiers;
+                        }
+                    }
+
+                    /* 2. Check for new key presses */
+                    for (int i = 2; i < 8; i++) {
+                        uint8_t code = report[i];
+                        if (code == 0) continue;
+
+                        bool was_pressed = false;
+                        for (int j = 2; j < 8; j++) {
+                            if (last_report[j] == code) {
+                                was_pressed = true;
+                                break;
+                            }
+                        }
+
+                        if (!was_pressed) {
+                            bool shift = (modifiers & 0x02) || (modifiers & 0x20);
+                            char c = shift ? usb_shift_map[code] : usb_map[code];
+                            if (c) {
+                                kbd_push(c);
+                                repeat_key = code;
+                                repeat_modifiers = modifiers;
+                                next_repeat_tick = get_system_ticks() + 500; /* 500ms delay */
+                            }
+                        }
+                    }
+                    for (int i = 0; i < 8; i++) last_report[i] = report[i];
 
                     /* Re-queue the Interrupt In TRB */
                     xhci_trb_t t_trb = {0};
@@ -634,6 +694,7 @@ void usb_main_task(void) {
 
         /* 2. Event Ring Processor */
         xhci_handle_events();
+        xhci_handle_repeat();
 
         /* Handover */
         sys_yield();
@@ -714,7 +775,10 @@ int xhci_msc_read(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     xhci_transfer(slot, ep_in, &trb);
     if (xhci_wait_transfer(slot, ep_in) != 0) return -1;
 
-    if (csw.bCSWStatus != 0) return -1;
+    if (csw.dCSWSignature != MSC_CSW_SIGNATURE || csw.bCSWStatus != 0) {
+        serial_print("[USB] MSC Read Failure: Sig=0x%x Status=0x%x\n", csw.dCSWSignature, csw.bCSWStatus);
+        return -1;
+    }
     return 0;
 }
 
@@ -765,7 +829,10 @@ int xhci_msc_write(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     xhci_transfer(slot, ep_in, &trb);
     if (xhci_wait_transfer(slot, ep_in) != 0) return -1;
 
-    if (csw.bCSWStatus != 0) return -1;
+    if (csw.dCSWSignature != MSC_CSW_SIGNATURE || csw.bCSWStatus != 0) {
+        serial_print("[USB] MSC Write Failure: Sig=0x%x Status=0x%x\n", csw.dCSWSignature, csw.bCSWStatus);
+        return -1;
+    }
     return 0;
 }
 
