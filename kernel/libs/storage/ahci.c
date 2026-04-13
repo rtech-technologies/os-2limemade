@@ -30,13 +30,13 @@ void serial_print(const char* fmt, ...);
 void forensic_panic(const char* message, void* state);
 
 #define panic(msg) forensic_panic(msg, NULL)
+#define virtual_to_physical(virt) vmm_get_phys(virt)
 
 void serial_print_hex32(const char* label, uint32_t val);
 void pit_wait_ms(uint32_t ms);
 
 int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_t timeout_loops) {
-    (void)timeout_loops;
-    for (uint32_t i = 0; i < 100; i++) {
+    for (uint32_t i = 0; i < timeout_loops; i++) {
         /* Task File Error Status (Bit 30 of PxIS) */
         if (port->is & (1 << 30)) {
             serial_print_hex32("[AHCI] TFES Detected! TFD: ", port->tfd);
@@ -62,13 +62,16 @@ int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_
         if (!tasking_is_scanning()) {
             sys_yield();
         } else {
-            pit_wait_ms(1);
-            if (i % 10 == 0) serial_write_str(".");
+            /* During INIT, we poll manually without full tasking */
+            if (i % 1000 == 0) {
+                pit_wait_ms(1);
+                if (i % 10000 == 0) serial_write_str(".");
+            }
         }
     }
 
-    /* Degraded Mode: Log timeout and return error instead of panicking immediately */
-    serial_write_str(" [AHCI_POLL_TIMEOUT]\n");
+    /* Constraint Enforcement: Panic on timeout to avoid silent hang */
+    panic("AHCI_POLL_TIMEOUT");
     return -1;
 }
 
@@ -81,11 +84,11 @@ void ahci_port_start(int p) {
     }
 
     /* Physical Registration: The Controller cannot see HHDM */
-    uint64_t clb_phys = vmm_get_phys(port_clb_virt[p]);
+    uint64_t clb_phys = virtual_to_physical(port_clb_virt[p]);
     port->clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
     port->clbu = (uint32_t)(clb_phys >> 32);
 
-    uint64_t fb_phys = vmm_get_phys(port_fb_virt[p]);
+    uint64_t fb_phys = virtual_to_physical(port_fb_virt[p]);
     port->fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
     port->fbu = (uint32_t)(fb_phys >> 32);
 
@@ -151,14 +154,14 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 
     if (port->sig == 0xEB140101) return -1;
 
-    uint64_t phys_buffer = vmm_get_phys(buffer);
+    uint64_t phys_buffer = virtual_to_physical(buffer);
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
     /* CFL=5 (5*4=20 bytes), PRDTL=1 */
     cmdhdr->dw0 = 5 | (1 << 16);
     cmdhdr->prdbc = 0;
 
-    uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
+    uint64_t ctba_phys = virtual_to_physical(port_ctba_virt[p]);
     cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
     cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
@@ -194,14 +197,14 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 
     if (port->sig == 0xEB140101) return -1;
 
-    uint64_t phys_buffer = vmm_get_phys(buffer);
+    uint64_t phys_buffer = virtual_to_physical(buffer);
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
     /* CFL=5, W=1, PRDTL=1 */
     cmdhdr->dw0 = 5 | (1 << 6) | (1 << 16);
     cmdhdr->prdbc = 0;
 
-    uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
+    uint64_t ctba_phys = virtual_to_physical(port_ctba_virt[p]);
     cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
     cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
@@ -248,7 +251,7 @@ int ahci_mechanical_sync(int p) {
     for(int i=0; i<512; i++) sync_buf[i] = 0;
     *(uint32_t*)sync_buf = stamp;
 
-    uint64_t phys_buf = vmm_get_phys(sync_buf);
+    uint64_t phys_buf = virtual_to_physical(sync_buf);
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buf & 0xFFFFFFFF);
     cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buf >> 32);
     cmdtbl->prdt_entry[0].dw3 = (511 & 0x3FFFFF) | (1U << 31);
@@ -291,15 +294,15 @@ void ahci_scan_remaining(void) {
             }
 
             /* Physical Registration: The Controller cannot see HHDM */
-            uint64_t clb_phys = vmm_get_phys(port_clb_virt[p]);
+            uint64_t clb_phys = virtual_to_physical(port_clb_virt[p]);
             hba_base->ports[p].clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
             hba_base->ports[p].clbu = (uint32_t)(clb_phys >> 32);
 
-            uint64_t fb_phys = vmm_get_phys(port_fb_virt[p]);
+            uint64_t fb_phys = virtual_to_physical(port_fb_virt[p]);
             hba_base->ports[p].fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
             hba_base->ports[p].fbu = (uint32_t)(fb_phys >> 32);
 
-            uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
+            uint64_t ctba_phys = virtual_to_physical(port_ctba_virt[p]);
             hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
             cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
             cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
@@ -412,15 +415,15 @@ void ahci_service(kernel_event_t event) {
                             }
 
                             /* Physical Registration: The Controller cannot see HHDM */
-                            uint64_t clb_phys = vmm_get_phys(port_clb_virt[p]);
+                            uint64_t clb_phys = virtual_to_physical(port_clb_virt[p]);
                             hba_base->ports[p].clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
                             hba_base->ports[p].clbu = (uint32_t)(clb_phys >> 32);
 
-                            uint64_t fb_phys = vmm_get_phys(port_fb_virt[p]);
+                            uint64_t fb_phys = virtual_to_physical(port_fb_virt[p]);
                             hba_base->ports[p].fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
                             hba_base->ports[p].fbu = (uint32_t)(fb_phys >> 32);
 
-                            uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
+                            uint64_t ctba_phys = virtual_to_physical(port_ctba_virt[p]);
                             hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
                             cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
                             cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);

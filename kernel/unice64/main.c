@@ -101,8 +101,9 @@ void _start(void) {
     tasking_init();
 
     /* Initialize APIC for system_ticks (One-Shot Mode) */
+    /* Extremely Fast Clock: 30ms interval (approx) */
     apic_init();
-    apic_timer_init(500000);
+    apic_timer_init(50000);
 
     /* The main thread becomes an observer or a task. */
     vga_print("[INIT] Handing control to RSL Shell...\n");

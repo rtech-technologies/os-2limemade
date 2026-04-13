@@ -163,10 +163,15 @@ void xhci_handle_events(void) {
             int ep_idx = (ev->control >> 16) & 0x1F;
             last_transfer_status[slot_id][ep_idx] = (ev->status >> 24) & 0xFF;
 
-            /* TRB Pointer translated via HHDM */
-            uint64_t report_phys = ev->ptr;
+            /* XHCI Protocol: ev->ptr is the Physical Address of the COMPLETED TRB */
+            /* We MUST use the HHDM offset to access the TRB in virtual space */
+            xhci_trb_t* completed_trb = (xhci_trb_t*)(ev->ptr + get_hhdm_offset());
+
+            /* The TRB's ptr field contains the physical address of the data buffer (HID report) */
+            uint64_t report_phys = completed_trb->ptr;
             uint8_t* report = (uint8_t*)(report_phys + get_hhdm_offset());
-            if (report) {
+
+            if (report_phys != 0 && report) {
                 if (usb_devices[slot_id].type == USB_TYPE_KBD && ep_idx != 0) {
                     uint8_t modifiers = report[0];
 
