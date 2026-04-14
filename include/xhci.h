@@ -57,16 +57,21 @@ typedef struct {
 #define TRB_TYPE_CMD_COMP_EV    33
 #define TRB_TYPE_PORT_STATUS_EV 34
 
-/* XHCI Device Context Structures */
+/* XHCI Completion Codes */
+#define XHCI_COMP_SUCCESS       1
+#define XHCI_COMP_STALL_ERR     4
+#define XHCI_COMP_BABBLE_ERR    10
+
+/* XHCI Device Context Structures (32-byte contexts) */
 typedef struct {
-    uint32_t info[2];
-    uint32_t reserved[30];
+    uint32_t info[4];
+    uint32_t reserved[4];
 } __attribute__((packed)) xhci_slot_ctx_t;
 
 typedef struct {
     uint32_t info[2];
     uint64_t tr_ptr;
-    uint32_t reserved[28];
+    uint32_t reserved[4];
 } __attribute__((packed)) xhci_ep_ctx_t;
 
 typedef struct {

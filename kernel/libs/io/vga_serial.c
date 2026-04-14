@@ -190,23 +190,23 @@ static uint32_t mouse_back_buffer[16 * 16];
 static int last_mouse_x = -1;
 static int last_mouse_y = -1;
 
-static const uint8_t mouse_cursor_bitmap[16] = {
-    0b10000000,
-    0b11000000,
-    0b11100000,
-    0b11110000,
-    0b11111000,
-    0b11111100,
-    0b11111110,
-    0b11111111,
-    0b11111111,
-    0b11111000,
-    0b11011000,
-    0b10001100,
-    0b00001100,
-    0b00000110,
-    0b00000110,
-    0b00000000
+static const uint16_t mouse_cursor_bitmap[16] = {
+    0b1000000000000000,
+    0b1100000000000000,
+    0b1110000000000000,
+    0b1111000000000000,
+    0b1111100000000000,
+    0b1111110000000000,
+    0b1111111000000000,
+    0b1111111100000000,
+    0b1111111110000000,
+    0b1111110000000000,
+    0b1101110000000000,
+    0b1000111000000000,
+    0b0000111000000000,
+    0b0000011100000000,
+    0b0000011100000000,
+    0b0000000000000000
 };
 
 static struct limine_framebuffer* global_fb = NULL;
@@ -246,7 +246,7 @@ void vga_draw_mouse(int x, int y) {
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 16; j++) {
             mouse_back_buffer[i * 16 + j] = get_pixel(x + j, y + i);
-            if (mouse_cursor_bitmap[i] & (1 << (7 - j))) {
+            if (mouse_cursor_bitmap[i] & (1 << (15 - j))) {
                 draw_pixel(x + j, y + i, 0xFFFFFF); /* White */
             }
         }
@@ -511,6 +511,14 @@ void vga_clear(void) {
     }
     cursor_x = 0;
     cursor_y = 0;
+
+    /* Clear terminal buffer */
+    for (int r = 0; r < TERM_ROWS; r++) {
+        for (int c = 0; c < TERM_COLS; c++) {
+            terminal_buffer[r][c] = ' ';
+            terminal_attr[r][c] = 0x07;
+        }
+    }
 }
 
 void vga_set_cursor(int x, int y) {
@@ -527,8 +535,8 @@ void vga_pulse_cursor(void) {
     if (now - last_pulse > 500) {
         last_pulse = now;
         cursor_visible = !cursor_visible;
-        /* Full Emerald Green Pulse for Text Cursor visibility */
-        uint32_t color = cursor_visible ? 0x00FF88 : 0x000000;
+        /* Full Pure Green Pulse for Text Cursor visibility */
+        uint32_t color = cursor_visible ? 0x00FF00 : 0x000000;
         /* Draw 8x16 block cursor */
         for (int i = 0; i < 8 * SCALE; i++) {
             for (int j = 0; j < 8 * SCALE; j++) {

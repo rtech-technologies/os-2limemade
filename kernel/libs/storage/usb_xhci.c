@@ -96,11 +96,11 @@ static char usb_shift_map[256] = {
     [0x37] = '>', [0x38] = '?', [0x29] = 27, [0x4C] = 127, [0x35] = '~'
 };
 
-static uint8_t repeat_key = 0;
-static uint8_t repeat_modifiers = 0;
-static uint64_t next_repeat_tick = 0;
+uint8_t repeat_key = 0;
+uint8_t repeat_modifiers = 0;
+uint64_t next_repeat_tick = 0;
 
-int xhci_transfer(int slot, int ep, xhci_trb_t* trb);
+int xhci_transfer(int slot, int dci, xhci_trb_t* trb);
 uint64_t get_system_ticks(void);
 
 void xhci_handle_repeat(void) {
@@ -226,7 +226,7 @@ void xhci_handle_events(void) {
 
                     /* Re-queue the Interrupt In TRB */
                     xhci_trb_t t_trb = {0};
-                    t_trb.ptr = report_phys;
+                    t_trb.ptr = report_phys; /* Keep physical */
                     t_trb.status = 8;
                     t_trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5); /* IOC=1 */
                     xhci_transfer(slot_id, dci, &t_trb);
@@ -236,13 +236,13 @@ void xhci_handle_events(void) {
                         ms->left_button = report[0] & 0x01;
                         ms->right_button = report[0] & 0x02;
                         ms->middle_button = report[0] & 0x04;
-                        ms->x += (int8_t)report[1];
-                        ms->y += (int8_t)report[2];
 
-                        if (ms->x < 0) ms->x = 0;
-                        if (ms->y < 0) ms->y = 0;
-                        if (ms->x >= 640) ms->x = 639;
-                        if (ms->y >= 480) ms->y = 479;
+                        /* usb-tablet uses absolute coordinates (0-32767) in first 4 bytes of report */
+                        uint16_t abs_x = (report[1] | (report[2] << 8));
+                        uint16_t abs_y = (report[3] | (report[4] << 8));
+
+                        ms->x = (abs_x * (CONFIG_SCREEN_WIDTH - 1)) / 32767;
+                        ms->y = (abs_y * (CONFIG_SCREEN_HEIGHT - 1)) / 32767;
 
                         void vga_draw_mouse(int x, int y);
                         vga_draw_mouse(ms->x, ms->y);
@@ -267,6 +267,7 @@ void xhci_handle_events(void) {
 
         /* Update Dequeue Pointer: Inform xHC of the last Event TRB processed */
         uint64_t erdp_phys = vmm_get_phys(&event_ring[event_idx]);
+        /* EHB (Event Handler Busy) bit (bit 3) must be set to clear interrupt */
         xhci_rt_write(XHCI_RT_ERDP(0), (uint32_t)erdp_phys | 0x08);
         xhci_rt_write(XHCI_RT_ERDP(0) + 4, (uint32_t)(erdp_phys >> 32));
 
@@ -303,7 +304,7 @@ int xhci_send_command(xhci_trb_t* trb) {
     int timeout = 1000;
     while(timeout--) {
         xhci_handle_events();
-        if (last_cmd_status != -1) return (last_cmd_status == 1) ? 0 : (int)last_cmd_status;
+        if (last_cmd_status != -1) return (last_cmd_status == XHCI_COMP_SUCCESS) ? 0 : (int)last_cmd_status;
         void pit_wait_ms(uint32_t ms);
         pit_wait_ms(1);
     }
@@ -353,11 +354,25 @@ int xhci_transfer(int slot, int dci, xhci_trb_t* trb) {
     return 0;
 }
 
+void xhci_reset_endpoint(int slot, int dci) {
+    xhci_trb_t cmd = {0};
+    cmd.control = (TRB_TYPE_RESET_EP << 10) | (slot << 24) | (dci << 16);
+    xhci_send_command(&cmd);
+}
+
 int xhci_wait_transfer(int slot, int dci) {
     int timeout = 1000;
     while(timeout--) {
         xhci_handle_events();
-        if (last_transfer_status[slot][dci] != -1) return (last_transfer_status[slot][dci] == 1) ? 0 : (int)last_transfer_status[slot][dci];
+        int status = last_transfer_status[slot][dci];
+        if (status != -1) {
+            if (status == XHCI_COMP_SUCCESS) return 0;
+            if (status == XHCI_COMP_STALL_ERR) {
+                serial_print("[XHCI] Stall on Slot %d DCI %d. Resetting...\n", slot, dci);
+                xhci_reset_endpoint(slot, dci);
+            }
+            return (int)status;
+        }
         pit_wait_ms(1);
     }
     return -1;
@@ -370,10 +385,11 @@ int xhci_control_transfer(int slot, usb_setup_packet_t* setup, void* data, int l
     trb.ptr = *(uint64_t*)setup;
     trb.status = 8; /* Setup length */
     trb.control = (TRB_TYPE_SETUP_STAGE << 10) | (1 << 6); /* IDT=1 */
-    if (len > 0) trb.control |= (1 << 14); /* TRT: Data Out (2) or Data In (3) */
-    /* For simplicity, assume Get Descriptor is Data In */
-    if (setup->bmRequestType & 0x80) trb.control |= (3 << 14);
-    else trb.control |= (2 << 14);
+    /* TRT (Transfer Type): 0=No Data, 2=Data Out, 3=Data In */
+    if (len > 0) {
+        if (setup->bmRequestType & 0x80) trb.control |= (3 << 14);
+        else trb.control |= (2 << 14);
+    }
 
     xhci_transfer(slot, 1, &trb); /* EP0 is DCI 1 */
 
@@ -495,11 +511,13 @@ void xhci_setup_device(int port) {
                     /* Parse for Interfaces and Endpoints */
                     uint8_t* ptr = full_cfg;
                     usb_devices[slot_id].ep_count = 0;
+                    int current_iface = -1;
                     while (ptr < full_cfg + cdesc.wTotalLength) {
                         uint8_t len = ptr[0];
                         uint8_t type = ptr[1];
                         if (type == 0x04) { /* Interface */
                             usb_interface_descriptor_t* iface = (usb_interface_descriptor_t*)ptr;
+                            current_iface = iface->bInterfaceNumber;
                             if (iface->bInterfaceClass == 0x03) { /* HID */
                                 if (iface->bInterfaceProtocol == 1) {
                                     serial_write_str("[USB] Identified KEYBOARD.\n");
@@ -512,6 +530,18 @@ void xhci_setup_device(int port) {
                                 serial_write_str("[USB] Identified MASS STORAGE.\n");
                                 usb_devices[slot_id].type = USB_TYPE_MSC;
                             }
+                        } else if (type == 0x21) { /* HID Descriptor */
+                            usb_hid_descriptor_t* hid = (usb_hid_descriptor_t*)ptr;
+                            serial_print("[USB] HID Descriptor found. Report Len: %d\n", hid->wDescriptorLength);
+                            /* Request Report Descriptor to kickstart some hardware */
+                            uint8_t* rdesc = slab_alloc_aligned(0, hid->wDescriptorLength, 64);
+                            usb_setup_packet_t s_hid = {0};
+                            s_hid.bmRequestType = 0x81; /* Interface */
+                            s_hid.bRequest = USB_REQ_GET_DESCRIPTOR;
+                            s_hid.wValue = (USB_DESC_REPORT << 8);
+                            s_hid.wIndex = current_iface;
+                            s_hid.wLength = hid->wDescriptorLength;
+                            xhci_control_transfer(slot_id, &s_hid, rdesc, hid->wDescriptorLength);
                         } else if (type == 0x05) { /* Endpoint */
                             usb_endpoint_descriptor_t* ep = (usb_endpoint_descriptor_t*)ptr;
                             int ec = usb_devices[slot_id].ep_count;
@@ -735,13 +765,20 @@ void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
         if (cap_id == 1) { /* USB Legacy Support */
             serial_write_str("[XHCI] Requesting BIOS Handover...\n");
             *ext_cap |= (1 << 24); /* OS Owned Semaphore */
+
+            /* Wait for BIOS to release ownership (bit 16 drops to 0) */
             int timeout = 1000;
             while ((*ext_cap & (1 << 16)) && timeout--) {
                 for(volatile int i=0; i<10000; i++);
             }
-            if (timeout <= 0) *ext_cap &= ~(1 << 16);
+            if (timeout <= 0) {
+                serial_write_str("[XHCI] BIOS Handover Timeout. Forcing...\n");
+                *ext_cap &= ~(1 << 16);
+            }
+
+            /* legsup_ctl: Disable BIOS SMI generation */
             volatile uint32_t* legsup_ctl = ext_cap + 1;
-            *legsup_ctl &= 0x1F00FFFF;
+            *legsup_ctl = 0; /* Clear all, especially SMI bits */
             break;
         }
         uint32_t next = (*ext_cap >> 8) & 0xFF;

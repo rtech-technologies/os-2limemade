@@ -65,6 +65,18 @@ typedef struct {
 
 #define USB_DESC_DEVICE           0x01
 #define USB_DESC_CONFIG           0x02
+#define USB_DESC_HID              0x21
+#define USB_DESC_REPORT           0x22
+
+typedef struct {
+    uint8_t  bLength;
+    uint8_t  bDescriptorType;
+    uint16_t bcdHID;
+    uint8_t  bCountryCode;
+    uint8_t  bNumDescriptors;
+    uint8_t  bDescriptorType2;
+    uint16_t wDescriptorLength;
+} __attribute__((packed)) usb_hid_descriptor_t;
 
 typedef struct {
     uint32_t dCBWSignature;
