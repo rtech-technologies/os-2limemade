@@ -231,6 +231,15 @@ void xhci_handle_events(void) {
                         ms->middle_button = report[0] & 0x04;
                         ms->x += (int8_t)report[1];
                         ms->y += (int8_t)report[2];
+
+                        if (ms->x < 0) ms->x = 0;
+                        if (ms->y < 0) ms->y = 0;
+                        if (ms->x >= 640) ms->x = 639;
+                        if (ms->y >= 480) ms->y = 479;
+
+                        void vga_draw_mouse(int x, int y);
+                        vga_draw_mouse(ms->x, ms->y);
+
                         ms->active = true;
                     }
                     /* Re-queue */

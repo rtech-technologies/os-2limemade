@@ -177,6 +177,34 @@ static int cursor_y = 0;
 static bool cursor_visible = true;
 
 #define SCALE 2
+#define TERM_COLS 80
+#define TERM_ROWS 40
+
+char terminal_buffer[TERM_ROWS][TERM_COLS];
+uint8_t terminal_attr[TERM_ROWS][TERM_COLS];
+
+static uint32_t mouse_back_buffer[16 * 16];
+static int last_mouse_x = -1;
+static int last_mouse_y = -1;
+
+static const uint8_t mouse_cursor_bitmap[16] = {
+    0b10000000,
+    0b11000000,
+    0b11100000,
+    0b11110000,
+    0b11111000,
+    0b11111100,
+    0b11111110,
+    0b11111111,
+    0b11111111,
+    0b11111000,
+    0b11011000,
+    0b10001100,
+    0b00001100,
+    0b00000110,
+    0b00000110,
+    0b00000000
+};
 
 static struct limine_framebuffer* global_fb = NULL;
 
@@ -186,6 +214,40 @@ void draw_pixel(int x, int y, uint32_t color) {
     if (x < 0 || (uint64_t)x >= fb->width || y < 0 || (uint64_t)y >= fb->height) return;
     uint32_t* pixel = (uint32_t*)(fb->address + y * fb->pitch + x * 4);
     *pixel = color;
+}
+
+uint32_t get_pixel(int x, int y) {
+    if (!global_fb) return 0;
+    struct limine_framebuffer* fb = global_fb;
+    if (x < 0 || (uint64_t)x >= fb->width || y < 0 || (uint64_t)y >= fb->height) return 0;
+    uint32_t* pixel = (uint32_t*)(fb->address + y * fb->pitch + x * 4);
+    return *pixel;
+}
+
+void vga_erase_mouse(void) {
+    if (last_mouse_x == -1) return;
+    for (int i = 0; i < 16; i++) {
+        for (int j = 0; j < 16; j++) {
+            draw_pixel(last_mouse_x + j, last_mouse_y + i, mouse_back_buffer[i * 16 + j]);
+        }
+    }
+}
+
+void vga_draw_mouse(int x, int y) {
+    if (!global_fb) return;
+    vga_erase_mouse();
+
+    last_mouse_x = x;
+    last_mouse_y = y;
+
+    for (int i = 0; i < 16; i++) {
+        for (int j = 0; j < 16; j++) {
+            mouse_back_buffer[i * 16 + j] = get_pixel(x + j, y + i);
+            if (mouse_cursor_bitmap[i] & (1 << (7 - j))) {
+                draw_pixel(x + j, y + i, 0xFFFFFF); /* White */
+            }
+        }
+    }
 }
 
 void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
@@ -246,6 +308,10 @@ void vga_write_char(char c, uint8_t color_attr) {
             cursor_x = max_cols - 1;
         }
         draw_char(' ', cursor_x, cursor_y, fg, bg);
+        if (cursor_y < TERM_ROWS && cursor_x < TERM_COLS) {
+            terminal_buffer[cursor_y][cursor_x] = ' ';
+            terminal_attr[cursor_y][cursor_x] = color_attr;
+        }
     } else {
         /* Dynamic line wrapping based on framebuffer width */
         if (cursor_x >= max_cols) {
@@ -253,6 +319,10 @@ void vga_write_char(char c, uint8_t color_attr) {
             cursor_y++;
         }
         draw_char(c, cursor_x, cursor_y, fg, bg);
+        if (cursor_y < TERM_ROWS && cursor_x < TERM_COLS) {
+            terminal_buffer[cursor_y][cursor_x] = c;
+            terminal_attr[cursor_y][cursor_x] = color_attr;
+        }
         cursor_x++;
     }
 
@@ -271,6 +341,19 @@ void vga_write_char(char c, uint8_t color_attr) {
 #endif
 
     if (cursor_y >= max_rows) {
+        /* Scroll terminal buffer */
+        for (int row = 0; row < max_rows - 1; row++) {
+            for (int col = 0; col < TERM_COLS; col++) {
+                terminal_buffer[row][col] = terminal_buffer[row + 1][col];
+                terminal_attr[row][col] = terminal_attr[row + 1][col];
+            }
+        }
+        /* Clear bottom row of buffer */
+        for (int col = 0; col < TERM_COLS; col++) {
+            terminal_buffer[max_rows - 1][col] = ' ';
+            terminal_attr[max_rows - 1][col] = 0x07;
+        }
+
         /* Move all rows up by one char_height */
         uint32_t* fb_ptr = (uint32_t*)fb->address;
         size_t row_pixels = fb->pitch / 4;
@@ -386,7 +469,8 @@ void vga_pulse_cursor(void) {
     if (now - last_pulse > 500) {
         last_pulse = now;
         cursor_visible = !cursor_visible;
-        uint32_t color = cursor_visible ? 0x00FF00 : 0x000000;
+        /* Full Emerald Green Pulse for Text Cursor visibility */
+        uint32_t color = cursor_visible ? 0x00FF88 : 0x000000;
         /* Draw 8x16 block cursor */
         for (int i = 0; i < 8 * SCALE; i++) {
             for (int j = 0; j < 8 * SCALE; j++) {

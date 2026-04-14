@@ -88,6 +88,8 @@ void mouse_init(void) {
     serial_write_str("[MOUSE] PS/2 Mouse Online.\n");
 }
 
+void vga_draw_mouse(int x, int y);
+
 void mouse_poll(void) {
     if (!global_mouse.active) return;
 
@@ -107,7 +109,13 @@ void mouse_poll(void) {
         global_mouse.x += rel_x;
         global_mouse.y -= rel_y; /* Y is inverted in PS/2 */
 
-        /* Bounds check would go here if we had a resolution, for now it "does nothing" */
+        /* Bounds check based on CONFIG dimensions */
+        if (global_mouse.x < 0) global_mouse.x = 0;
+        if (global_mouse.y < 0) global_mouse.y = 0;
+        if (global_mouse.x >= 640) global_mouse.x = 639;
+        if (global_mouse.y >= 480) global_mouse.y = 479;
+
+        vga_draw_mouse(global_mouse.x, global_mouse.y);
     }
 }
 

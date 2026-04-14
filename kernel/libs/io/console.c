@@ -220,6 +220,13 @@ static char __attribute__((used)) shift_scancode_map[128] = {
 };
 
 static bool __attribute__((used)) shift_pressed = false;
+extern bool control_pressed;
+
+#include <include/mouse.h>
+static int drag_start_x = -1;
+static int drag_start_y = -1;
+
+bool control_pressed = false;
 
 #define KBD_BUF_SIZE 64
 static char kbd_buffer[KBD_BUF_SIZE];
@@ -253,8 +260,13 @@ void hw_poll(void) {
         if (!(status & 0x20)) { /* Not Mouse Data */
             if (scancode == 0x2A || scancode == 0x36) shift_pressed = true;
             else if (scancode == 0xAA || scancode == 0xB6) shift_pressed = false;
+            else if (scancode == 0x1D) control_pressed = true;
+            else if (scancode == 0x9D) control_pressed = false;
             else if (!(scancode & 0x80)) {
-                if (scancode == 0x01) kbd_push(27);
+                if (control_pressed && scancode == 0x2E) { /* Ctrl+C */
+                    void console_copy_selection(void);
+                    console_copy_selection();
+                } else if (scancode == 0x01) kbd_push(27);
                 else if (scancode < 128) {
                     char c = shift_pressed ? shift_scancode_map[scancode] : scancode_map[scancode];
                     if (c) kbd_push(c);
@@ -277,6 +289,61 @@ void hw_poll(void) {
     void mouse_poll(void);
     mouse_poll();
 #endif
+
+    /* Selection Logic */
+    mouse_state_t* ms = get_mouse_state();
+    if (ms && ms->active) {
+        if (ms->left_button) {
+            if (drag_start_x == -1) {
+                drag_start_x = ms->x;
+                drag_start_y = ms->y;
+            }
+        } else {
+            /* Drag ended or not dragging, but we keep coordinates until copy */
+        }
+    }
+}
+
+void console_copy_selection(void) {
+    mouse_state_t* ms = get_mouse_state();
+    if (!ms || drag_start_x == -1) return;
+
+    int x1 = drag_start_x / (8 * 2);
+    int y1 = drag_start_y / (8 * 2);
+    int x2 = ms->x / (8 * 2);
+    int y2 = ms->y / (8 * 2);
+
+    /* Normalize */
+    if (x1 > x2) { int t = x1; x1 = x2; x2 = t; }
+    if (y1 > y2) { int t = y1; y1 = y2; y2 = t; }
+
+    /* Extract text from terminal buffer */
+    char export_buf[1024];
+    int e_idx = 0;
+    extern char terminal_buffer[40][80];
+
+    for (int r = y1; r <= y2 && r < 40; r++) {
+        for (int c = x1; c <= x2 && c < 80; c++) {
+            char ch = terminal_buffer[r][c];
+            if (ch >= 32 && ch < 127 && e_idx < 1022) {
+                export_buf[e_idx++] = ch;
+            }
+        }
+        if (e_idx < 1022) export_buf[e_idx++] = '\n';
+    }
+    export_buf[e_idx] = '\0';
+
+    if (e_idx > 0) {
+        void* s = str_create(export_buf);
+        void rsl_copy(void* str);
+        rsl_copy(s);
+        void release(void* obj);
+        release(s);
+        vga_print("\n[CLIPBOARD] Copied selection to system clipboard.\n");
+    }
+
+    drag_start_x = -1;
+    drag_start_y = -1;
 }
 
 char get_char(void) {
