@@ -67,7 +67,7 @@ static xhci_device_t usb_devices[64];
 
 static xhci_trb_t* ep_rings[64][32];
 
-void kbd_push(char c);
+void console_push_char(char c);
 
 
 /* Scancode Map: USB HID to ASCII (Partial) */
@@ -109,7 +109,7 @@ void xhci_handle_repeat(void) {
     if (now >= next_repeat_tick) {
         bool shift = (repeat_modifiers & 0x02) || (repeat_modifiers & 0x20);
         char c = shift ? usb_shift_map[repeat_key] : usb_map[repeat_key];
-        if (c) kbd_push(c);
+        if (c) console_push_char(c);
         next_repeat_tick = now + 50; /* 50ms repeat rate */
     }
 }
@@ -148,7 +148,7 @@ static inline uint32_t xhci_op_read(uint32_t reg) {
     return *(volatile uint32_t*)((uint8_t*)xhci_base + xhci_cap_len + reg);
 }
 
-void kbd_push(char c);
+void console_push_char(char c);
 
 void xhci_handle_events(void) {
     if (!xhci_base || !event_ring) return;
@@ -160,8 +160,8 @@ void xhci_handle_events(void) {
 
         if (type == TRB_TYPE_TRANSFER_EV) {
             int slot_id = (ev->control >> 24) & 0xFF;
-            int ep_idx = (ev->control >> 16) & 0x1F;
-            last_transfer_status[slot_id][ep_idx] = (ev->status >> 24) & 0xFF;
+            int dci = (ev->control >> 16) & 0x1F;
+            last_transfer_status[slot_id][dci] = (ev->status >> 24) & 0xFF;
 
             /* XHCI Protocol: ev->ptr is the Physical Address of the COMPLETED TRB */
             /* We MUST use the HHDM offset to access the TRB in virtual space */
@@ -172,8 +172,10 @@ void xhci_handle_events(void) {
             uint8_t* report = (uint8_t*)(report_phys + get_hhdm_offset());
 
             if (report_phys != 0 && report) {
-                if (usb_devices[slot_id].type == USB_TYPE_KBD && ep_idx != 0) {
+                if (usb_devices[slot_id].type == USB_TYPE_KBD && dci != 1) {
                     uint8_t modifiers = report[0];
+                    extern bool control_pressed;
+                    control_pressed = (modifiers & 0x01) || (modifiers & 0x10);
 
                     /* 1. Check for releases of the repeat key */
                     if (repeat_key != 0) {
@@ -205,10 +207,15 @@ void xhci_handle_events(void) {
                         }
 
                         if (!was_pressed) {
+                            if (control_pressed && code == 0x06) { /* 'c' scancode is 0x06 */
+                                void console_copy_selection(void);
+                                console_copy_selection();
+                            }
+
                             bool shift = (modifiers & 0x02) || (modifiers & 0x20);
                             char c = shift ? usb_shift_map[code] : usb_map[code];
                             if (c) {
-                                kbd_push(c);
+                                console_push_char(c);
                                 repeat_key = code;
                                 repeat_modifiers = modifiers;
                                 next_repeat_tick = get_system_ticks() + 500; /* 500ms delay */
@@ -222,8 +229,8 @@ void xhci_handle_events(void) {
                     t_trb.ptr = report_phys;
                     t_trb.status = 8;
                     t_trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5); /* IOC=1 */
-                    xhci_transfer(slot_id, ep_idx, &t_trb);
-                } else if (usb_devices[slot_id].type == USB_TYPE_MOUSE && ep_idx != 0) {
+                    xhci_transfer(slot_id, dci, &t_trb);
+                } else if (usb_devices[slot_id].type == USB_TYPE_MOUSE && dci != 1) {
                     mouse_state_t* ms = get_mouse_state();
                     if (ms) {
                         ms->left_button = report[0] & 0x01;
@@ -247,7 +254,7 @@ void xhci_handle_events(void) {
                     t_trb.ptr = report_phys;
                     t_trb.status = 8;
                     t_trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5); /* IOC=1 */
-                    xhci_transfer(slot_id, ep_idx, &t_trb);
+                    xhci_transfer(slot_id, dci, &t_trb);
                 }
             }
         } else if (type == TRB_TYPE_CMD_COMP_EV) {
@@ -312,7 +319,7 @@ static int ring_indices[64][32];
 static bool ring_cycles[64][32];
 static bool rings_init = false;
 
-int xhci_transfer(int slot, int ep, xhci_trb_t* trb) {
+int xhci_transfer(int slot, int dci, xhci_trb_t* trb) {
     if (!rings_init) {
         for(int s=0; s<64; s++) {
             for(int e=0; e<32; e++) {
@@ -323,34 +330,34 @@ int xhci_transfer(int slot, int ep, xhci_trb_t* trb) {
         rings_init = true;
     }
 
-    last_transfer_status[slot][ep] = -1;
-    xhci_trb_t* ring = ep_rings[slot][ep];
+    last_transfer_status[slot][dci] = -1;
+    xhci_trb_t* ring = ep_rings[slot][dci];
     if (!ring) return -1;
 
-    int idx = ring_indices[slot][ep];
+    int idx = ring_indices[slot][dci];
     ring[idx].ptr = trb->ptr;
     ring[idx].status = trb->status;
-    ring[idx].control = (trb->control & ~0x01) | (ring_cycles[slot][ep] ? 1 : 0);
+    ring[idx].control = (trb->control & ~0x01) | (ring_cycles[slot][dci] ? 1 : 0);
 
-    ring_indices[slot][ep] = (idx + 1) % 256;
-    if (ring_indices[slot][ep] == 255) {
+    ring_indices[slot][dci] = (idx + 1) % 256;
+    if (ring_indices[slot][dci] == 255) {
         /* Link TRB to loop back */
         ring[255].ptr = vmm_get_phys(ring);
         ring[255].status = 0;
-        ring[255].control = (6 << 10) | (1 << 1) | (ring_cycles[slot][ep] ? 1 : 0);
-        ring_indices[slot][ep] = 0;
-        ring_cycles[slot][ep] = !ring_cycles[slot][ep];
+        ring[255].control = (6 << 10) | (1 << 1) | (ring_cycles[slot][dci] ? 1 : 0);
+        ring_indices[slot][dci] = 0;
+        ring_cycles[slot][dci] = !ring_cycles[slot][dci];
     }
 
-    xhci_ring_doorbell(slot, ep + 1);
+    xhci_ring_doorbell(slot, dci);
     return 0;
 }
 
-int xhci_wait_transfer(int slot, int ep) {
+int xhci_wait_transfer(int slot, int dci) {
     int timeout = 1000;
     while(timeout--) {
         xhci_handle_events();
-        if (last_transfer_status[slot][ep] != -1) return (last_transfer_status[slot][ep] == 1) ? 0 : (int)last_transfer_status[slot][ep];
+        if (last_transfer_status[slot][dci] != -1) return (last_transfer_status[slot][dci] == 1) ? 0 : (int)last_transfer_status[slot][dci];
         pit_wait_ms(1);
     }
     return -1;
@@ -368,7 +375,7 @@ int xhci_control_transfer(int slot, usb_setup_packet_t* setup, void* data, int l
     if (setup->bmRequestType & 0x80) trb.control |= (3 << 14);
     else trb.control |= (2 << 14);
 
-    xhci_transfer(slot, 0, &trb);
+    xhci_transfer(slot, 1, &trb); /* EP0 is DCI 1 */
 
     /* 2. Data Stage */
     if (len > 0) {
@@ -376,7 +383,7 @@ int xhci_control_transfer(int slot, usb_setup_packet_t* setup, void* data, int l
         trb.status = len;
         trb.control = (TRB_TYPE_DATA_STAGE << 10);
         if (setup->bmRequestType & 0x80) trb.control |= (1 << 16); /* DIR=In */
-        xhci_transfer(slot, 0, &trb);
+        xhci_transfer(slot, 1, &trb);
     }
 
     /* 3. Status Stage */
@@ -391,8 +398,8 @@ int xhci_control_transfer(int slot, usb_setup_packet_t* setup, void* data, int l
         trb.control |= (1 << 16); /* DIR=In for No Data */
     }
 
-    xhci_transfer(slot, 0, &trb);
-    return xhci_wait_transfer(slot, 0);
+    xhci_transfer(slot, 1, &trb);
+    return xhci_wait_transfer(slot, 1);
 }
 
 static xhci_dev_ctx_t* dev_contexts[64];
@@ -419,8 +426,8 @@ void xhci_setup_device(int port) {
     for(int i=0; i<(int)sizeof(xhci_dev_ctx_t)/4; i++) ((uint32_t*)dev_contexts[slot_id])[i] = 0;
     dcbaap[slot_id] = vmm_get_phys(dev_contexts[slot_id]);
 
-    /* Allocate EP0 Transfer Ring */
-    ep_rings[slot_id][0] = xhci_alloc_ring();
+    /* Allocate EP0 Transfer Ring (DCI 1) */
+    ep_rings[slot_id][1] = xhci_alloc_ring();
 
     /* Prepare Input Context */
     xhci_input_ctx_t* ictx = slab_alloc_aligned(0, sizeof(xhci_input_ctx_t), 64);
@@ -445,12 +452,12 @@ void xhci_setup_device(int port) {
     ictx->slot.info[0] = (1 << 27) | (speed << 20);
     ictx->slot.info[1] = ((port + 1) << 16); /* Root Hub Port Number, Latency=0 */
 
-    /* EP0 Context (Control Endpoint) */
+    /* EP0 Context (Control Endpoint, DCI 1) */
     uint32_t max_packet_size = 8;
     if (speed == 3) max_packet_size = 64; // High Speed
     else if (speed == 4) max_packet_size = 512; // Super Speed
 
-    uint64_t ep_phys = vmm_get_phys(ep_rings[slot_id][0]);
+    uint64_t ep_phys = vmm_get_phys(ep_rings[slot_id][1]);
     ictx->ep[0].info[1] = (4 << 3) | (max_packet_size << 16); /* Type: Control, Max Packet */
     ictx->ep[0].tr_ptr = ep_phys | 1; /* Dequeue Pointer + DCS=1 */
 
@@ -540,25 +547,26 @@ void xhci_setup_device(int port) {
 
                     for (int i = 0; i < usb_devices[slot_id].ep_count; i++) {
                         usb_endpoint_info_t* ep_info = &usb_devices[slot_id].eps[i];
-                        int ep_idx = (ep_info->num * 2) + (ep_info->dir == 1 ? 1 : 0) - 1;
-                        if (ep_idx < 0 || ep_idx >= 31) continue;
+                        int dci = (ep_info->num * 2) + (ep_info->dir == 1 ? 1 : 0);
+                        int ep_ctx_idx = dci - 1;
+                        if (ep_ctx_idx < 1 || ep_ctx_idx >= 31) continue;
 
-                        c_ictx->add_flags |= (1 << (ep_idx + 1));
-                        ep_rings[slot_id][ep_idx + 1] = xhci_alloc_ring();
+                        c_ictx->add_flags |= (1 << dci);
+                        ep_rings[slot_id][dci] = xhci_alloc_ring();
 
                         uint32_t type = 0;
                         if (ep_info->type == 2) type = (ep_info->dir == 1) ? 6 : 2; /* Bulk In/Out */
                         else if (ep_info->type == 3) type = (ep_info->dir == 1) ? 7 : 3; /* Interrupt In/Out */
 
-                        c_ictx->ep[ep_idx].info[1] = (type << 3) | (ep_info->max_packet << 16) | (ep_info->interval << 8);
-                        c_ictx->ep[ep_idx].tr_ptr = vmm_get_phys(ep_rings[slot_id][ep_idx + 1]) | 1;
+                        c_ictx->ep[ep_ctx_idx].info[1] = (type << 3) | (ep_info->max_packet << 16) | (ep_info->interval << 8);
+                        c_ictx->ep[ep_ctx_idx].tr_ptr = vmm_get_phys(ep_rings[slot_id][dci]) | 1;
 
                         if (ep_info->type == 2) {
-                            if (ep_info->dir == 1) usb_devices[slot_id].bulk_in_idx = ep_idx + 1;
-                            else usb_devices[slot_id].bulk_out_idx = ep_idx + 1;
+                            if (ep_info->dir == 1) usb_devices[slot_id].bulk_in_idx = dci;
+                            else usb_devices[slot_id].bulk_out_idx = dci;
                         }
 
-                        if (ep_idx + 1 > max_ep) max_ep = ep_idx + 1;
+                        if (dci > max_ep) max_ep = dci;
                     }
 
                     /* Update Context Entries in Slot Context */
@@ -628,14 +636,14 @@ void xhci_setup_device(int port) {
                             for (int i = 0; i < usb_devices[slot_id].ep_count; i++) {
                                 usb_endpoint_info_t* ep_info = &usb_devices[slot_id].eps[i];
                                 if (ep_info->type == 3 && ep_info->dir == 1) { /* Interrupt In */
-                                    int ep_idx = (ep_info->num * 2) + 1;
+                                    int dci = (ep_info->num * 2) + 1;
                                     void* report_buf = slab_alloc_aligned(0, ep_info->max_packet, 64);
                                     xhci_trb_t t_trb = {0};
                                     t_trb.ptr = vmm_get_phys(report_buf);
                                     t_trb.status = ep_info->max_packet;
                                     t_trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5); /* IOC=1 */
-                                    xhci_transfer(slot_id, ep_idx, &t_trb);
-                                    serial_print("[USB] Interrupt In started for Slot %d EP %d\n", slot_id, ep_idx);
+                                    xhci_transfer(slot_id, dci, &t_trb);
+                                    serial_print("[USB] Interrupt In started for Slot %d DCI %d\n", slot_id, dci);
                                 }
                             }
                         }

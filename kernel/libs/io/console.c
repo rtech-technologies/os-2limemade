@@ -229,23 +229,23 @@ static int drag_start_y = -1;
 bool control_pressed = false;
 
 #define KBD_BUF_SIZE 64
-static char kbd_buffer[KBD_BUF_SIZE];
-static int kbd_head = 0;
-static int kbd_tail = 0;
+static char console_input_buffer[KBD_BUF_SIZE];
+static int input_head = 0;
+static int input_tail = 0;
 
-void kbd_push(char c) {
+void console_push_char(char c) {
     if (!c || c == (char)-1) return;
-    int next = (kbd_tail + 1) % KBD_BUF_SIZE;
-    if (next != kbd_head) {
-        kbd_buffer[kbd_tail] = c;
-        kbd_tail = next;
+    int next = (input_tail + 1) % KBD_BUF_SIZE;
+    if (next != input_head) {
+        console_input_buffer[input_tail] = c;
+        input_tail = next;
     }
 }
 
-char kbd_pop(void) {
-    if (kbd_head == kbd_tail) return 0;
-    char c = kbd_buffer[kbd_head];
-    kbd_head = (kbd_head + 1) % KBD_BUF_SIZE;
+char console_pop_char(void) {
+    if (input_head == input_tail) return 0;
+    char c = console_input_buffer[input_head];
+    input_head = (input_head + 1) % KBD_BUF_SIZE;
     return c;
 }
 
@@ -266,10 +266,10 @@ void hw_poll(void) {
                 if (control_pressed && scancode == 0x2E) { /* Ctrl+C */
                     void console_copy_selection(void);
                     console_copy_selection();
-                } else if (scancode == 0x01) kbd_push(27);
+                } else if (scancode == 0x01) console_push_char(27);
                 else if (scancode < 128) {
                     char c = shift_pressed ? shift_scancode_map[scancode] : scancode_map[scancode];
-                    if (c) kbd_push(c);
+                    if (c) console_push_char(c);
                 }
             }
         }
@@ -280,7 +280,7 @@ void hw_poll(void) {
     if (serial_received()) {
         char c = serial_read_char();
         if (c == '\n' || c == '\r' || c == '\b' || c == 27 || (c >= 32 && c <= 126)) {
-            kbd_push(c);
+            console_push_char(c);
         }
     }
 
@@ -298,8 +298,10 @@ void hw_poll(void) {
                 drag_start_x = ms->x;
                 drag_start_y = ms->y;
             }
-        } else {
-            /* Drag ended or not dragging, but we keep coordinates until copy */
+            void vga_set_selection(int x1, int y1, int x2, int y2);
+            vga_set_selection(drag_start_x / 16, drag_start_y / 16, ms->x / 16, ms->y / 16);
+            void vga_refresh_screen(void);
+            vga_refresh_screen();
         }
     }
 }
@@ -308,10 +310,10 @@ void console_copy_selection(void) {
     mouse_state_t* ms = get_mouse_state();
     if (!ms || drag_start_x == -1) return;
 
-    int x1 = drag_start_x / (8 * 2);
-    int y1 = drag_start_y / (8 * 2);
-    int x2 = ms->x / (8 * 2);
-    int y2 = ms->y / (8 * 2);
+    int x1 = drag_start_x / 16;
+    int y1 = drag_start_y / 16;
+    int x2 = ms->x / 16;
+    int y2 = ms->y / 16;
 
     /* Normalize */
     if (x1 > x2) { int t = x1; x1 = x2; x2 = t; }
@@ -344,12 +346,16 @@ void console_copy_selection(void) {
 
     drag_start_x = -1;
     drag_start_y = -1;
+    void vga_set_selection(int x1, int y1, int x2, int y2);
+    vga_set_selection(-1, -1, -1, -1);
+    void vga_refresh_screen(void);
+    vga_refresh_screen();
 }
 
 char get_char(void) {
     while (1) {
         hw_poll();
-        char c = kbd_pop();
+        char c = console_pop_char();
         if (c) return c;
 
         /* Sovereign Active-Relay: Yield while waiting for input */

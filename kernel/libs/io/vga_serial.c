@@ -183,6 +183,9 @@ static bool cursor_visible = true;
 char terminal_buffer[TERM_ROWS][TERM_COLS];
 uint8_t terminal_attr[TERM_ROWS][TERM_COLS];
 
+static int selection_x1 = -1, selection_y1 = -1;
+static int selection_x2 = -1, selection_y2 = -1;
+
 static uint32_t mouse_back_buffer[16 * 16];
 static int last_mouse_x = -1;
 static int last_mouse_y = -1;
@@ -274,7 +277,14 @@ void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
     }
 }
 
+void vga_set_selection(int x1, int y1, int x2, int y2) {
+    selection_x1 = x1; selection_y1 = y1;
+    selection_x2 = x2; selection_y2 = y2;
+}
+
 void vga_write_char(char c, uint8_t color_attr) {
+    vga_erase_mouse();
+
     if (c == '\b') {
         serial_write_char('\b');
         serial_write_char(' ');
@@ -318,7 +328,19 @@ void vga_write_char(char c, uint8_t color_attr) {
             cursor_x = 0;
             cursor_y++;
         }
-        draw_char(c, cursor_x, cursor_y, fg, bg);
+
+        bool selected = false;
+        if (selection_x1 != -1) {
+            int x1 = selection_x1, y1 = selection_y1;
+            int x2 = selection_x2, y2 = selection_y2;
+            if (x1 > x2) { int t = x1; x1 = x2; x2 = t; }
+            if (y1 > y2) { int t = y1; y1 = y2; y2 = t; }
+            if (cursor_y >= y1 && cursor_y <= y2 && cursor_x >= x1 && cursor_x <= x2) selected = true;
+        }
+
+        if (selected) draw_char(c, cursor_x, cursor_y, bg, fg); /* Invert */
+        else draw_char(c, cursor_x, cursor_y, fg, bg);
+
         if (cursor_y < TERM_ROWS && cursor_x < TERM_COLS) {
             terminal_buffer[cursor_y][cursor_x] = c;
             terminal_attr[cursor_y][cursor_x] = color_attr;
@@ -373,6 +395,42 @@ void vga_write_char(char c, uint8_t color_attr) {
 
         cursor_y = max_rows - 1;
     }
+
+    if (last_mouse_x != -1) vga_draw_mouse(last_mouse_x, last_mouse_y);
+}
+
+void vga_refresh_screen(void) {
+    if (!global_fb) return;
+    vga_erase_mouse();
+
+    struct limine_framebuffer* fb = global_fb;
+    int char_width = 8 * SCALE;
+    int max_cols = fb->width / char_width;
+    int char_height = 8 * SCALE;
+    int max_rows = (fb->height / char_height) - 1;
+
+    for (int r = 0; r < max_rows; r++) {
+        for (int c = 0; c < max_cols && c < TERM_COLS; c++) {
+            char ch = terminal_buffer[r][c];
+            uint8_t attr = terminal_attr[r][c];
+            uint32_t fg = vga_colors[attr & 0x0F];
+            uint32_t bg = vga_colors[(attr >> 4) & 0x0F];
+
+            bool selected = false;
+            if (selection_x1 != -1) {
+                int x1 = selection_x1, y1 = selection_y1;
+                int x2 = selection_x2, y2 = selection_y2;
+                if (x1 > x2) { int t = x1; x1 = x2; x2 = t; }
+                if (y1 > y2) { int t = y1; y1 = y2; y2 = t; }
+                if (r >= y1 && r <= y2 && c >= x1 && c <= x2) selected = true;
+            }
+
+            if (selected) draw_char(ch ? ch : ' ', c, r, bg, fg);
+            else draw_char(ch ? ch : ' ', c, r, fg, bg);
+        }
+    }
+
+    if (last_mouse_x != -1) vga_draw_mouse(last_mouse_x, last_mouse_y);
 }
 
 /* Sovereign Telemetry Monitor (Bottom Row) */
