@@ -7,10 +7,12 @@ LDFLAGS = -Wl,-T,boot/linker.ld -static -nostdlib -Wl,-z,max-page-size=0x1000
 KERNEL_SRC = $(wildcard kernel/unice64/*.c) \
              $(wildcard kernel/libs/io/*.c) \
              $(wildcard kernel/libs/ram/*.c) \
+             $(wildcard kernel/libs/rtc64/*.c) \
              $(wildcard kernel/libs/storage/*.c) \
              $(wildcard kernel/libs/storage/fatfs/*.c) \
              $(wildcard kernel/libs/core/*.c) \
-             programs/shell.c
+             programs/shell.c \
+             programs/text_editor.c
 AS_SRC = $(wildcard kernel/unice64/*.s)
 KERNEL_OBJ = $(KERNEL_SRC:.c=.o) $(AS_SRC:.s=.o)
 KERNEL_ELF = kernel.elf

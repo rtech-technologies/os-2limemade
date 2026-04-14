@@ -17,6 +17,10 @@ void idle_task(void) {
 }
 
 void usb_main_task(void);
+void usb_keyboard_task(void);
+void usb_mouse_task(void);
+void rtc64_wm_task(void);
+void text_editor_task(void);
 
 void shell_main(void);
 
@@ -123,6 +127,12 @@ void tasking_init(void) {
 
     /* Register USB Maintenance Task in Slab 6 */
     register_task(usb_main_task, 6);
+
+    /* Register Peripheral and GUI Tasks */
+    register_task(usb_keyboard_task, 7);
+    register_task(usb_mouse_task, 8);
+    register_task(rtc64_wm_task, 9);
+    register_task(text_editor_task, 10);
 
     /* Register Shell Task in Slab 2 */
     if (pending_shell_entry) {

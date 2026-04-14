@@ -10,6 +10,7 @@
 #include <include/usb.h>
 #include <include/mouse.h>
 #include <include/config.h>
+#include <include/usb_queues.h>
 
 void serial_write_str(const char* s);
 void serial_print(const char* fmt, ...);
@@ -61,11 +62,15 @@ typedef struct {
     int bulk_in_idx;
     int bulk_out_idx;
     uint8_t last_report[8];
+    bool is_tablet;
 } xhci_device_t;
 
 static xhci_device_t usb_devices[64];
 
 static xhci_trb_t* ep_rings[64][32];
+
+static hid_queue_t kbd_report_queue = { .head = 0, .tail = 0 };
+static hid_queue_t mouse_report_queue = { .head = 0, .tail = 0 };
 
 void console_push_char(char c);
 
@@ -172,90 +177,26 @@ void xhci_handle_events(void) {
             uint8_t* report = (uint8_t*)(report_phys + get_hhdm_offset());
 
             if (report_phys != 0 && report) {
-                if (usb_devices[slot_id].type == USB_TYPE_KBD && dci != 1) {
-                    uint8_t modifiers = report[0];
-                    extern bool control_pressed;
-                    control_pressed = (modifiers & 0x01) || (modifiers & 0x10);
+                hid_queue_t* target = NULL;
+                if (usb_devices[slot_id].type == USB_TYPE_KBD) target = &kbd_report_queue;
+                else if (usb_devices[slot_id].type == USB_TYPE_MOUSE) target = &mouse_report_queue;
 
-                    /* 1. Check for releases of the repeat key */
-                    if (repeat_key != 0) {
-                        bool still_pressed = false;
-                        for (int i = 2; i < 8; i++) {
-                            if (report[i] == repeat_key) {
-                                still_pressed = true;
-                                break;
-                            }
-                        }
-                        if (!still_pressed) {
-                            repeat_key = 0;
-                        } else {
-                            repeat_modifiers = modifiers;
-                        }
+                if (target) {
+                    int next = (target->tail + 1) % HID_QUEUE_SIZE;
+                    if (next != target->head) {
+                        for(int k=0; k<8; k++) target->reports[target->tail].data[k] = report[k];
+                        target->reports[target->tail].slot = slot_id;
+                        target->reports[target->tail].dci = dci;
+                        target->tail = next;
                     }
-
-                    /* 2. Check for new key presses */
-                    for (int i = 2; i < 8; i++) {
-                        uint8_t code = report[i];
-                        if (code == 0) continue;
-
-                        bool was_pressed = false;
-                        for (int j = 2; j < 8; j++) {
-                            if (usb_devices[slot_id].last_report[j] == code) {
-                                was_pressed = true;
-                                break;
-                            }
-                        }
-
-                        if (!was_pressed) {
-                            if (control_pressed && code == 0x06) { /* 'c' scancode is 0x06 */
-                                void console_copy_selection(void);
-                                console_copy_selection();
-                            }
-
-                            bool shift = (modifiers & 0x02) || (modifiers & 0x20);
-                            char c = shift ? usb_shift_map[code] : usb_map[code];
-                            if (c) {
-                                console_push_char(c);
-                                repeat_key = code;
-                                repeat_modifiers = modifiers;
-                                next_repeat_tick = get_system_ticks() + 500; /* 500ms delay */
-                            }
-                        }
-                    }
-                    for (int i = 0; i < 8; i++) usb_devices[slot_id].last_report[i] = report[i];
-
-                    /* Re-queue the Interrupt In TRB */
-                    xhci_trb_t t_trb = {0};
-                    t_trb.ptr = report_phys; /* Keep physical */
-                    t_trb.status = 8;
-                    t_trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5); /* IOC=1 */
-                    xhci_transfer(slot_id, dci, &t_trb);
-                } else if (usb_devices[slot_id].type == USB_TYPE_MOUSE && dci != 1) {
-                    mouse_state_t* ms = get_mouse_state();
-                    if (ms) {
-                        ms->left_button = report[0] & 0x01;
-                        ms->right_button = report[0] & 0x02;
-                        ms->middle_button = report[0] & 0x04;
-
-                        /* usb-tablet uses absolute coordinates (0-32767) in first 4 bytes of report */
-                        uint16_t abs_x = (report[1] | (report[2] << 8));
-                        uint16_t abs_y = (report[3] | (report[4] << 8));
-
-                        ms->x = (abs_x * (CONFIG_SCREEN_WIDTH - 1)) / 32767;
-                        ms->y = (abs_y * (CONFIG_SCREEN_HEIGHT - 1)) / 32767;
-
-                        void vga_draw_mouse(int x, int y);
-                        vga_draw_mouse(ms->x, ms->y);
-
-                        ms->active = true;
-                    }
-                    /* Re-queue */
-                    xhci_trb_t t_trb = {0};
-                    t_trb.ptr = report_phys;
-                    t_trb.status = 8;
-                    t_trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5); /* IOC=1 */
-                    xhci_transfer(slot_id, dci, &t_trb);
                 }
+
+                /* Re-queue the Interrupt In TRB */
+                xhci_trb_t t_trb = {0};
+                t_trb.ptr = report_phys;
+                t_trb.status = 8;
+                t_trb.control = (TRB_TYPE_NORMAL << 10) | (1 << 5); /* IOC=1 */
+                xhci_transfer(slot_id, dci, &t_trb);
             }
         } else if (type == TRB_TYPE_CMD_COMP_EV) {
             last_cmd_status = (ev->status >> 24) & 0xFF;
@@ -689,6 +630,111 @@ void xhci_setup_device(int port) {
 }
 
 void vga_print(const char* s);
+void vga_draw_mouse(int x, int y);
+
+void usb_keyboard_task(void) {
+    vga_print("[USB] Keyboard Task Active.\n");
+    while(1) {
+        while(kbd_report_queue.head != kbd_report_queue.tail) {
+            hid_report_t* report_obj = &kbd_report_queue.reports[kbd_report_queue.head];
+            uint8_t* report = report_obj->data;
+            int slot_id = report_obj->slot;
+
+            uint8_t modifiers = report[0];
+            extern bool control_pressed;
+            control_pressed = (modifiers & 0x01) || (modifiers & 0x10);
+
+            /* Check for releases of the repeat key */
+            if (repeat_key != 0) {
+                bool still_pressed = false;
+                for (int i = 2; i < 8; i++) {
+                    if (report[i] == repeat_key) {
+                        still_pressed = true;
+                        break;
+                    }
+                }
+                if (!still_pressed) {
+                    repeat_key = 0;
+                } else {
+                    repeat_modifiers = modifiers;
+                }
+            }
+
+            /* Check for new key presses */
+            for (int i = 2; i < 8; i++) {
+                uint8_t code = report[i];
+                if (code == 0) continue;
+
+                bool was_pressed = false;
+                for (int j = 2; j < 8; j++) {
+                    if (usb_devices[slot_id].last_report[j] == code) {
+                        was_pressed = true;
+                        break;
+                    }
+                }
+
+                if (!was_pressed) {
+                    if (control_pressed && code == 0x06) { /* 'c' */
+                        void console_copy_selection(void);
+                        console_copy_selection();
+                    }
+
+                    bool shift = (modifiers & 0x02) || (modifiers & 0x20);
+                    char c = shift ? usb_shift_map[code] : usb_map[code];
+                    if (c) {
+                        console_push_char(c);
+                        repeat_key = code;
+                        repeat_modifiers = modifiers;
+                        next_repeat_tick = get_system_ticks() + 500;
+                    }
+                }
+            }
+            for (int i = 0; i < 8; i++) usb_devices[slot_id].last_report[i] = report[i];
+
+            kbd_report_queue.head = (kbd_report_queue.head + 1) % HID_QUEUE_SIZE;
+        }
+        xhci_handle_repeat();
+        sys_yield();
+    }
+}
+
+void usb_mouse_task(void) {
+    vga_print("[USB] Mouse Task Active.\n");
+    while(1) {
+        while(mouse_report_queue.head != mouse_report_queue.tail) {
+            hid_report_t* report_obj = &mouse_report_queue.reports[mouse_report_queue.head];
+            uint8_t* report = report_obj->data;
+            int slot = report_obj->slot;
+
+            mouse_state_t* ms = get_mouse_state();
+            if (ms) {
+                ms->left_button = report[0] & 0x01;
+                ms->right_button = report[0] & 0x02;
+                ms->middle_button = report[0] & 0x04;
+
+                if (usb_devices[slot].is_tablet) {
+                    uint16_t abs_x = (report[1] | (report[2] << 8));
+                    uint16_t abs_y = (report[3] | (report[4] << 8));
+                    ms->x = (abs_x * 639) / 32767;
+                    ms->y = (abs_y * 479) / 32767;
+                } else {
+                    ms->x += (int8_t)report[1];
+                    ms->y += (int8_t)report[2];
+                    if (ms->x < 0) ms->x = 0;
+                    if (ms->y < 0) ms->y = 0;
+                    if (ms->x >= 640) ms->x = 639;
+                    if (ms->y >= 480) ms->y = 479;
+                }
+
+                vga_draw_mouse(ms->x, ms->y);
+                ms->active = true;
+            }
+
+            mouse_report_queue.head = (mouse_report_queue.head + 1) % HID_QUEUE_SIZE;
+        }
+        sys_yield();
+    }
+}
 
 void usb_main_task(void) {
 #if defined(CONFIG_INTERFACE_PS2)

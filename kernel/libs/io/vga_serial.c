@@ -253,28 +253,31 @@ void vga_draw_mouse(int x, int y) {
     }
 }
 
-void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
+void draw_char_pixel(char c, int px, int py, uint32_t fg, uint32_t bg) {
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;
-
-    /* Bounds check to prevent out-of-bounds font access */
     if ((uint8_t)c >= 128) return;
 
     const uint8_t* glyph = font8x8_basic[(uint8_t)c];
     for (int i = 0; i < 8; i++) {
         for (int j = 0; j < 8; j++) {
             uint32_t color = (glyph[i] & (1 << (7 - j))) ? fg : bg;
-            /* 2x scaling: draw 2x2 blocks */
             for (int sy = 0; sy < SCALE; sy++) {
                 for (int sx = 0; sx < SCALE; sx++) {
-                    uint32_t* pixel = (uint32_t*)(fb->address +
-                        ((y * 8 * SCALE) + (i * SCALE) + sy) * fb->pitch +
-                        ((x * 8 * SCALE) + (j * SCALE) + sx) * 4);
-                    *pixel = color;
+                    int final_x = px + (j * SCALE) + sx;
+                    int final_y = py + (i * SCALE) + sy;
+                    if (final_x >= 0 && (uint64_t)final_x < fb->width && final_y >= 0 && (uint64_t)final_y < fb->height) {
+                        uint32_t* pixel = (uint32_t*)(fb->address + final_y * fb->pitch + final_x * 4);
+                        *pixel = color;
+                    }
                 }
             }
         }
     }
+}
+
+void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
+    draw_char_pixel(c, x * 8 * SCALE, y * 8 * SCALE, fg, bg);
 }
 
 void vga_set_selection(int x1, int y1, int x2, int y2) {
