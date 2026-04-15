@@ -99,6 +99,16 @@ int tasking_spawn_app(const char* path) {
         return -1;
     }
 
+    /* ELF Validation: Ensure we are not drawing bin to screen or executing junk */
+    if (bytes_read < 4 || code_dest[0] != 0x7F || code_dest[1] != 'E' || code_dest[2] != 'L' || code_dest[3] != 'F') {
+        vga_print("[UNICE64] Security: App %s rejected (Not a valid ELF binary).\n", path);
+        void slab_release_transient(int id);
+        slab_release_transient(slab_id);
+        vfs_close(h);
+        release(pstr);
+        return -1;
+    }
+
     vfs_close(h);
     release(pstr);
 

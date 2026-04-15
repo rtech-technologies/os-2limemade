@@ -274,10 +274,15 @@ void vga_draw_mouse(int x, int y) {
         }
     }
 
-    /* Draw Numbers in Hot Pink */
-    for (int k = 0; buf[k]; k++) {
-        draw_char_pixel(buf[k], x + (k * 8), y, 0xFF00FF, 0x000000);
+    /* OSx2: Mouse cursor is now just a pointer or invisible, numeric coordinates go to telemetry */
+    /* Draw small 3x3 Hot Pink square for precision */
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            draw_pixel(x + j, y + i, 0xFF00FF);
+        }
     }
+
+    (void)buf;
 }
 
 void draw_char_pixel(char c, int px, int py, uint32_t fg, uint32_t bg) {
@@ -515,7 +520,8 @@ void telemetry_update(int task_id, const char* status) {
 
     /* Draw at bottom left in Emerald (0x00FF88) */
     for (int j = 0; j < i; j++) {
-        draw_char(buf[j], j, bottom_row, 0x00FF88, 0x000000);
+        /* OSx2: Draw Telemetry at absolute bottom using pixel-positioning */
+        draw_char_pixel(buf[j], j * 16, fb->height - 16, 0x00FF88, 0x000000);
     }
 }
 
