@@ -39,6 +39,8 @@ int rtc64_create_window(int x, int y, int w, int h, const char* title) {
 
 void rtc64_draw_gui_primitives(rtc64_window_t* win);
 
+void vga_draw_mouse(int x, int y);
+
 void rtc64_draw_all(void) {
     /* Draw windows from back to front */
     for (int i = 0; i < MAX_WINDOWS; i++) {
@@ -48,6 +50,12 @@ void rtc64_draw_all(void) {
                 windows[i].on_draw(windows[i].x + 4, windows[i].y + 44, windows[i].w - 8, windows[i].h - 48);
             }
         }
+    }
+
+    /* Topmost Layer: Mouse Cursor */
+    mouse_state_t* ms = get_mouse_state();
+    if (ms && ms->active) {
+        vga_draw_mouse(ms->x, ms->y);
     }
 }
 
@@ -80,7 +88,26 @@ void rtc64_update(void) {
             /* Drag check (title bar) */
             if (ms->y < win->y + 24) win->dragging = true;
 
-            /* Menu/Button clicks could be handled here */
+            /* Button Clicks */
+            for (int b = 0; b < win->button_count; b++) {
+                rtc64_button_t* btn = &win->buttons[b];
+                int bx = win->x + btn->x;
+                int by = win->y + btn->y;
+                if (ms->x >= bx && ms->x < bx + btn->w && ms->y >= by && ms->y < by + btn->h) {
+                    if (btn->handler) btn->handler();
+                }
+            }
+
+            /* Menu Clicks */
+            if (ms->y >= win->y + 24 && ms->y < win->y + 44) {
+                int menu_idx = (ms->x - (win->x + 12)) / 64;
+                if (menu_idx >= 0 && menu_idx < win->menu_count) {
+                    /* For now, just trigger first item handler as 'simple' menu */
+                    if (win->menus[menu_idx].item_count > 0 && win->menus[menu_idx].items[0].handler) {
+                        win->menus[menu_idx].items[0].handler();
+                    }
+                }
+            }
         }
 
         if (ev.type == RTC64_EVENT_MOUSE_UP) win->dragging = false;

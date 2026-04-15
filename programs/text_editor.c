@@ -32,15 +32,24 @@ void editor_on_event(rtc64_event_t ev) {
     if (ev.type == RTC64_EVENT_KEY_DOWN) {
         if (ev.key == '\b') {
             if (editor_cursor > 0) editor_buffer[--editor_cursor] = '\0';
-        } else if (editor_cursor < EDITOR_BUF_SIZE - 1) {
-            editor_buffer[editor_cursor++] = ev.key;
-            editor_buffer[editor_cursor] = '\0';
+        } else if (ev.key == '\n' || ev.key == '\r') {
+             if (editor_cursor < EDITOR_BUF_SIZE - 1) {
+                editor_buffer[editor_cursor++] = '\n';
+                editor_buffer[editor_cursor] = '\0';
+            }
+        } else if (ev.key >= 32 && ev.key < 127) {
+            if (editor_cursor < EDITOR_BUF_SIZE - 1) {
+                editor_buffer[editor_cursor++] = ev.key;
+                editor_buffer[editor_cursor] = '\0';
+            }
         }
     }
 }
 
 void text_editor_task(void) {
     for(int i=0; i<EDITOR_BUF_SIZE; i++) editor_buffer[i] = 0;
+
+    char console_pop_char(void);
 
     int win_id = rtc64_create_window(50, 50, 400, 300, "Sovereign Text Editor");
     if (win_id != -1) {
@@ -67,7 +76,17 @@ void text_editor_task(void) {
     }
 
     while(1) {
-        /* Application logic loop */
+        /* Route global keyboard input to focused window */
+        char c = console_pop_char();
+        if (c != 0) {
+            rtc64_event_t kev = { .type = RTC64_EVENT_KEY_DOWN, .key = c };
+            extern rtc64_window_t windows[];
+            for(int i=0; i<MAX_WINDOWS; i++) {
+                if (windows[i].visible && windows[i].focused && windows[i].on_event) {
+                    windows[i].on_event(kev);
+                }
+            }
+        }
         sys_yield();
     }
 }

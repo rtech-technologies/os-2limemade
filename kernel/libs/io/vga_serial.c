@@ -247,7 +247,7 @@ void vga_draw_mouse(int x, int y) {
         for (int j = 0; j < 16; j++) {
             mouse_back_buffer[i * 16 + j] = get_pixel(x + j, y + i);
             if (mouse_cursor_bitmap[i] & (1 << (15 - j))) {
-                draw_pixel(x + j, y + i, 0xFFFFFF); /* White */
+                draw_pixel(x + j, y + i, 0xFF00FF); /* Hot Pink */
             }
         }
     }
