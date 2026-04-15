@@ -1,107 +1,17 @@
 #include <kernel/libs/core/services.h>
+#include <kernel/unice64/task.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
 #include <kernel/libs/storage/vdisk.h>
 #include <kernel/libs/core/pci.h>
+#include <include/ahci_hw.h>
+#include <include/panic.h>
 
 void* malloc(size_t size);
 void free(void* ptr);
 
 void serial_write_str(const char* s);
-
-/* AHCI HBA Structures (Physical) */
-typedef struct {
-    uint8_t  fis_type;
-    uint8_t  pmport:4;
-    uint8_t  rsv0:3;
-    uint8_t  c:1;
-    uint8_t  command;
-    uint8_t  featurel;
-    uint8_t  lba0;
-    uint8_t  lba1;
-    uint8_t  lba2;
-    uint8_t  device;
-    uint8_t  lba3;
-    uint8_t  lba4;
-    uint8_t  lba5;
-    uint8_t  featureh;
-    uint8_t  countl;
-    uint8_t  counth;
-    uint8_t  icc;
-    uint8_t  control;
-    uint8_t  rsv1[4];
-} fis_reg_h2d_t;
-
-typedef struct {
-    uint32_t dba;
-    uint32_t dbau;
-    uint32_t rsv0;
-    uint32_t dbc:22;
-    uint32_t rsv1:9;
-    uint32_t i:1;
-} hba_prdt_entry_t;
-
-typedef struct {
-    uint8_t  cfis[64];
-    uint8_t  acmd[16];
-    uint8_t  rsv[48];
-    hba_prdt_entry_t prdt_entry[1];
-} hba_cmd_tbl_t;
-
-typedef struct {
-    uint8_t  cfl:5;
-    uint8_t  a:1;
-    uint8_t  w:1;
-    uint8_t  p:1;
-    uint8_t  r:1;
-    uint8_t  b:1;
-    uint8_t  c:1;
-    uint8_t  rsv0:1;
-    uint8_t  pmp:4;
-    uint16_t prdtl;
-    volatile uint32_t prdbc;
-    uint32_t ctba;
-    uint32_t ctbau;
-    uint32_t rsv1[4];
-} hba_cmd_header_t;
-
-typedef struct {
-    uint32_t clb;
-    uint32_t clbu;
-    uint32_t fb;
-    uint32_t fbu;
-    uint32_t is;
-    uint32_t ie;
-    uint32_t cmd;
-    uint32_t rsv0;
-    uint32_t tfd;
-    uint32_t sig;
-    uint32_t ssts;
-    uint32_t sctl;
-    uint32_t serr;
-    uint32_t sact;
-    uint32_t ci;
-    uint32_t sntf;
-    uint32_t fbs;
-    uint32_t devslp;
-    uint32_t rsv1[11]; /* (18 * 4) = 72 bytes. 128 - 72 = 56 bytes. 56 / 4 = 14. */
-    uint32_t rsv2[3]; /* More Padding */
-} hba_port_t;
-
-typedef struct {
-    uint32_t cap;
-    uint32_t ghc;
-    uint32_t is;
-    uint32_t pi;
-    uint32_t vs;
-    uint32_t bccc;
-    uint32_t bccd;
-    uint32_t cap2;
-    uint32_t bohc;
-    uint8_t  rsv[0x100 - 0x24]; /* Pad to 0x100 where ports start */
-    hba_port_t ports[32];
-} hba_mem_t;
 
 static hba_mem_t* hba_base = NULL;
 static void* port_clb_virt[32];
@@ -116,25 +26,87 @@ void serial_print_hex(const char* label, uint16_t val);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
 void* bump_alloc(size_t size);
 uint64_t vmm_get_phys(void* virt);
+void serial_print(const char* fmt, ...);
+void forensic_panic(const char* message, void* state);
 
-void ahci_port_start(hba_port_t *port) {
-    while (port->cmd & (1 << 15));
+#define panic(msg) forensic_panic(msg, NULL)
+#define virtual_to_physical(virt) vmm_get_phys(virt)
+
+void serial_print_hex32(const char* label, uint32_t val);
+void pit_wait_ms(uint32_t ms);
+
+int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_t timeout_loops) {
+    for (uint32_t i = 0; i < timeout_loops; i++) {
+        /* Task File Error Status (Bit 30 of PxIS) */
+        if (port->is & (1 << 30)) {
+            serial_print_hex32("[AHCI] TFES Detected! TFD: ", port->tfd);
+            return -1;
+        }
+
+        /* Logic: Check for SILICON-Ready bits in multiple registers */
+        bool ci_clear = (port->ci & mask) == expected;
+        bool tfd_ready = (port->tfd & 0x88) == 0; /* Not Busy and Not DRQ */
+        bool is_fired = (port->is & mask);
+
+        if (mask == (1 << 0)) { /* Command Issue Poll */
+            if (ci_clear) return 0;
+        } else if (is_fired) { /* Interrupt Status Poll */
+            port->is = 0xFFFFFFFF;
+            return 0;
+        } else if (tfd_ready) { /* Task File Poll */
+            return 0;
+        }
+
+        /* Non-Blocking: If scheduler is active, yield instead of hard stall */
+        bool tasking_is_scanning(void);
+        if (!tasking_is_scanning()) {
+            sys_yield();
+        } else {
+            /* During INIT, we poll manually without full tasking */
+            if (i % 1000 == 0) {
+                pit_wait_ms(1);
+                if (i % 10000 == 0) serial_write_str(".");
+            }
+        }
+    }
+
+    /* Constraint Enforcement: Panic on timeout to avoid silent hang */
+    panic("AHCI_POLL_TIMEOUT");
+    return -1;
+}
+
+void ahci_port_start(int p) {
+    hba_port_t* port = &hba_base->ports[p];
+    int ms = 0;
+    while ((port->cmd & (1 << 15)) && ms < 100) {
+        pit_wait_ms(1);
+        ms++;
+    }
+
+    /* Physical Registration: The Controller cannot see HHDM */
+    uint64_t clb_phys = virtual_to_physical(port_clb_virt[p]);
+    port->clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
+    port->clbu = (uint32_t)(clb_phys >> 32);
+
+    uint64_t fb_phys = virtual_to_physical(port_fb_virt[p]);
+    port->fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
+    port->fbu = (uint32_t)(fb_phys >> 32);
+
     port->cmd |= (1 << 4);
     port->cmd |= (1 << 0);
 }
 
-void vga_print(const char* fmt, ...);
-void pit_wait_ms(uint32_t ms);
-
-void ahci_force_port_reset(hba_port_t *port, int port_no) {
+void ahci_force_port_reset(int port_no) {
+    hba_port_t* port = &hba_base->ports[port_no];
     port->serr = 0xFFFFFFFF;
     port->is = 0xFFFFFFFF;
     port->cmd &= ~0x0001;
     port->cmd &= ~0x0010;
 
-    int engine_timeout = 1000;
-    while ((port->cmd & 0x8000 || port->cmd & 0x4000) && engine_timeout--) {
+    int engine_ms = 0;
+    while ((port->cmd & 0x8000 || port->cmd & 0x4000) && engine_ms < 100) {
         pit_wait_ms(1);
+        engine_ms++;
     }
 
     port->sctl = (port->sctl & ~0x0F) | 0x301;
@@ -142,17 +114,18 @@ void ahci_force_port_reset(hba_port_t *port, int port_no) {
     port->sctl = (port->sctl & ~0x0F) | 0x300;
     pit_wait_ms(50);
 
-    int timeout = 1000;
-    while ((port->ssts & 0x0F) != 0x03 && timeout--) {
+    int status_ms = 0;
+    while ((port->ssts & 0x0F) != 0x03 && status_ms < 100) {
         pit_wait_ms(1);
+        status_ms++;
     }
 
     if ((port->ssts & 0x0F) == 0x03) {
-        vga_print("[AHCI] PORT %d: LINK ESTABLISHED\n", port_no);
+        serial_print("[AHCI] PORT %d: LINK ESTABLISHED\n", port_no);
         port->cmd |= 0x0010;
-        port->cmd |= 0x0001;
+        ahci_port_start(port_no);
     } else {
-        vga_print("[AHCI] PORT %d: MECHANICAL FAILURE\n", port_no);
+        serial_print("[AHCI] PORT %d: MECHANICAL FAILURE\n", port_no);
     }
 }
 
@@ -161,11 +134,14 @@ void ahci_hardware_audit(int p) {
     if (!(hba_base->pi & (1 << p))) return;
     hba_port_t* port = &hba_base->ports[p];
 
+    /* SKIP: If port is "LIVE" (Busy or DRQ set), skip audit to avoid collision */
+    if (port->tfd & 0x88) return;
+
     uint32_t ssts = port->ssts;
     if ((ssts & 0x0F) == 0x03) {
-        ahci_port_start(port);
+        ahci_port_start(p);
     } else {
-        ahci_force_port_reset(port, p);
+        ahci_force_port_reset(p);
     }
 }
 
@@ -176,63 +152,41 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     int p = (int)(uint64_t)priv;
     hba_port_t* port = &hba_base->ports[p];
 
-    /* SATA Test for ATAPI: Reject generic SATA reads on ATAPI signatures */
-    if (port->sig == 0xEB140101) {
-        vga_print("[AHCI] Port %d: Rejected SATA Read on ATAPI device.\n", p);
-        return -1;
-    }
+    if (port->sig == 0xEB140101) return -1;
 
-    uint64_t phys_buffer = vmm_get_phys(buffer);
+    uint64_t phys_buffer = virtual_to_physical(buffer);
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
-    cmdhdr->cfl = 5;
-    cmdhdr->w = 0;
-    cmdhdr->a = 0; /* Pure SATA */
-    cmdhdr->prdtl = 1;
+    /* CFL=5 (5*4=20 bytes), PRDTL=1 */
+    cmdhdr->dw0 = 5 | (1 << 16);
+    cmdhdr->prdbc = 0;
 
-    /* Re-link Command Table every time to ensure atomic correctness */
-    uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
+    uint64_t ctba_phys = virtual_to_physical(port_ctba_virt[p]);
     cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
     cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)port_ctba_virt[p];
+    for (int i=0; i < (int)sizeof(hba_cmd_tbl_t); i++) ((uint8_t*)cmdtbl)[i] = 0;
+
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
     cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
-    cmdtbl->prdt_entry[0].dbc = (count * 512) - 1;
-    cmdtbl->prdt_entry[0].i = 1;
+    /* dw3: dbc=511 (for 1 sector per iteration in this simplified logic), i=1 */
+    cmdtbl->prdt_entry[0].dw3 = ((count * 512 - 1) & 0x3FFFFF) | (1U << 31);
 
-    fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
-    fis->fis_type = 0x27;
-    fis->c = 1;
-    fis->command = 0x25;
-    fis->lba0 = (uint8_t)lba;
-    fis->lba1 = (uint8_t)(lba >> 8);
-    fis->lba2 = (uint8_t)(lba >> 16);
-    fis->device = 1 << 6;
-    fis->lba3 = (uint8_t)(lba >> 24);
-    fis->lba4 = (uint8_t)(lba >> 32);
-    fis->lba5 = (uint8_t)(lba >> 40);
-    fis->countl = (uint8_t)count;
-    fis->counth = (uint8_t)(count >> 8);
+    uint32_t* fis = (uint32_t*)cmdtbl->cfis;
+    fis[0] = 0x27 | (1 << 15) | (0x25 << 16); /* Type, Command(0x25=READ DMA EXT), C=1 */
+    fis[1] = (lba & 0xFFFFFF) | (0x40 << 24); /* LBA Low 24 bits, Device=LBA Mode */
+    fis[2] = (lba >> 24) & 0xFFFFFF;          /* LBA High 24 bits */
+    fis[3] = count & 0xFFFF;                  /* Sector Count (16-bit) */
 
-    /* Idle Wait: Wait for drive to be ready to receive command */
-    int timeout = 1000000;
-    while ((port->tfd & (0x80 | 0x08)) && timeout--) {
-        __asm__ volatile ("pause");
-    }
+    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
 
     port->ci = (1 << 0);
-    while ((port->ci & (1 << 0)) && timeout--) {
-        if (port->tfd & (1 << 0)) { /* ERR bit */
-            vga_print("[AHCI] Port %d READ ERROR: TFD 0x%x\n", p, port->tfd);
-            return -1;
-        }
-        __asm__ volatile ("pause");
-    }
-    if (timeout <= 0) {
-        vga_print("[AHCI] Port %d READ TIMEOUT\n", p);
-        return -1;
-    }
+
+    /* Real Metal Poll: Wait for SILICON to clear CI bit */
+    if (ahci_wait_status(port, (1 << 0), 0, 1000000) != 0) return -1;
+
+    port->is = 0xFFFFFFFF;
     return 0;
 }
 
@@ -241,63 +195,78 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     int p = (int)(uint64_t)priv;
     hba_port_t* port = &hba_base->ports[p];
 
-    /* SATA Test for ATAPI: Reject generic SATA writes on ATAPI signatures */
-    if (port->sig == 0xEB140101) {
-        vga_print("[AHCI] Port %d: Rejected SATA Write on ATAPI device.\n", p);
-        return -1;
-    }
+    if (port->sig == 0xEB140101) return -1;
 
-    uint64_t phys_buffer = vmm_get_phys(buffer);
+    uint64_t phys_buffer = virtual_to_physical(buffer);
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
-    cmdhdr->cfl = 5;
-    cmdhdr->w = 1;
-    cmdhdr->a = 0; /* Pure SATA */
-    cmdhdr->prdtl = 1;
+    /* CFL=5, W=1, PRDTL=1 */
+    cmdhdr->dw0 = 5 | (1 << 6) | (1 << 16);
+    cmdhdr->prdbc = 0;
 
-    /* Re-link Command Table every time to ensure atomic correctness */
-    uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
+    uint64_t ctba_phys = virtual_to_physical(port_ctba_virt[p]);
     cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
     cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)port_ctba_virt[p];
+    for (int i=0; i < (int)sizeof(hba_cmd_tbl_t); i++) ((uint8_t*)cmdtbl)[i] = 0;
+
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
     cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
-    cmdtbl->prdt_entry[0].dbc = (count * 512) - 1;
-    cmdtbl->prdt_entry[0].i = 1;
+    /* dw3: dbc, i=1 */
+    cmdtbl->prdt_entry[0].dw3 = ((count * 512 - 1) & 0x3FFFFF) | (1U << 31);
 
-    fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
-    fis->fis_type = 0x27;
-    fis->c = 1;
-    fis->command = 0x35;
-    fis->lba0 = (uint8_t)lba;
-    fis->lba1 = (uint8_t)(lba >> 8);
-    fis->lba2 = (uint8_t)(lba >> 16);
-    fis->device = 1 << 6;
-    fis->lba3 = (uint8_t)(lba >> 24);
-    fis->lba4 = (uint8_t)(lba >> 32);
-    fis->lba5 = (uint8_t)(lba >> 40);
-    fis->countl = (uint8_t)count;
-    fis->counth = (uint8_t)(count >> 8);
+    uint32_t* fis = (uint32_t*)cmdtbl->cfis;
+    fis[0] = 0x27 | (1 << 15) | (0x35 << 16); /* Type, Command(0x35=WRITE DMA EXT), C=1 */
+    fis[1] = (lba & 0xFFFFFF) | (0x40 << 24); /* LBA Low 24 bits, Device=LBA Mode */
+    fis[2] = (lba >> 24) & 0xFFFFFF;          /* LBA High 24 bits */
+    fis[3] = count & 0xFFFF;                  /* Sector Count (16-bit) */
 
-    /* Idle Wait: Wait for drive to be ready to receive command */
-    int timeout = 1000000;
-    while ((port->tfd & (0x80 | 0x08)) && timeout--) {
-        __asm__ volatile ("pause");
-    }
+    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
 
     port->ci = (1 << 0);
-    while ((port->ci & (1 << 0)) && timeout--) {
-        if (port->tfd & (1 << 0)) {
-            vga_print("[AHCI] Port %d WRITE ERROR: TFD 0x%x\n", p, port->tfd);
-            return -1;
-        }
-        __asm__ volatile ("pause");
-    }
-    if (timeout <= 0) {
-        vga_print("[AHCI] Port %d WRITE TIMEOUT\n", p);
-        return -1;
-    }
+
+    /* Real Metal Poll: Wait for SILICON to clear CI bit */
+    if (ahci_wait_status(port, (1 << 0), 0, 1000000) != 0) return -1;
+
+    port->is = 0xFFFFFFFF;
+    return 0;
+}
+
+int ahci_mechanical_sync(int p) {
+    if (!hba_base) return -1;
+    hba_port_t* port = &hba_base->ports[p];
+
+    /* Direct SATA Write bypass: Signature Stamp at LBA 0 */
+    uint32_t stamp = 0xEFBEADDE;
+    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
+    cmdhdr->dw0 = 5 | (1 << 6) | (1 << 16); /* CFL=5, W=1, PRDTL=1 */
+    cmdhdr->prdbc = 0;
+
+    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)port_ctba_virt[p];
+    for (int i=0; i < (int)sizeof(hba_cmd_tbl_t); i++) ((uint8_t*)cmdtbl)[i] = 0;
+
+    /* Use static slab address for synchronous writes */
+    static uint8_t sync_buf[512] __attribute__((aligned(16)));
+    for(int i=0; i<512; i++) sync_buf[i] = 0;
+    *(uint32_t*)sync_buf = stamp;
+
+    uint64_t phys_buf = virtual_to_physical(sync_buf);
+    cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buf & 0xFFFFFFFF);
+    cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buf >> 32);
+    cmdtbl->prdt_entry[0].dw3 = (511 & 0x3FFFFF) | (1U << 31);
+
+    uint32_t* fis = (uint32_t*)cmdtbl->cfis;
+    fis[0] = 0x27 | (1 << 15) | (0x35 << 16); /* WRITE DMA EXT */
+    fis[1] = (0 & 0xFFFFFF) | (0x40 << 24);   /* LBA 0 */
+    fis[2] = 0;
+    fis[3] = 1; /* 1 Sector */
+
+    if (ahci_wait_status(port, 0x88, 0, 100) != 0) return -1;
+    port->ci = (1 << 0);
+    if (ahci_wait_status(port, (1 << 0), 0, 100) != 0) return -1;
+
+    serial_print("[AHCI] Port %d: Mechanical Sync Success.\n", p);
     return 0;
 }
 
@@ -310,34 +279,35 @@ int rtech_iso_init(int drive);
 
 void ahci_scan_remaining(void) {
     if (!hba_base) return;
-    vga_print("[AHCI] Performing extended scan (Ports 9-31)...\n");
+    serial_write_str("[AHCI] Performing extended scan (Ports 9-31)...\n");
     void* slab_alloc_aligned(int id, size_t size, size_t align);
     for (int p = 9; p < 32; p++) {
         if (hba_base->pi & (1 << p)) {
-            /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
+            /* CLB Alignment: AHCI Command Lists must be 1KB aligned, FB 256B aligned */
             port_clb_virt[p] = slab_alloc_aligned(0, 1024, 1024);
-            port_fb_virt[p] = slab_alloc_aligned(0, 256, 256);
+            port_fb_virt[p] = slab_alloc_aligned(0, 4096, 256);
             port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
 
             if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
-                vga_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);
+                serial_write_str("[AHCI] FATAL: Port Heap Allocation Failure.\n");
                 continue;
             }
 
-            uint64_t clb_phys = vmm_get_phys(port_clb_virt[p]);
+            /* Physical Registration: The Controller cannot see HHDM */
+            uint64_t clb_phys = virtual_to_physical(port_clb_virt[p]);
             hba_base->ports[p].clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
             hba_base->ports[p].clbu = (uint32_t)(clb_phys >> 32);
 
-            uint64_t fb_phys = vmm_get_phys(port_fb_virt[p]);
+            uint64_t fb_phys = virtual_to_physical(port_fb_virt[p]);
             hba_base->ports[p].fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
             hba_base->ports[p].fbu = (uint32_t)(fb_phys >> 32);
 
-            uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
+            uint64_t ctba_phys = virtual_to_physical(port_ctba_virt[p]);
             hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
             cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
             cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
-            ahci_force_port_reset(&hba_base->ports[p], p);
+            ahci_force_port_reset(p);
 
             /* Signature Delay: Wait for hardware to update registers after reset */
             pit_wait_ms(10);
@@ -356,7 +326,7 @@ void ahci_scan_remaining(void) {
                         .is_atapi = false
                     };
                     register_hardware_disk(sata_disk);
-                    vga_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
+                    serial_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
                 } else if (sig == 0xEB140101) { /* ATAPI */
                     vdisk_node_t cdrom = {
                         .name = "SATA_CD",
@@ -387,7 +357,7 @@ void ahci_scan_remaining(void) {
                     }
 
                     register_hardware_disk(cdrom);
-                    vga_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
+                    serial_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
 
                     /* ISO Discovery Handshake */
                     rtech_iso_init(get_hw_disk_count() - 1);
@@ -397,11 +367,15 @@ void ahci_scan_remaining(void) {
     }
 }
 
+static bool ahci_ready = false;
+bool ahci_is_ready(void) { return ahci_ready; }
+
 void ahci_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
         if (hba_base != NULL) return; /* Shield: Already Initialized */
 
-        vga_print("[INIT] Scanning PCI for SATA/AHCI controllers...\n");
+        serial_write_str("[INIT] Scanning PCI for SATA/AHCI controllers...\n");
+        bool found = false;
         for (int bus = 0; bus < 256; bus++) {
             for (int slot = 0; slot < 32; slot++) {
                 for (int func = 0; func < 8; func++) {
@@ -419,42 +393,42 @@ void ahci_service(kernel_event_t event) {
 
                     hba_base->ghc |= (1 << 31);
                     hba_base->ghc |= (1 << 0);
-                    int ghc_timeout = 1000;
-                    while ((hba_base->ghc & (1 << 0)) && ghc_timeout--) pit_wait_ms(1);
+                    int ghc_ms = 0;
+                    while ((hba_base->ghc & (1 << 0)) && ghc_ms < 100) {
+                        pit_wait_ms(1);
+                        ghc_ms++;
+                    }
                     hba_base->ghc |= (1 << 31);
 
                     /* OSx2: Scan the first 9 ports on boot per Sovereign mandate */
                     void* slab_alloc_aligned(int id, size_t size, size_t align);
                     for (int p = 0; p < 9; p++) {
                         if (hba_base->pi & (1 << p)) {
-                            /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
+                            /* CLB Alignment: AHCI Command Lists must be 1KB aligned, FB 256B aligned */
                             port_clb_virt[p] = slab_alloc_aligned(0, 1024, 1024);
-
-                            /* Received FIS: 256 bytes, 256B aligned */
-                            port_fb_virt[p] = slab_alloc_aligned(0, 256, 256);
-
-                            /* Command Table: 4KB aligned for standard safety */
+                            port_fb_virt[p] = slab_alloc_aligned(0, 4096, 256);
                             port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
 
                             if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
-                                vga_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);
+                                serial_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);
                                 continue;
                             }
 
-                            uint64_t clb_phys = vmm_get_phys(port_clb_virt[p]);
+                            /* Physical Registration: The Controller cannot see HHDM */
+                            uint64_t clb_phys = virtual_to_physical(port_clb_virt[p]);
                             hba_base->ports[p].clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
                             hba_base->ports[p].clbu = (uint32_t)(clb_phys >> 32);
 
-                            uint64_t fb_phys = vmm_get_phys(port_fb_virt[p]);
+                            uint64_t fb_phys = virtual_to_physical(port_fb_virt[p]);
                             hba_base->ports[p].fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
                             hba_base->ports[p].fbu = (uint32_t)(fb_phys >> 32);
 
-                            uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
+                            uint64_t ctba_phys = virtual_to_physical(port_ctba_virt[p]);
                             hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
                             cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
                             cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
-                            ahci_force_port_reset(&hba_base->ports[p], p);
+                            ahci_force_port_reset(p);
 
                             /* Signature Delay: Wait for hardware to update registers after reset */
                             pit_wait_ms(10);
@@ -473,7 +447,7 @@ void ahci_service(kernel_event_t event) {
                                         .is_atapi = false
                                     };
                                     register_hardware_disk(sata_disk);
-                                    vga_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
+                                    serial_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
                                 } else if (sig == 0xEB140101) { /* ATAPI */
                                     vdisk_node_t cdrom = {
                                         .name = "SATA_CD",
@@ -502,7 +476,7 @@ void ahci_service(kernel_event_t event) {
                     }
 
                     register_hardware_disk(cdrom);
-                    vga_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
+                    serial_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
 
                     /* ISO Discovery Handshake */
                     rtech_iso_init(get_hw_disk_count() - 1);
@@ -510,11 +484,18 @@ void ahci_service(kernel_event_t event) {
                             }
                         }
                     }
-                    return; /* Success: Controller found and initialized */
+                    ahci_ready = true;
+                    found = true;
+                    break;
                 }
                 if (func == 0 && !(pci_config_read(bus, slot, 0, 0x0C) & 0x800000)) break;
                 }
+                if (found) break;
             }
+            if (found) break;
+        }
+        if (!found) {
+            serial_write_str("[AHCI] No SATA/AHCI Controller found. Entering Degraded Mode.\n");
         }
     }
 }

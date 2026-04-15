@@ -1,7 +1,9 @@
 #include <include/rsl.h>
 #include <include/vfs.h>
+#include <kernel/unice64/task.h>
 #include <kernel/libs/storage/fatfs/ff.h>
 #include <kernel/unice64/task.h>
+#include <kernel/libs/core/services.h>
 
 int get_hw_disk_count(void);
 int get_connect_disk_count(void);
@@ -91,6 +93,226 @@ void rsl_mount(void* path) {
     sys_yield();
 }
 
+static void* curdir = NULL;
+
+void* rsl_get_curdir(void) {
+    if (!curdir) curdir = str_create("/");
+    retain(curdir);
+    return curdir;
+}
+
+static bool cstr_match_local(const char* s1, const char* s2) {
+    int i = 0;
+    while (s1[i] && s2[i]) {
+        if (s1[i] != s2[i]) return false;
+        i++;
+    }
+    return s1[i] == s2[i];
+}
+
+static bool is_absolute(const char* path) {
+    int i = 0;
+    while (path[i]) {
+        if (path[i] == ':') return true;
+        i++;
+    }
+    return path[0] == '/';
+}
+
+static void* resolve_path_local(void* curdir, const char* arg) {
+    if (is_absolute(arg)) return str_create(arg);
+    const char* cd = str_to_cstr(curdir);
+    if (cstr_match_local(cd, "/")) return str_create(arg);
+    return str_concat(curdir, str_create(arg));
+}
+
+static color_t name_to_color_local(const char* name) {
+    if (cstr_match_local(name, "black")) return BLACK;
+    if (cstr_match_local(name, "blue")) return BLUE;
+    if (cstr_match_local(name, "green")) return GREEN;
+    if (cstr_match_local(name, "cyan")) return CYAN;
+    if (cstr_match_local(name, "red")) return RED;
+    if (cstr_match_local(name, "magenta")) return MAGENTA;
+    if (cstr_match_local(name, "brown")) return BROWN;
+    if (cstr_match_local(name, "white")) return WHITE;
+    if (cstr_match_local(name, "yellow")) return YELLOW;
+    return WHITE;
+}
+
+void rsl_execute_command(char* line) {
+    if (!curdir) curdir = str_create("/");
+    if (!line || line[0] == '\0') return;
+
+    char* argv[16];
+    int argc = 0;
+    char* p = line;
+
+    while (*p && argc < 16) {
+        while (*p == ' ' || *p == '\r' || *p == '\t' || *p == '\n') *p++ = '\0';
+        if (*p == '\0') break;
+        argv[argc++] = p;
+        while (*p && *p != ' ' && *p != '\r' && *p != '\t' && *p != '\n') p++;
+    }
+
+    if (argc == 0) return;
+
+    if (cstr_match_local(argv[0], "ls")) {
+        system_request_t req = { .type = REQ_FS_LS };
+        if (argc > 1) req.path = resolve_path_local(curdir, argv[1]);
+        else req.path = curdir;
+        sovereign_request_submit(&req);
+        if (argc > 1) release(req.path);
+    } else if (cstr_match_local(argv[0], "cd")) {
+        if (argc > 1) {
+            void* new_path;
+            if (cstr_match_local(argv[1], "/")) new_path = str_create("/");
+            else if (cstr_match_local(argv[1], "..")) {
+                const char* cur = str_to_cstr(curdir);
+                int last_slash = -1;
+                for(int k=0; cur[k]; k++) if (cur[k] == '/' && cur[k+1] != '\0') last_slash = k;
+                if (last_slash == -1) new_path = str_create("/");
+                else {
+                    char buf[256]; int k;
+                    for(k=0; k<=last_slash; k++) buf[k] = cur[k];
+                    buf[k] = '\0'; new_path = str_create(buf);
+                }
+            } else new_path = resolve_path_local(curdir, argv[1]);
+
+            if (cstr_match_local(str_to_cstr(new_path), "/") || rsl_exists(new_path)) {
+                const char* nps = str_to_cstr(new_path);
+                int len = 0; while(nps[len]) len++;
+                if (len > 0 && nps[len-1] != '/') {
+                    void* slash = str_create("/");
+                    void* fixed = str_concat(new_path, slash);
+                    release(slash); release(new_path);
+                    new_path = fixed;
+                }
+                release(curdir); curdir = new_path;
+                rsl_cd(curdir);
+            } else {
+                print("Error: Path not found.\n"); release(new_path);
+            }
+        }
+    } else if (cstr_match_local(argv[0], "cat")) {
+        if (argc > 1) {
+            system_request_t req = { .type = REQ_FS_CAT, .path = resolve_path_local(curdir, argv[1]) };
+            sovereign_request_submit(&req);
+            release(req.path);
+            print("\n");
+        }
+    } else if (cstr_match_local(argv[0], "write")) {
+        if (argc > 1) {
+            system_request_t req = { .type = REQ_FS_WRITE, .path = resolve_path_local(curdir, argv[1]) };
+            if (argc > 2) req.content = str_create(argv[2]);
+            else req.content = input("Enter Content: ");
+            if (req.content) {
+                sovereign_request_submit(&req);
+                release(req.content);
+            }
+            release(req.path);
+        }
+    } else if (cstr_match_local(argv[0], "mkdir")) {
+        if (argc > 1) {
+            system_request_t req = { .type = REQ_FS_MKDIR, .path = resolve_path_local(curdir, argv[1]) };
+            sovereign_request_submit(&req);
+            release(req.path);
+        }
+    } else if (cstr_match_local(argv[0], "rmdir")) {
+        if (argc > 1) {
+            void* path = resolve_path_local(curdir, argv[1]);
+            rsl_rmdir(path); release(path);
+        }
+    } else if (cstr_match_local(argv[0], "echo")) {
+        for (int i = 1; i < argc; i++) {
+            print(argv[i]); if (i < argc - 1) print(" ");
+        }
+        print("\n");
+    } else if (cstr_match_local(argv[0], "color")) {
+        if (argc > 2) {
+            set_color(name_to_color_local(argv[1]), name_to_color_local(argv[2]));
+            print("Color Updated.\n");
+        }
+    } else if (cstr_match_local(argv[0], "copy")) {
+        if (argc > 1) {
+            void* s = str_create(argv[1]);
+            rsl_copy(s); release(s);
+            print("Copied to clipboard.\n");
+        }
+    } else if (cstr_match_local(argv[0], "paste")) {
+        void* s = rsl_paste();
+        if (s) {
+            print(str_to_cstr(s)); print("\n"); release(s);
+        } else print("Clipboard empty.\n");
+    } else if (cstr_match_local(argv[0], "mount")) {
+        if (argc > 1) {
+            system_request_t req = { .type = REQ_DISK_MOUNT, .path = str_create(argv[1]) };
+            sovereign_request_submit(&req);
+            release(req.path);
+        }
+    } else if (cstr_match_local(argv[0], "format")) {
+        if (argc > 1) {
+            system_request_t req = { .type = REQ_DISK_FORMAT, .path = str_create(argv[1]) };
+            sovereign_request_submit(&req);
+            release(req.path);
+        }
+    } else if (cstr_match_local(argv[0], "stamp")) {
+        if (argc > 1) {
+            system_request_t req = { .type = REQ_DISK_STAMP, .path = str_create(argv[1]) };
+            sovereign_request_submit(&req);
+            release(req.path);
+        }
+    } else if (cstr_match_local(argv[0], "eject")) {
+        if (argc > 1) {
+            system_request_t req = { .type = REQ_DISK_EJECT, .path = str_create(argv[1]) };
+            sovereign_request_submit(&req);
+            release(req.path);
+        }
+    } else if (cstr_match_local(argv[0], "debug-dump")) {
+        rsl_debug_dump();
+    } else if (cstr_match_local(argv[0], "scan")) {
+        system_request_t req = { .type = REQ_HARDWARE_SCAN };
+        sovereign_request_submit(&req);
+    } else if (cstr_match_local(argv[0], "settings")) {
+        rsl_settings();
+    } else if (cstr_match_local(argv[0], "exec")) {
+        if (argc > 1) {
+            system_request_t req = { .type = REQ_APP_SPAWN, .path = resolve_path_local(curdir, argv[1]) };
+            sovereign_request_submit(&req);
+            release(req.path);
+        }
+    } else if (cstr_match_local(argv[0], "help")) {
+        print("OSx2 Sovereign RSL Commands:\n");
+        print("File: ls, cd, cat, write, mkdir, rmdir, exists, copy, paste\n");
+        print("Disk: mount, format, stamp, eject, scan\n");
+        print("Sys: echo, color, run, exec, DRAWtest, settings, debug-dump, help, exit, shutdown\n");
+    } else if (cstr_match_local(argv[0], "DRAWtest")) {
+        print("\n\n\n[DRAW] Visual Verification Signal Initiated...\n");
+        void draw_pixel(int x, int y, uint32_t color);
+        void pit_wait_ms(uint32_t ms);
+        void vga_clear(void);
+
+        for (int y = 100; y < 200; y++) {
+            for (int x = 100; x < 200; x++) {
+                draw_pixel(x, y, 0x00FF00); /* Emerald Square */
+            }
+        }
+        pit_wait_ms(2000);
+        vga_clear();
+    } else if (cstr_match_local(argv[0], "run")) {
+        if (argc > 1) {
+            int rsl_execute_stream(const char* path);
+            rsl_execute_stream(argv[1]);
+        }
+    } else if (cstr_match_local(argv[0], "exit")) {
+        rsl_exit();
+    } else if (cstr_match_local(argv[0], "shutdown")) {
+        void rsl_shutdown(void);
+        rsl_shutdown();
+    } else {
+        print("Unknown Command.\n");
+    }
+}
+
 void vga_print(const char* fmt, ...);
 size_t slab_get_usage(int id);
 
@@ -131,17 +353,39 @@ void rsl_settings(void) {
     sys_yield();
 }
 
+void rsl_exit(void) {
+    task_t* current = get_current_task();
+    if (current) {
+        vga_print("[UNICE64] Task %d signaled Exit. Terminating...\n", current->id);
+
+        /* Wake Parent Task immediately */
+        if (current->parent_id != -1) {
+            task_t* parent = get_task_by_id(current->parent_id);
+            if (parent && parent->state == TASK_WAITING) {
+                parent->state = TASK_READY;
+                void scheduler_force_task(int task_id);
+                scheduler_force_task(parent->id);
+            }
+        }
+
+        current->state = TASK_ZOMBIE;
+    }
+    sys_yield();
+}
+
 void rsl_debug_dump(void) {
     print("\n[RTECH BOOT DIAGNOSTICS]\n");
     uint64_t cr3; __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
     vga_print("CR3 (Page Table): 0x%x\n", cr3);
+
+    uint64_t get_burst_count(void);
+    int get_ready_task_count(void);
+    vga_print("Multitasking Bursts: %d\n", get_burst_count());
+    vga_print("Active Tasks: %d\n", get_ready_task_count());
+
     for (int i = 0; i < 4; i++) {
         vga_print("Slab %d Usage: %d bytes\n", i, slab_get_usage(i));
     }
-
-    void* tcb = get_current_task();
-    vga_print("Current TCB: 0x%x\n", (uint64_t)tcb);
-
     sys_yield();
 }
 
@@ -155,25 +399,52 @@ void rsl_format(void* path) {
 void rsl_stamp(void* path) {
     const char* p = str_to_cstr(path);
     int drive = p[0] - '0';
-    uint8_t sector[512] = {0};
-    /* Deprecated: Signature logic removed. We now use GPT/HBA status for Sovereign validation. */
-    if (disk_write(drive, sector, 0, 1) == RES_OK) print("Mechanical sync performed.\n");
+
+    int ahci_mechanical_sync(int drive);
+    if (ahci_mechanical_sync(drive) == 0) {
+        print("Mechanical sync successful: Sovereign Signature stamped at LBA 0.\n");
+    } else {
+        print("Error: Mechanical sync failed. Drive may be Read-Only or Busy.\n");
+    }
+    sys_yield();
 }
 
 void draw_pixel(int x, int y, uint32_t color);
 void rsl_draw_rrif(void* path, int x, int y) {
     vfs_handle_t* h = vfs_open(path, "r");
-    if (!h) return;
+    if (!h) {
+        print("Error: Could not open RRIF file.\n");
+        return;
+    }
+
     uint8_t header[8];
-    if (vfs_read(h, header, 8) < 8) { vfs_close(h); return; }
-    uint16_t w = *(uint16_t*)&header[4]; uint16_t h_img = *(uint16_t*)&header[6];
+    if (vfs_read(h, header, 8) < 8) {
+        vfs_close(h);
+        print("Error: Invalid RRIF header.\n");
+        return;
+    }
+
+    /* RRIF Check: Magic 'RRIF' */
+    if (header[0] != 'R' || header[1] != 'R' || header[2] != 'I' || header[3] != 'F') {
+        vfs_close(h);
+        print("Error: Not a valid RRIF image.\n");
+        return;
+    }
+
+    uint16_t w = *(uint16_t*)&header[4];
+    uint16_t h_img = *(uint16_t*)&header[6];
+
+    /* Optimization: Read line by line if possible, or pixel by pixel for simplicity in Sovereign */
     uint32_t pixel;
     for (int j = 0; j < h_img; j++) {
         for (int i = 0; i < w; i++) {
-            if (vfs_read(h, &pixel, 4) == 4) draw_pixel(x + i, y + j, pixel);
+            if (vfs_read(h, &pixel, 4) == 4) {
+                draw_pixel(x + i, y + j, pixel);
+            }
         }
     }
     vfs_close(h);
+    sys_yield();
 }
 
 void ahci_scan_remaining(void);
@@ -183,9 +454,16 @@ void rsl_scan(void) {
 }
 
 int vdisk_eject_hw(int hw_id);
+bool vdisk_is_busy(int hw_id);
 void rsl_eject(void* path) {
     const char* p = str_to_cstr(path);
     int drive = p[0] - '0';
+
+    if (vdisk_is_busy(drive)) {
+        print("Error: Drive is currently busy.\n");
+        return;
+    }
+
     if (vdisk_eject_hw(drive) == 0) {
         print("Eject successful.\n");
     } else {

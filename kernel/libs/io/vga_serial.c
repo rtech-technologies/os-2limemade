@@ -1,4 +1,5 @@
 #include <kernel/libs/core/services.h>
+#include <kernel/unice64/task.h>
 #include <include/config.h>
 #include <limine.h>
 #include <stdint.h>
@@ -33,9 +34,15 @@ static int is_transmit_empty(void) {
     return inb(SERIAL_PORT + 5) & 0x20;
 }
 
+void pit_wait_ms(uint32_t ms);
+
 void serial_write_char(char c) {
-    while (is_transmit_empty() == 0);
-    outb(SERIAL_PORT, c);
+    int ms = 0;
+    while (is_transmit_empty() == 0 && ms < 100) {
+        pit_wait_ms(1);
+        ms++;
+    }
+    if (ms < 100) outb(SERIAL_PORT, c);
 }
 
 int serial_received(void) {
@@ -43,8 +50,13 @@ int serial_received(void) {
 }
 
 char serial_read_char(void) {
-    while (serial_received() == 0);
-    return inb(SERIAL_PORT);
+    int ms = 0;
+    while (serial_received() == 0 && ms < 100) {
+        pit_wait_ms(1);
+        ms++;
+    }
+    if (ms < 100) return inb(SERIAL_PORT);
+    return 0;
 }
 
 void serial_write_str(const char* s) {
@@ -165,6 +177,37 @@ static int cursor_y = 0;
 static bool cursor_visible = true;
 
 #define SCALE 2
+#define TERM_COLS 80
+#define TERM_ROWS 40
+
+char terminal_buffer[TERM_ROWS][TERM_COLS];
+uint8_t terminal_attr[TERM_ROWS][TERM_COLS];
+
+static int selection_x1 = -1, selection_y1 = -1;
+static int selection_x2 = -1, selection_y2 = -1;
+
+static uint32_t mouse_back_buffer[16 * 16];
+static int last_mouse_x = -1;
+static int last_mouse_y = -1;
+
+static const uint16_t mouse_cursor_bitmap[16] = {
+    0b1000000000000000,
+    0b1100000000000000,
+    0b1110000000000000,
+    0b1111000000000000,
+    0b1111100000000000,
+    0b1111110000000000,
+    0b1111111000000000,
+    0b1111111100000000,
+    0b1111111110000000,
+    0b1111110000000000,
+    0b1101110000000000,
+    0b1000111000000000,
+    0b0000111000000000,
+    0b0000011100000000,
+    0b0000011100000000,
+    0b0000000000000000
+};
 
 static struct limine_framebuffer* global_fb = NULL;
 
@@ -176,32 +219,82 @@ void draw_pixel(int x, int y, uint32_t color) {
     *pixel = color;
 }
 
-void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
+uint32_t get_pixel(int x, int y) {
+    if (!global_fb) return 0;
+    struct limine_framebuffer* fb = global_fb;
+    if (x < 0 || (uint64_t)x >= fb->width || y < 0 || (uint64_t)y >= fb->height) return 0;
+    uint32_t* pixel = (uint32_t*)(fb->address + y * fb->pitch + x * 4);
+    return *pixel;
+}
+
+void vga_erase_mouse(void) {
+    if (last_mouse_x == -1) return;
+    for (int i = 0; i < 16; i++) {
+        for (int j = 0; j < 16; j++) {
+            draw_pixel(last_mouse_x + j, last_mouse_y + i, mouse_back_buffer[i * 16 + j]);
+        }
+    }
+}
+
+void vga_draw_mouse(int x, int y) {
+    if (!global_fb) return;
+    vga_erase_mouse();
+
+    last_mouse_x = x;
+    last_mouse_y = y;
+
+    for (int i = 0; i < 16; i++) {
+        for (int j = 0; j < 16; j++) {
+            mouse_back_buffer[i * 16 + j] = get_pixel(x + j, y + i);
+            if (mouse_cursor_bitmap[i] & (1 << (15 - j))) {
+                draw_pixel(x + j, y + i, 0xFF00FF); /* Hot Pink */
+            }
+        }
+    }
+}
+
+void draw_char_pixel(char c, int px, int py, uint32_t fg, uint32_t bg) {
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;
-
-    /* Bounds check to prevent out-of-bounds font access */
     if ((uint8_t)c >= 128) return;
 
     const uint8_t* glyph = font8x8_basic[(uint8_t)c];
     for (int i = 0; i < 8; i++) {
         for (int j = 0; j < 8; j++) {
             uint32_t color = (glyph[i] & (1 << (7 - j))) ? fg : bg;
-            /* 2x scaling: draw 2x2 blocks */
             for (int sy = 0; sy < SCALE; sy++) {
                 for (int sx = 0; sx < SCALE; sx++) {
-                    uint32_t* pixel = (uint32_t*)(fb->address +
-                        ((y * 8 * SCALE) + (i * SCALE) + sy) * fb->pitch +
-                        ((x * 8 * SCALE) + (j * SCALE) + sx) * 4);
-                    *pixel = color;
+                    int final_x = px + (j * SCALE) + sx;
+                    int final_y = py + (i * SCALE) + sy;
+                    if (final_x >= 0 && (uint64_t)final_x < fb->width && final_y >= 0 && (uint64_t)final_y < fb->height) {
+                        uint32_t* pixel = (uint32_t*)(fb->address + final_y * fb->pitch + final_x * 4);
+                        *pixel = color;
+                    }
                 }
             }
         }
     }
 }
 
+void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
+    draw_char_pixel(c, x * 8 * SCALE, y * 8 * SCALE, fg, bg);
+}
+
+void vga_set_selection(int x1, int y1, int x2, int y2) {
+    selection_x1 = x1; selection_y1 = y1;
+    selection_x2 = x2; selection_y2 = y2;
+}
+
 void vga_write_char(char c, uint8_t color_attr) {
-    serial_write_char(c);
+    vga_erase_mouse();
+
+    if (c == '\b') {
+        serial_write_char('\b');
+        serial_write_char(' ');
+        serial_write_char('\b');
+    } else {
+        serial_write_char(c);
+    }
 
     /* Ignore non-printable gibberish except for key control codes */
     if ((uint8_t)c < 32 && c != '\n' && c != '\r' && c != '\b' && c != '\t') return;
@@ -228,13 +321,33 @@ void vga_write_char(char c, uint8_t color_attr) {
             cursor_x = max_cols - 1;
         }
         draw_char(' ', cursor_x, cursor_y, fg, bg);
+        if (cursor_y < TERM_ROWS && cursor_x < TERM_COLS) {
+            terminal_buffer[cursor_y][cursor_x] = ' ';
+            terminal_attr[cursor_y][cursor_x] = color_attr;
+        }
     } else {
         /* Dynamic line wrapping based on framebuffer width */
         if (cursor_x >= max_cols) {
             cursor_x = 0;
             cursor_y++;
         }
-        draw_char(c, cursor_x, cursor_y, fg, bg);
+
+        bool selected = false;
+        if (selection_x1 != -1) {
+            int x1 = selection_x1, y1 = selection_y1;
+            int x2 = selection_x2, y2 = selection_y2;
+            if (x1 > x2) { int t = x1; x1 = x2; x2 = t; }
+            if (y1 > y2) { int t = y1; y1 = y2; y2 = t; }
+            if (cursor_y >= y1 && cursor_y <= y2 && cursor_x >= x1 && cursor_x <= x2) selected = true;
+        }
+
+        if (selected) draw_char(c, cursor_x, cursor_y, bg, fg); /* Invert */
+        else draw_char(c, cursor_x, cursor_y, fg, bg);
+
+        if (cursor_y < TERM_ROWS && cursor_x < TERM_COLS) {
+            terminal_buffer[cursor_y][cursor_x] = c;
+            terminal_attr[cursor_y][cursor_x] = color_attr;
+        }
         cursor_x++;
     }
 
@@ -253,6 +366,19 @@ void vga_write_char(char c, uint8_t color_attr) {
 #endif
 
     if (cursor_y >= max_rows) {
+        /* Scroll terminal buffer */
+        for (int row = 0; row < max_rows - 1; row++) {
+            for (int col = 0; col < TERM_COLS; col++) {
+                terminal_buffer[row][col] = terminal_buffer[row + 1][col];
+                terminal_attr[row][col] = terminal_attr[row + 1][col];
+            }
+        }
+        /* Clear bottom row of buffer */
+        for (int col = 0; col < TERM_COLS; col++) {
+            terminal_buffer[max_rows - 1][col] = ' ';
+            terminal_attr[max_rows - 1][col] = 0x07;
+        }
+
         /* Move all rows up by one char_height */
         uint32_t* fb_ptr = (uint32_t*)fb->address;
         size_t row_pixels = fb->pitch / 4;
@@ -272,6 +398,42 @@ void vga_write_char(char c, uint8_t color_attr) {
 
         cursor_y = max_rows - 1;
     }
+
+    if (last_mouse_x != -1) vga_draw_mouse(last_mouse_x, last_mouse_y);
+}
+
+void vga_refresh_screen(void) {
+    if (!global_fb) return;
+    vga_erase_mouse();
+
+    struct limine_framebuffer* fb = global_fb;
+    int char_width = 8 * SCALE;
+    int max_cols = fb->width / char_width;
+    int char_height = 8 * SCALE;
+    int max_rows = (fb->height / char_height) - 1;
+
+    for (int r = 0; r < max_rows; r++) {
+        for (int c = 0; c < max_cols && c < TERM_COLS; c++) {
+            char ch = terminal_buffer[r][c];
+            uint8_t attr = terminal_attr[r][c];
+            uint32_t fg = vga_colors[attr & 0x0F];
+            uint32_t bg = vga_colors[(attr >> 4) & 0x0F];
+
+            bool selected = false;
+            if (selection_x1 != -1) {
+                int x1 = selection_x1, y1 = selection_y1;
+                int x2 = selection_x2, y2 = selection_y2;
+                if (x1 > x2) { int t = x1; x1 = x2; x2 = t; }
+                if (y1 > y2) { int t = y1; y1 = y2; y2 = t; }
+                if (r >= y1 && r <= y2 && c >= x1 && c <= x2) selected = true;
+            }
+
+            if (selected) draw_char(ch ? ch : ' ', c, r, bg, fg);
+            else draw_char(ch ? ch : ' ', c, r, fg, bg);
+        }
+    }
+
+    if (last_mouse_x != -1) vga_draw_mouse(last_mouse_x, last_mouse_y);
 }
 
 /* Sovereign Telemetry Monitor (Bottom Row) */
@@ -287,7 +449,7 @@ void telemetry_update(int task_id, const char* status) {
     uint32_t sep_color = 0x555555;
     uint32_t* fb_ptr = (uint32_t*)fb->address;
     int line_y = bottom_row * char_height - 2;
-    for (int x = 0; x < fb->width; x++) {
+    for (uint32_t x = 0; x < fb->width; x++) {
         fb_ptr[line_y * (fb->pitch / 4) + x] = sep_color;
     }
 
@@ -309,8 +471,32 @@ void telemetry_update(int task_id, const char* status) {
     buf[i++] = hb_chars[heartbeat++ % 4];
     buf[i++] = ' ';
 
+    /* INPUT_WAIT Override: Display tag if in waiting state */
+    task_t* cur = get_task_by_id(task_id);
+    if (cur && cur->state == TASK_INPUT_WAIT) {
+        const char* tag = "INPUT_WAIT ";
+        int j = 0; while (tag[j]) buf[i++] = tag[j++];
+    }
+
     int k = 0;
     while (status[k] && i < 60) buf[i++] = status[k++];
+
+    /* Mouse Telemetry: [X:pos Y:pos] */
+    #include <include/mouse.h>
+    mouse_state_t* ms = get_mouse_state();
+    if (ms && ms->active) {
+        buf[i++] = ' '; buf[i++] = '['; buf[i++] = 'M'; buf[i++] = ':';
+        /* Very simplified integer to string for telemetry */
+        buf[i++] = (ms->x / 100 % 10) + '0';
+        buf[i++] = (ms->x / 10 % 10) + '0';
+        buf[i++] = (ms->x % 10) + '0';
+        buf[i++] = ',';
+        buf[i++] = (ms->y / 100 % 10) + '0';
+        buf[i++] = (ms->y / 10 % 10) + '0';
+        buf[i++] = (ms->y % 10) + '0';
+        buf[i++] = ']';
+    }
+
     buf[i] = '\0';
 
     /* Draw at bottom left in Emerald (0x00FF88) */
@@ -328,6 +514,14 @@ void vga_clear(void) {
     }
     cursor_x = 0;
     cursor_y = 0;
+
+    /* Clear terminal buffer */
+    for (int r = 0; r < TERM_ROWS; r++) {
+        for (int c = 0; c < TERM_COLS; c++) {
+            terminal_buffer[r][c] = ' ';
+            terminal_attr[r][c] = 0x07;
+        }
+    }
 }
 
 void vga_set_cursor(int x, int y) {
@@ -344,10 +538,11 @@ void vga_pulse_cursor(void) {
     if (now - last_pulse > 500) {
         last_pulse = now;
         cursor_visible = !cursor_visible;
+        /* Full Pure Green Pulse for Text Cursor visibility */
         uint32_t color = cursor_visible ? 0x00FF00 : 0x000000;
-        /* Draw 8x16 block cursor (Pure Green Pulse) */
-        for (int i = 0; i < 8 * SCALE; i++) { /* 16 pixels high */
-            for (int j = 0; j < 4 * SCALE; j++) { /* 8 pixels wide */
+        /* Draw 8x16 block cursor */
+        for (int i = 0; i < 8 * SCALE; i++) {
+            for (int j = 0; j < 8 * SCALE; j++) {
                 draw_pixel(cursor_x * 8 * SCALE + j, cursor_y * 8 * SCALE + i, color);
             }
         }
@@ -362,6 +557,16 @@ void serial_print_hex(const char* label, uint16_t val) {
     serial_write_char(hex[(val >> 8) & 0xF]);
     serial_write_char(hex[(val >> 4) & 0xF]);
     serial_write_char(hex[val & 0xF]);
+    serial_write_char('\n');
+}
+
+void serial_print_hex32(const char* label, uint32_t val) {
+    serial_write_str(label);
+    serial_write_str("0x");
+    const char* hex = "0123456789ABCDEF";
+    for (int i = 7; i >= 0; i--) {
+        serial_write_char(hex[(val >> (i * 4)) & 0xF]);
+    }
     serial_write_char('\n');
 }
 

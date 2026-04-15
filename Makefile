@@ -1,16 +1,18 @@
 # OSx2 Limemade OS Makefile
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include
+CFLAGS = -O2 -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -fno-omit-frame-pointer -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include
 LDFLAGS = -Wl,-T,boot/linker.ld -static -nostdlib -Wl,-z,max-page-size=0x1000
 
-KERNEL_SRC = $(filter-out kernel/libs/signature_check.c, $(wildcard kernel/unice64/*.c) \
+KERNEL_SRC = $(wildcard kernel/unice64/*.c) \
              $(wildcard kernel/libs/io/*.c) \
              $(wildcard kernel/libs/ram/*.c) \
+             $(wildcard kernel/libs/rtc64/*.c) \
              $(wildcard kernel/libs/storage/*.c) \
              $(wildcard kernel/libs/storage/fatfs/*.c) \
              $(wildcard kernel/libs/core/*.c) \
-             programs/shell.c)
+             programs/shell.c \
+             programs/text_editor.c
 AS_SRC = $(wildcard kernel/unice64/*.s)
 KERNEL_OBJ = $(KERNEL_SRC:.c=.o) $(AS_SRC:.s=.o)
 KERNEL_ELF = kernel.elf
@@ -43,13 +45,16 @@ limine-setup:
 	fi
 
 run: iso $(SATA_DISK)
-	qemu-system-x86_64 -M q35 -m 512M -serial stdio -cdrom $(ISO_IMAGE) \
+	qemu-system-x86_64 -M q35 -m 1G -serial stdio -cdrom $(ISO_IMAGE) \
 		-drive file=$(SATA_DISK),if=none,id=d0,format=raw \
 		-device ich9-ahci,id=ahci \
-		-device ide-hd,drive=d0,bus=ahci.0
+		-device ide-hd,drive=d0,bus=ahci.0 \
+		-device qemu-xhci,id=xhci \
+		-device usb-tablet,bus=xhci.0 \
+		-device usb-kbd,bus=xhci.0 \
+		-nodefaults -vga std
 
 $(SATA_DISK):
-	@# Generate an empty truly empty disk to test OS internal installer
 	@dd if=/dev/zero of=$(SATA_DISK) bs=1M count=64 status=none
 	@echo "OSx2: 64MB Empty persistent disk created for internal installation test."
 
@@ -72,7 +77,6 @@ iso: limine-setup kernel
 	@cp boot/limine.cfg iso_root/
 	@python3 scripts/fat_tool.py ramdisk.img
 	@cp ramdisk.img iso_root/boot/
-	@# The Xorriso Ritual for Hybrid Boot (BIOS + UEFI)
 	@if command -v xorriso >/dev/null 2>&1; then \
 		cp $(LIMINE_BIN) iso_root/; \
 		xorriso -as mkisofs -b limine-bios-cd.bin \
@@ -90,5 +94,4 @@ iso: limine-setup kernel
 clean:
 	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) $(SATA_DISK) ramdisk.img
 	rm -rf iso_root
-	@# Keep limine source but clean its binaries
 	@if [ -d "limine" ]; then $(MAKE) -C limine clean || true; fi

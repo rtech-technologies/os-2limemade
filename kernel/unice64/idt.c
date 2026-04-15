@@ -39,7 +39,7 @@ void idt_init(void) {
     idt_ptr.limit = (sizeof(idt_entry_t) * 256) - 1;
     idt_ptr.base  = (uint64_t)&idt;
 
-    /* Fill IDT with exception stubs (0x08 Kernel Code Segment) */
+    /* Fill IDT with exception stubs */
     for (int i = 0; i < 32; i++) {
         idt_set_descriptor(i, exception_handler_stub, 0x8E);
     }

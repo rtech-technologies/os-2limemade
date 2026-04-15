@@ -19,22 +19,35 @@ typedef struct {
     uint32_t size;
 } __attribute__((packed)) fat_dir_entry_t;
 
+void* slab_alloc_persistent(size_t size);
+void slab_free_persistent(void* ptr);
+
 FRESULT f_fdisk(int drive) {
-    uint8_t mbr[512];
-    if (disk_read(drive, mbr, 0, 1) != RES_OK) return FR_DISK_ERR;
+    uint8_t* mbr = slab_alloc_persistent(2048);
+    if (!mbr) return FR_NOT_ENOUGH_CORE;
+
+    if (disk_read(drive, mbr, 0, 1) != RES_OK) {
+        return FR_DISK_ERR;
+    }
     uint8_t* p = &mbr[446];
     p[0] = 0x80; p[4] = 0x0C;
     *(uint32_t*)&p[8] = 2048;
     *(uint32_t*)&p[12] = 129024;
     mbr[510] = 0x55; mbr[511] = 0xAA;
-    if (disk_write(drive, mbr, 0, 1) != RES_OK) return FR_DISK_ERR;
+    if (disk_write(drive, mbr, 0, 1) != RES_OK) {
+        slab_free_persistent(mbr);
+        return FR_DISK_ERR;
+    }
+    slab_free_persistent(mbr);
     return FR_OK;
 }
 
 void pit_wait_ms(uint32_t ms);
 
 FRESULT f_mount(FATFS* fs, int drive) {
-    uint8_t sector[2048];
+    uint8_t* sector = slab_alloc_persistent(2048);
+    if (!sector) return FR_NOT_ENOUGH_CORE;
+
     uint64_t part_lba = vdisk_get_offset(drive);
 
     if (part_lba == 0) {
@@ -56,9 +69,18 @@ FRESULT f_mount(FATFS* fs, int drive) {
         }
     }
 
-    if (part_lba == 0) return FR_NO_FILESYSTEM;
-    if (disk_read(drive, sector, part_lba, 1) != RES_OK) return FR_DISK_ERR;
-    if (sector[510] != 0x55 || sector[511] != 0xAA) return FR_NO_FILESYSTEM;
+    if (part_lba == 0) {
+        slab_free_persistent(sector);
+        return FR_NO_FILESYSTEM;
+    }
+    if (disk_read(drive, sector, part_lba, 1) != RES_OK) {
+        slab_free_persistent(sector);
+        return FR_DISK_ERR;
+    }
+    if (sector[510] != 0x55 || sector[511] != 0xAA) {
+        slab_free_persistent(sector);
+        return FR_NO_FILESYSTEM;
+    }
 
     fs->partition_lba = part_lba;
     fs->reserved_sectors = *(uint16_t*)&sector[14];
@@ -74,6 +96,7 @@ FRESULT f_mount(FATFS* fs, int drive) {
     bool vdisk_is_readonly(int hw_id);
     fs->ro = vdisk_is_readonly(drive);
 
+    slab_free_persistent(sector);
     return FR_OK;
 }
 
@@ -83,18 +106,16 @@ static uint32_t get_next_cluster(FATFS* fs, uint32_t cluster) {
     uint64_t fat_sector = fs->partition_lba + (uint64_t)fs->reserved_sectors + ((uint64_t)cluster * 4 / ss);
     uint32_t fat_offset = (cluster * 4) % ss;
 
-    /* Buffer Shield: Use malloc to avoid stack smashing */
-    void* malloc(size_t size);
-    void free(void* ptr);
-    uint8_t* sector_buf = malloc(2048);
+    /* Buffer Shield: Use persistent allocator to avoid stack smashing and leaks */
+    uint8_t* sector_buf = slab_alloc_persistent(2048);
     if (!sector_buf) return 0x0FFFFFFF;
     if (disk_read(fs->drv, sector_buf, fat_sector, 1) != RES_OK) {
-        free(sector_buf);
+        slab_free_persistent(sector_buf);
         return 0x0FFFFFFF;
     }
 
     uint32_t next = (*(uint32_t*)&sector_buf[fat_offset]) & 0x0FFFFFFF;
-    free(sector_buf);
+    slab_free_persistent(sector_buf);
     return next;
 }
 uint32_t f_get_next_cluster(FATFS* fs, uint32_t cluster) { return get_next_cluster(fs, cluster); }
@@ -125,14 +146,21 @@ static uint32_t find_entry(FATFS* fs, uint32_t dir_cluster, const char* name, fa
     uint32_t cluster = dir_cluster;
     uint8_t sfn[11];
     to_sfn(name, sfn);
+    uint8_t* entries_buf = slab_alloc_persistent(2048);
+    if (!entries_buf) return 0;
+
     while (cluster < 0x0FFFFFF8) {
         uint64_t lba = get_sector_lba(fs, cluster);
-        uint8_t entries_buf[2048]; /* Safety buffer for ATAPI/CD-ROM sectors */
         fat_dir_entry_t* entries = (fat_dir_entry_t*)entries_buf;
         for (uint8_t s = 0; s < fs->sectors_per_cluster; s++) {
-            if (disk_read(fs->drv, (BYTE*)entries, lba + s, 1) != RES_OK) return 0;
+            if (disk_read(fs->drv, (BYTE*)entries, lba + s, 1) != RES_OK) {
+                slab_free_persistent(entries_buf);
+                return 0;
+            }
             for (int i = 0; i < 16; i++) {
-                if (entries[i].name[0] == 0) return 0;
+                if (entries[i].name[0] == 0) {
+                    return 0;
+                }
                 if (entries[i].name[0] == 0xE5) continue;
                 bool match = true;
                 for (int k = 0; k < 11; k++) if (entries[i].name[k] != sfn[k]) match = false;
@@ -140,12 +168,15 @@ static uint32_t find_entry(FATFS* fs, uint32_t dir_cluster, const char* name, fa
                     if (out_entry) *out_entry = entries[i];
                     if (out_lba) *out_lba = lba + s;
                     if (out_idx) *out_idx = i;
-                    return (uint32_t)entries[i].first_cluster_low | ((uint32_t)entries[i].first_cluster_high << 16);
+                    uint32_t res = (uint32_t)entries[i].first_cluster_low | ((uint32_t)entries[i].first_cluster_high << 16);
+                    slab_free_persistent(entries_buf);
+                    return res;
                 }
             }
         }
         cluster = get_next_cluster(fs, cluster);
     }
+    slab_free_persistent(entries_buf);
     return 0;
 }
 
@@ -194,6 +225,7 @@ static FRESULT set_cluster_link(FATFS* fs, uint32_t cluster, uint32_t next);
 
 FRESULT f_open(FATFS* fs, FIL* fp, const TCHAR* path, BYTE mode) {
     if (!fs || !fs->active) return FR_NOT_ENABLED;
+    if (fs->ro && (mode & (FA_WRITE | FA_CREATE_ALWAYS | FA_CREATE_NEW | FA_OPEN_ALWAYS))) return FR_WRITE_PROTECTED;
     fp->obj = fs;
     fat_dir_entry_t entry;
     uint64_t entry_lba;
@@ -225,9 +257,7 @@ FRESULT f_open(FATFS* fs, FIL* fp, const TCHAR* path, BYTE mode) {
             new_entry.first_cluster_low = new_cluster & 0xFFFF;
             new_entry.first_cluster_high = (new_cluster >> 16) & 0xFFFF;
             new_entry.size = 0;
-            void* malloc(size_t size);
-            void free(void* ptr);
-            uint8_t* dir_buf = malloc(2048); if (!dir_buf) return FR_NOT_ENOUGH_CORE;
+            uint8_t* dir_buf = slab_alloc_persistent(2048); if (!dir_buf) return FR_NOT_ENOUGH_CORE;
             uint64_t p_lba = get_sector_lba(fs, parent_cluster);
             disk_read(fs->drv, dir_buf, p_lba, 1);
             fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
@@ -237,11 +267,11 @@ FRESULT f_open(FATFS* fs, FIL* fp, const TCHAR* path, BYTE mode) {
                     disk_write(fs->drv, dir_buf, p_lba, 1);
                     fp->sclust = new_cluster; fp->clust = new_cluster; fp->fptr = 0; fp->fsize = 0;
                     fp->entry_lba = p_lba; fp->entry_idx = k;
-                    free(dir_buf);
+                    slab_free_persistent(dir_buf);
                     return FR_OK;
                 }
             }
-            free(dir_buf);
+            slab_free_persistent(dir_buf);
         }
         return FR_NO_FILE;
     }
@@ -263,6 +293,9 @@ FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
     uint32_t total_read = 0;
     uint8_t* p = (uint8_t*)buff;
 
+    uint8_t* sector_buf = slab_alloc_persistent(2048);
+    if (!sector_buf) return FR_NOT_ENOUGH_CORE;
+
     while (btr > 0) {
         uint32_t sector_in_cluster = (fp->fptr / ss) % fs->sectors_per_cluster;
         uint32_t offset_in_sector = fp->fptr % ss;
@@ -274,8 +307,7 @@ FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
         if (offset_in_sector == 0 && can_read == ss) {
             if (disk_read(fs->drv, p, lba, 1) != RES_OK) break;
         } else {
-            /* Buffer Isolation: Use stack instead of static to prevent corruption */
-            uint8_t sector_buf[2048];
+            /* Buffer Shield: Use heap instead of stack */
             if (disk_read(fs->drv, sector_buf, lba, 1) != RES_OK) break;
             for (uint32_t i = 0; i < can_read; i++) p[i] = sector_buf[offset_in_sector + i];
         }
@@ -287,6 +319,7 @@ FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
         }
     }
 
+    slab_free_persistent(sector_buf);
     if (br) *br = total_read;
     return FR_OK;
 }
@@ -294,16 +327,25 @@ FRESULT f_read(FIL* fp, void* buff, uint32_t btr, uint32_t* br) {
 static FRESULT set_cluster_link(FATFS* fs, uint32_t cluster, uint32_t next) {
     uint32_t ss = fs->sector_size ? fs->sector_size : 512;
     uint64_t fat_sector = fs->partition_lba + (uint64_t)fs->reserved_sectors + ((uint64_t)cluster * 4 / ss);
-    uint8_t fat_buf[ss];
-    if (disk_read(fs->drv, fat_buf, fat_sector, 1) != RES_OK) return FR_DISK_ERR;
+    uint8_t* fat_buf = slab_alloc_persistent(2048);
+    if (!fat_buf) return FR_NOT_ENOUGH_CORE;
+    if (disk_read(fs->drv, fat_buf, fat_sector, 1) != RES_OK) {
+        slab_free_persistent(fat_buf);
+        return FR_DISK_ERR;
+    }
     ((uint32_t*)fat_buf)[(cluster * 4 % ss) / 4] = next & 0x0FFFFFFF;
-    if (disk_write(fs->drv, fat_buf, fat_sector, 1) != RES_OK) return FR_DISK_ERR;
+    if (disk_write(fs->drv, fat_buf, fat_sector, 1) != RES_OK) {
+        slab_free_persistent(fat_buf);
+        return FR_DISK_ERR;
+    }
+    slab_free_persistent(fat_buf);
     return FR_OK;
 }
 
 FRESULT f_write(FIL* fp, const void* buff, uint32_t btw, uint32_t* bw) {
     FATFS* fs = fp->obj;
     if (!fs || !fs->active) return FR_DENIED;
+    if (fs->ro) return FR_WRITE_PROTECTED;
     uint32_t ss = fs->sector_size ? fs->sector_size : 512;
     uint32_t cluster_size = ss * fs->sectors_per_cluster;
     uint32_t bytes_left = btw;
@@ -343,20 +385,25 @@ FRESULT f_opendir(FATFS* fs, DIR* dp, const TCHAR* path) {
 FRESULT f_readdir(DIR* dp, FILINFO* fno) {
     FATFS* fs = dp->obj;
     if (!fs || !fs->active) return FR_DENIED;
+    uint8_t* entries_buf = slab_alloc_persistent(2048);
+    if (!entries_buf) return FR_NOT_ENOUGH_CORE;
+
     while (dp->clust < 0x0FFFFFF8) {
         uint64_t lba = get_sector_lba(fs, dp->clust);
-        uint8_t entries_buf[2048]; /* Safety buffer for ATAPI/CD-ROM sectors */
         fat_dir_entry_t* entries = (fat_dir_entry_t*)entries_buf;
         uint32_t sector_idx = (dp->index / 16);
         if (sector_idx >= fs->sectors_per_cluster) {
             dp->index = 0; dp->clust = get_next_cluster(fs, dp->clust);
             continue;
         }
-        if (disk_read(fs->drv, (BYTE*)entries, lba + sector_idx, 1) != RES_OK) return FR_DISK_ERR;
+        if (disk_read(fs->drv, (BYTE*)entries, lba + sector_idx, 1) != RES_OK) {
+            slab_free_persistent(entries_buf);
+            return FR_DISK_ERR;
+        }
         while ((dp->index % 16) < 16) {
             fat_dir_entry_t* e = &entries[dp->index % 16];
             dp->index++;
-            if (e->name[0] == 0x00) return FR_NO_FILE;
+            if (e->name[0] == 0x00) { slab_free_persistent(entries_buf); return FR_NO_FILE; }
             if (e->name[0] == 0xE5 || e->attr == 0x0F) continue;
 
             int k = 0;
@@ -369,13 +416,17 @@ FRESULT f_readdir(DIR* dp, FILINFO* fno) {
             fno->fname[k] = '\0';
             fno->fattrib = e->attr;
             fno->fsize = e->size;
+            slab_free_persistent(entries_buf);
             return FR_OK;
         }
     }
+    slab_free_persistent(entries_buf);
     return FR_NO_FILE;
 }
 
 FRESULT f_mkfs(int drive) {
+    bool vdisk_is_readonly(int hw_id);
+    if (vdisk_is_readonly(drive)) return FR_WRITE_PROTECTED;
     uint64_t offset = vdisk_get_offset(drive);
     if (offset == 0) offset = 2048; /* Force GPT Standard offset for sovereign volumes */
 
@@ -419,6 +470,7 @@ static uint32_t find_free_cluster(FATFS* fs) {
 
 FRESULT f_mkdir(FATFS* fs, const TCHAR* path) {
     if (!fs || !fs->active) return FR_DENIED;
+    if (fs->ro) return FR_WRITE_PROTECTED;
     char dir_path[256]; int last_slash = -1;
     for(int k=0; path[k]; k++) if(path[k] == '/') last_slash = k;
     uint32_t parent_cluster;
@@ -426,7 +478,10 @@ FRESULT f_mkdir(FATFS* fs, const TCHAR* path) {
     if (last_slash == -1) { parent_cluster = fs->root_cluster; filename = path; }
     else {
         int k;
-        for(k=0; k<last_slash; k++) dir_path[k] = path[k]; dir_path[k] = '\0';
+        for(k=0; k<last_slash; k++) {
+            dir_path[k] = path[k];
+        }
+        dir_path[k] = '\0';
         parent_cluster = resolve_path_to_cluster(fs, dir_path, NULL, NULL, NULL);
         filename = &path[last_slash+1];
     }
@@ -444,9 +499,7 @@ FRESULT f_mkdir(FATFS* fs, const TCHAR* path) {
     entry.first_cluster_low = new_cluster & 0xFFFF;
     entry.first_cluster_high = (new_cluster >> 16) & 0xFFFF;
 
-    void* malloc(size_t size);
-    void free(void* ptr);
-    uint8_t* dir_buf = malloc(2048); if (!dir_buf) return FR_NOT_ENOUGH_CORE;
+    uint8_t* dir_buf = slab_alloc_persistent(2048); if (!dir_buf) return FR_NOT_ENOUGH_CORE;
     for (uint32_t s = 0; s < fs->sectors_per_cluster; s++) {
         uint64_t p_lba = get_sector_lba(fs, parent_cluster) + s;
         disk_read(fs->drv, dir_buf, p_lba, 1);
@@ -455,29 +508,28 @@ FRESULT f_mkdir(FATFS* fs, const TCHAR* path) {
             if (entries[k].name[0] == 0 || entries[k].name[0] == 0xE5) {
                 entries[k] = entry;
                 disk_write(fs->drv, dir_buf, p_lba, 1);
-                free(dir_buf);
+                slab_free_persistent(dir_buf);
                 return FR_OK;
             }
         }
     }
-    free(dir_buf);
+    slab_free_persistent(dir_buf);
     return FR_DENIED;
 }
 
 FRESULT f_unlink(FATFS* fs, const TCHAR* path) {
     if (!fs || !fs->active) return FR_DENIED;
+    if (fs->ro) return FR_WRITE_PROTECTED;
     fat_dir_entry_t entry;
     uint64_t entry_lba;
     uint32_t entry_idx;
     if (!resolve_path_to_cluster(fs, path, &entry, &entry_lba, &entry_idx)) return FR_NO_FILE;
-    void* malloc(size_t size);
-    void free(void* ptr);
-    uint8_t* dir_buf = malloc(2048); if (!dir_buf) return FR_NOT_ENOUGH_CORE;
+    uint8_t* dir_buf = slab_alloc_persistent(2048); if (!dir_buf) return FR_NOT_ENOUGH_CORE;
     disk_read(fs->drv, dir_buf, entry_lba, 1);
     fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
     entries[entry_idx].name[0] = 0xE5;
     disk_write(fs->drv, dir_buf, entry_lba, 1);
-    free(dir_buf);
+    slab_free_persistent(dir_buf);
     return FR_OK;
 }
 
@@ -495,11 +547,9 @@ FRESULT f_close(FIL* fp) {
     if (!fp || !fp->obj) return FR_INVALID_OBJECT;
     /* Protect MBR/GPT: Cannot sync metadata if entry_lba is within the reserved partition area */
     if (fp->entry_lba < fp->obj->partition_lba) return FR_INVALID_OBJECT;
-    void* malloc(size_t size);
-    void free(void* ptr);
-    uint8_t* dir_buf = malloc(2048); if (!dir_buf) return FR_NOT_ENOUGH_CORE;
+    uint8_t* dir_buf = slab_alloc_persistent(2048); if (!dir_buf) return FR_NOT_ENOUGH_CORE;
     if (disk_read(fp->obj->drv, dir_buf, fp->entry_lba, 1) != RES_OK) {
-        free(dir_buf);
+        slab_free_persistent(dir_buf);
         return FR_DISK_ERR;
     }
     fat_dir_entry_t* entries = (fat_dir_entry_t*)dir_buf;
@@ -507,9 +557,9 @@ FRESULT f_close(FIL* fp) {
     entries[fp->entry_idx].first_cluster_low = fp->sclust & 0xFFFF;
     entries[fp->entry_idx].first_cluster_high = (fp->sclust >> 16) & 0xFFFF;
     if (disk_write(fp->obj->drv, dir_buf, fp->entry_lba, 1) != RES_OK) {
-        free(dir_buf);
+        slab_free_persistent(dir_buf);
         return FR_DISK_ERR;
     }
-    free(dir_buf);
+    slab_free_persistent(dir_buf);
     return FR_OK;
 }

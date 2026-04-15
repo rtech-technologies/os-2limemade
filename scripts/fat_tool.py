@@ -21,7 +21,7 @@ def main():
         f.seek(0)
 
         # 2. LBA 0: Protective MBR
-        f.write(struct.pack("<I", 0x00000000)) # Legacy Signature Removed
+        f.write(struct.pack("<I", 0xEFBEADDE)) # Sovereign Signature
         f.seek(446)
         # Entry 1: GPT Protective Partition (Type 0xEE)
         f.write(b'\x00\x00\x02\x00\xEE\xFF\xFF\xFF')
@@ -91,21 +91,68 @@ def main():
             f.write(struct.pack("<I", 0xFFFFFFFF))
             f.write(struct.pack("<I", 0x0FFFFFFF))
 
-        # 6. Inject install.rsl if it exists in iso_root
+        # 6. Inject install.rsl and boot.rsl if they exist in iso_root
         import os
-        if os.path.exists("iso_root/install.rsl"):
-            with open("iso_root/install.rsl", "rb") as script:
-                data = script.read()
-                # Find the first data cluster (Cluster 2)
-                data_offset = (part_offset + 32 + (2 * 128)) * sector_size
-                f.seek(data_offset)
-                f.write(data)
+        files_to_inject = ["install.rsl", "boot.rsl"]
+        data_offset = (part_offset + 32 + (2 * 128)) * sector_size
 
-                # Update Root Directory Entry (Cluster 2)
-                root_offset = (part_offset + 32 + (2 * 128)) * sector_size
-                # We need to write a FAT entry for Cluster 2 in the Root Dir.
-                # Simplified: Let's just create a raw disk and let f_mount/f_open find it.
-                # Actually, for the test suite, we'll just use the iso_root/ mechanism in the Makefile.
+        # Root Directory: Cluster 2 (4KB)
+        # Files start at Cluster 3
+        dir_entries = bytearray()
+        current_file_cluster = 3
+        fat_updates = []
+
+        for fname in files_to_inject:
+            fpath = os.path.join("iso_root", fname)
+            if os.path.exists(fpath):
+                with open(fpath, "rb") as script:
+                    data = script.read()
+                    f.seek((part_offset + 32 + (current_file_cluster + 254) * 8) * sector_size)
+                    # Wait, simplified cluster mapping in fat_tool.py was:
+                    # LBA 2048: BPB
+                    # LBA 2048+32: FAT1 (128 sectors)
+                    # LBA 2048+32+128: FAT2 (128 sectors)
+                    # LBA 2048+32+256: Data (Cluster 2 is Root Dir)
+
+                    cluster_lba = part_offset + 32 + 256 + (current_file_cluster - 2) * 8
+                    f.seek(cluster_lba * sector_size)
+                    f.write(data)
+
+                    # Create Directory Entry
+                    entry = bytearray(32)
+                    name_parts = fname.split('.')
+                    name_part = name_parts[0].upper().ljust(8)
+                    ext_part = name_parts[1].upper().ljust(3)
+                    entry[0:8] = name_part.encode('ascii')
+                    entry[8:11] = ext_part.encode('ascii')
+                    entry[11] = 0x20 # Archive
+
+                    entry[20:22] = struct.pack("<H", (current_file_cluster >> 16) & 0xFFFF)
+                    entry[26:28] = struct.pack("<H", current_file_cluster & 0xFFFF)
+                    entry[28:32] = struct.pack("<I", len(data))
+
+                    dir_entries.extend(entry)
+
+                    # Update FAT
+                    num_clusters = (len(data) + 4095) // 4096
+                    for i in range(num_clusters):
+                        if i == num_clusters - 1:
+                            fat_updates.append((current_file_cluster + i, 0x0FFFFFFF))
+                        else:
+                            fat_updates.append((current_file_cluster + i, current_file_cluster + i + 1))
+
+                    current_file_cluster += num_clusters
+
+        # Write Directory Entries to Cluster 2
+        f.seek((part_offset + 32 + 256) * sector_size)
+        f.write(dir_entries)
+
+        # Write FAT Updates
+        for cluster_idx, next_val in fat_updates:
+            for i in range(2):
+                fat_lba = part_offset + 32 + (i * 128)
+                f.seek(fat_lba * sector_size + cluster_idx * 4)
+                f.write(struct.pack("<I", next_val))
 
     print(f"OSX2: 64MB GPT Sovereign Disk Created at {img_path}.")
 

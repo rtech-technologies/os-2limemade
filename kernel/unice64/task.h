@@ -4,11 +4,15 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define MAX_TASKS 16
+#define TASK_STACK_SIZE 16384
+
 typedef enum {
     TASK_RUNNING,
     TASK_READY,
     TASK_SLEEPING,
     TASK_WAITING,
+    TASK_INPUT_WAIT,
     TASK_ZOMBIE
 } task_state_t;
 
@@ -23,13 +27,19 @@ typedef struct {
     task_state_t state;
     cpu_context_t context;
     uint32_t slab_id;
+    int parent_id;
     uint64_t kernel_stack_top;
+    bool is_transient;
+    bool in_use;
 } task_t;
 
 void unice64_schedule(void);
 void unice64_scheduler_init(void);
-void register_task(void (*entry_point)(void), uint32_t slab_id);
+int register_task(void (*entry_point)(void), uint32_t slab_id);
+int register_transient_task(void (*entry_point)(void), uint32_t slab_id, uint64_t arg);
 void sys_yield(void);
+void scheduler_force_task(int task_id);
 task_t* get_current_task(void);
+task_t* get_task_by_id(int id);
 
 #endif

@@ -44,6 +44,38 @@ static const char* strip_prefix(void* path, const char* prefix) {
     return &p[i];
 }
 
+static int get_boot_drive_id(void) {
+    /* Sovereign primary drive logic: SATA_HDD is 0 if registered */
+    return 0;
+}
+
+static bool str_match_prefix(const char* s1, const char* prefix) {
+    int i = 0;
+    while (prefix[i]) {
+        if (s1[i] != prefix[i]) return false;
+        i++;
+    }
+    return true;
+}
+
+static int get_drive_id_from_path(const char* p) {
+    if (str_match_prefix(p, "BOOT:/")) return get_boot_drive_id();
+    if (str_match_prefix(p, "DISK")) {
+        if (p[4] >= '0' && p[4] <= '9' && p[5] == ':' && p[6] == '/') return p[4] - '0';
+    }
+    if (p[0] >= '0' && p[0] <= '9' && p[1] == ':' && p[2] == '/') return p[0] - '0';
+    return -1;
+}
+
+static const char* get_subpath_from_path(const char* p) {
+    if (str_match_prefix(p, "BOOT:/")) return &p[6];
+    if (str_match_prefix(p, "DISK")) {
+        if (p[4] >= '0' && p[4] <= '9' && p[5] == ':' && p[6] == '/') return &p[7];
+    }
+    if (p[0] >= '0' && p[0] <= '9' && p[1] == ':' && p[2] == '/') return &p[3];
+    return p;
+}
+
 void vfs_ls(void* path) {
     const char* p = str_to_cstr(path);
     if (p[0] == '/' && p[1] == '\0') {
@@ -52,6 +84,23 @@ void vfs_ls(void* path) {
             print(":/ (Mounted Node)\n");
         }
         return;
+    }
+
+    /* Sovereign Alias Router for LS */
+    int drive = get_drive_id_from_path(p);
+    if (drive != -1) {
+        static FATFS hardware_fs[16];
+        if (drive < 16) {
+            FATFS* fs = &hardware_fs[drive];
+            if (!fs->active) f_mount(fs, drive);
+            if (fs->active) {
+                void internal_fs_ls(void* path, void* priv);
+                void* subpath = str_create(get_subpath_from_path(p));
+                internal_fs_ls(subpath, fs);
+                release(subpath);
+                return;
+            }
+        }
     }
 
     for (int i = 0; i < vfs_node_count; i++) {
@@ -67,6 +116,23 @@ void vfs_ls(void* path) {
 }
 
 void vfs_cat(void* path) {
+    const char* p = str_to_cstr(path);
+    int drive = get_drive_id_from_path(p);
+    if (drive != -1) {
+        static FATFS hardware_fs[16];
+        if (drive < 16) {
+            FATFS* fs = &hardware_fs[drive];
+            if (!fs->active) f_mount(fs, drive);
+            if (fs->active) {
+                void internal_fs_cat(void* path, void* priv);
+                void* subpath = str_create(get_subpath_from_path(p));
+                internal_fs_cat(subpath, fs);
+                release(subpath);
+                return;
+            }
+        }
+    }
+
     for (int i = 0; i < vfs_node_count; i++) {
         if (path_starts_with(path, vfs_registry[i].name)) {
             if (vfs_registry[i].cat) {
@@ -80,6 +146,23 @@ void vfs_cat(void* path) {
 }
 
 void vfs_write_dispatch(void* path, void* content) {
+    const char* p = str_to_cstr(path);
+    int drive = get_drive_id_from_path(p);
+    if (drive != -1) {
+        static FATFS hardware_fs[16];
+        if (drive < 16) {
+            FATFS* fs = &hardware_fs[drive];
+            if (!fs->active) f_mount(fs, drive);
+            if (fs->active) {
+                void internal_fs_write(void* path, void* content, void* priv);
+                void* subpath = str_create(get_subpath_from_path(p));
+                internal_fs_write(subpath, content, fs);
+                release(subpath);
+                return;
+            }
+        }
+    }
+
     for (int i = 0; i < vfs_node_count; i++) {
         if (path_starts_with(path, vfs_registry[i].name)) {
             if (vfs_registry[i].write) {
@@ -127,6 +210,23 @@ void vfs_rmdir(void* path) {
 }
 
 bool vfs_exists(void* path) {
+    const char* p = str_to_cstr(path);
+    int drive = get_drive_id_from_path(p);
+    if (drive != -1) {
+        static FATFS hardware_fs[16];
+        if (drive < 16) {
+            FATFS* fs = &hardware_fs[drive];
+            if (!fs->active) f_mount(fs, drive);
+            if (fs->active) {
+                bool internal_fs_exists(void* path, void* priv);
+                void* subpath = str_create(get_subpath_from_path(p));
+                bool res = internal_fs_exists(subpath, fs);
+                release(subpath);
+                return res;
+            }
+        }
+    }
+
     for (int i = 0; i < vfs_node_count; i++) {
         if (path_starts_with(path, vfs_registry[i].name)) {
             if (vfs_registry[i].exists) {
@@ -188,8 +288,17 @@ vfs_handle_t* vfs_open(void* path, const char* mode) {
     int drive = -1;
     const char* subpath_cstr = p;
 
-    /* Sovereign Prefix Router: BOOT:/ or 0:/ mapping */
-    if (p[0] >= '0' && p[0] <= '9' && p[1] == ':') {
+    /* Sovereign Alias Router: Handle BOOT:/, DISKx:/, and x:/ */
+    if (str_match_prefix(p, "BOOT:/")) {
+        drive = get_boot_drive_id();
+        subpath_cstr = &p[6];
+    } else if (str_match_prefix(p, "DISK")) {
+        /* DISKx:/ check */
+        if (p[4] >= '0' && p[4] <= '9' && p[5] == ':' && p[6] == '/') {
+            drive = p[4] - '0';
+            subpath_cstr = &p[7];
+        }
+    } else if (p[0] >= '0' && p[0] <= '9' && p[1] == ':' && p[2] == '/') {
         drive = p[0] - '0';
         subpath_cstr = &p[3];
     }

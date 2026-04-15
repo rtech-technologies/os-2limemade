@@ -46,5 +46,6 @@ void rsl_copy(void* str);
 void* rsl_paste(void);
 void rsl_settings(void);
 void rsl_debug_dump(void);
+void rsl_exit(void);
 
 #endif /* RSL_H */
