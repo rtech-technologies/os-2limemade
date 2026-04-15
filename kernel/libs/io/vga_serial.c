@@ -6,6 +6,9 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+void vga_refresh_screen(void);
+void draw_char_pixel(char c, int px, int py, uint32_t fg, uint32_t bg);
+
 /* I/O Port Helper */
 static inline void outb(uint16_t port, uint8_t val) {
     __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
@@ -186,7 +189,7 @@ uint8_t terminal_attr[TERM_ROWS][TERM_COLS];
 static int selection_x1 = -1, selection_y1 = -1;
 static int selection_x2 = -1, selection_y2 = -1;
 
-static uint32_t mouse_back_buffer[16 * 16];
+static uint32_t mouse_back_buffer[16 * 64];
 static int last_mouse_x = -1;
 static int last_mouse_y = -1;
 
@@ -230,8 +233,8 @@ uint32_t get_pixel(int x, int y) {
 void vga_erase_mouse(void) {
     if (last_mouse_x == -1) return;
     for (int i = 0; i < 16; i++) {
-        for (int j = 0; j < 16; j++) {
-            draw_pixel(last_mouse_x + j, last_mouse_y + i, mouse_back_buffer[i * 16 + j]);
+        for (int j = 0; j < 64; j++) {
+            draw_pixel(last_mouse_x + j, last_mouse_y + i, mouse_back_buffer[i * 64 + j]);
         }
     }
 }
@@ -243,13 +246,37 @@ void vga_draw_mouse(int x, int y) {
     last_mouse_x = x;
     last_mouse_y = y;
 
-    for (int i = 0; i < 16; i++) {
-        for (int j = 0; j < 16; j++) {
-            mouse_back_buffer[i * 16 + j] = get_pixel(x + j, y + i);
-            if (mouse_cursor_bitmap[i] & (1 << (15 - j))) {
-                draw_pixel(x + j, y + i, 0xFF00FF); /* Hot Pink */
-            }
+    /* OSx2: Redesign - Numbers Only Mouse Cursor */
+    char buf[16];
+    int i = 0;
+    buf[i++] = '(';
+    int tx = x; if (tx == 0) buf[i++] = '0';
+    else {
+        char tmp[8]; int ti = 0;
+        while(tx > 0) { tmp[ti++] = (tx % 10) + '0'; tx /= 10; }
+        while(ti > 0) buf[i++] = tmp[--ti];
+    }
+    buf[i++] = ',';
+    int ty = y; if (ty == 0) buf[i++] = '0';
+    else {
+        char tmp[8]; int ti = 0;
+        while(ty > 0) { tmp[ti++] = (ty % 10) + '0'; ty /= 10; }
+        while(ti > 0) buf[i++] = tmp[--ti];
+    }
+    buf[i++] = ')';
+    buf[i] = '\0';
+
+    /* Save background for numeric cursor (approx 64x16 area for "(639,479)") */
+    for (int row = 0; row < 16; row++) {
+        for (int col = 0; col < 64; col++) {
+            if (row < 16 && col < 64)
+                mouse_back_buffer[row * 64 + col] = get_pixel(x + col, y + row);
         }
+    }
+
+    /* Draw Numbers in Hot Pink */
+    for (int k = 0; buf[k]; k++) {
+        draw_char_pixel(buf[k], x + (k * 8), y, 0xFF00FF, 0x000000);
     }
 }
 
@@ -379,22 +406,9 @@ void vga_write_char(char c, uint8_t color_attr) {
             terminal_attr[max_rows - 1][col] = 0x07;
         }
 
-        /* Move all rows up by one char_height */
-        uint32_t* fb_ptr = (uint32_t*)fb->address;
-        size_t row_pixels = fb->pitch / 4;
-        size_t scroll_size = (max_rows - 1) * char_height * row_pixels;
-        size_t offset = char_height * row_pixels;
-
-        for (size_t i = 0; i < scroll_size; i++) {
-            fb_ptr[i] = fb_ptr[i + offset];
-        }
-
-        /* Clear the bottom row */
-        size_t bottom_start = (max_rows - 1) * char_height * row_pixels;
-        size_t bottom_size = char_height * row_pixels;
-        for (size_t i = 0; i < bottom_size; i++) {
-            fb_ptr[bottom_start + i] = 0x000000;
-        }
+        /* OSx2 Fix: Refresh only the terminal text area instead of shifting framebuffer */
+        /* This prevents windows from being moved down when the console scrolls */
+        vga_refresh_screen();
 
         cursor_y = max_rows - 1;
     }

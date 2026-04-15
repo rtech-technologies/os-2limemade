@@ -719,16 +719,17 @@ void usb_mouse_task(void) {
                 if (usb_devices[slot].is_tablet) {
                     uint16_t abs_x = (report[1] | (report[2] << 8));
                     uint16_t abs_y = (report[3] | (report[4] << 8));
-                    ms->x = (abs_x * 639) / 32767;
-                    ms->y = (abs_y * 479) / 32767;
+                    ms->x = (abs_x * 639) / 32768;
+                    ms->y = (abs_y * 479) / 32768;
                 } else {
                     ms->x += (int8_t)report[1];
                     ms->y += (int8_t)report[2];
-                    if (ms->x < 0) ms->x = 0;
-                    if (ms->y < 0) ms->y = 0;
-                    if (ms->x >= 640) ms->x = 639;
-                    if (ms->y >= 480) ms->y = 479;
                 }
+
+                if (ms->x < 0) ms->x = 0;
+                if (ms->y < 0) ms->y = 0;
+                if (ms->x >= 640) ms->x = 639;
+                if (ms->y >= 480) ms->y = 479;
 
                 vga_draw_mouse(ms->x, ms->y);
                 ms->active = true;

@@ -270,6 +270,27 @@ int ahci_mechanical_sync(int p) {
     return 0;
 }
 
+int ahci_flush_cache(int p) {
+    if (!hba_base) return -1;
+    hba_port_t* port = &hba_base->ports[p];
+
+    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
+    cmdhdr->dw0 = 5; /* CFL=5, W=0, PRDTL=0 */
+    cmdhdr->prdbc = 0;
+
+    hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)port_ctba_virt[p];
+    for (int i=0; i < (int)sizeof(hba_cmd_tbl_t); i++) ((uint8_t*)cmdtbl)[i] = 0;
+
+    uint32_t* fis = (uint32_t*)cmdtbl->cfis;
+    fis[0] = 0x27 | (1 << 15) | (0xE7 << 16); /* FLUSH CACHE */
+
+    if (ahci_wait_status(port, 0x88, 0, 1000) != 0) return -1;
+    port->ci = (1 << 0);
+    if (ahci_wait_status(port, (1 << 0), 0, 1000) != 0) return -1;
+
+    return 0;
+}
+
 int satapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer);
 int satapi_eject(void* priv);
 int satapi_identify(void* priv);

@@ -173,6 +173,7 @@ void rsl_execute_command(char* line) {
                 if (last_slash == -1) new_path = str_create("/");
                 else {
                     char buf[256]; int k;
+                    if (last_slash >= 255) last_slash = 254;
                     for(k=0; k<=last_slash; k++) buf[k] = cur[k];
                     buf[k] = '\0'; new_path = str_create(buf);
                 }

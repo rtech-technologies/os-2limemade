@@ -332,6 +332,7 @@ void console_copy_selection(void) {
             }
         }
         if (e_idx < 1022) export_buf[e_idx++] = '\n';
+        if (e_idx >= 1022) break;
     }
     export_buf[e_idx] = '\0';
 
