@@ -49,7 +49,7 @@ void editor_on_event(rtc64_event_t ev) {
 void text_editor_task(void) {
     for(int i=0; i<EDITOR_BUF_SIZE; i++) editor_buffer[i] = 0;
 
-    char console_pop_char(void);
+    char window_pop_char(void);
 
     int win_id = rtc64_create_window(50, 50, 400, 300, "Sovereign Text Editor");
     if (win_id != -1) {
@@ -76,8 +76,8 @@ void text_editor_task(void) {
     }
 
     while(1) {
-        /* Route global keyboard input to focused window */
-        char c = console_pop_char();
+        /* Route window keyboard input to focused window */
+        char c = window_pop_char();
         if (c != 0) {
             rtc64_event_t kev = { .type = RTC64_EVENT_KEY_DOWN, .key = c };
             extern rtc64_window_t windows[];

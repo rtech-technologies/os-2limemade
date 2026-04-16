@@ -233,12 +233,30 @@ static char console_input_buffer[KBD_BUF_SIZE];
 static int input_head = 0;
 static int input_tail = 0;
 
+static char window_input_buffer[KBD_BUF_SIZE];
+static int win_input_head = 0;
+static int win_input_tail = 0;
+
+static int g_input_mode = 0; /* 0: Shell, 1: Window */
+
+void rsl_shell_in(void) { g_input_mode = 0; }
+void rsl_win_in(void) { g_input_mode = 1; }
+
 void console_push_char(char c) {
     if (!c || c == (char)-1) return;
-    int next = (input_tail + 1) % KBD_BUF_SIZE;
-    if (next != input_head) {
-        console_input_buffer[input_tail] = c;
-        input_tail = next;
+
+    if (g_input_mode == 0) {
+        int next = (input_tail + 1) % KBD_BUF_SIZE;
+        if (next != input_head) {
+            console_input_buffer[input_tail] = c;
+            input_tail = next;
+        }
+    } else {
+        int next = (win_input_tail + 1) % KBD_BUF_SIZE;
+        if (next != win_input_head) {
+            window_input_buffer[win_input_tail] = c;
+            win_input_tail = next;
+        }
     }
 }
 
@@ -246,6 +264,13 @@ char console_pop_char(void) {
     if (input_head == input_tail) return 0;
     char c = console_input_buffer[input_head];
     input_head = (input_head + 1) % KBD_BUF_SIZE;
+    return c;
+}
+
+char window_pop_char(void) {
+    if (win_input_head == win_input_tail) return 0;
+    char c = window_input_buffer[win_input_head];
+    win_input_head = (win_input_head + 1) % KBD_BUF_SIZE;
     return c;
 }
 

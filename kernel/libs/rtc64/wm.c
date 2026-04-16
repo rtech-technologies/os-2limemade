@@ -72,6 +72,18 @@ void rtc64_update(void) {
 
     last_left = ms->left_button;
 
+    /* Desktop Background Check: If mouse down is outside all windows, return focus to shell */
+    if (ev.type == RTC64_EVENT_MOUSE_DOWN) {
+        bool in_any = false;
+        for(int i=0; i<MAX_WINDOWS; i++) {
+            if (windows[i].visible && ms->x >= windows[i].x && ms->x < windows[i].x + windows[i].w &&
+                ms->y >= windows[i].y && ms->y < windows[i].y + windows[i].h) {
+                in_any = true; break;
+            }
+        }
+        if (!in_any) rsl_shell_in();
+    }
+
     /* Process windows from front to back (hit testing) */
     for (int i = MAX_WINDOWS - 1; i >= 0; i--) {
         if (!windows[i].visible) continue;
@@ -81,7 +93,8 @@ void rtc64_update(void) {
                        ms->y >= win->y && ms->y < win->y + win->h);
 
         if (ev.type == RTC64_EVENT_MOUSE_DOWN && in_win) {
-            /* Focus window */
+            /* OSx2: Focus window and shift input focus to WM */
+            rsl_win_in();
             for(int j=0; j<MAX_WINDOWS; j++) windows[j].focused = false;
             win->focused = true;
 

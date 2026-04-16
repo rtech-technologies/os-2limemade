@@ -281,11 +281,17 @@ void rsl_execute_command(char* line) {
             sovereign_request_submit(&req);
             release(req.path);
         }
+    } else if (cstr_match_local(argv[0], "win_in")) {
+        rsl_win_in();
+        print("Input focus shifted to Window Manager.\n");
+    } else if (cstr_match_local(argv[0], "shell_in")) {
+        rsl_shell_in();
+        print("Input focus shifted to Shell.\n");
     } else if (cstr_match_local(argv[0], "help")) {
         print("OSx2 Sovereign RSL Commands:\n");
         print("File: ls, cd, cat, write, mkdir, rmdir, exists, copy, paste\n");
         print("Disk: mount, format, stamp, eject, scan\n");
-        print("Sys: echo, color, run, exec, DRAWtest, settings, debug-dump, help, exit, shutdown\n");
+        print("Sys: echo, color, run, exec, win_in, shell_in, DRAWtest, settings, debug-dump, help, exit, shutdown\n");
     } else if (cstr_match_local(argv[0], "DRAWtest")) {
         print("\n\n\n[DRAW] Visual Verification Signal Initiated...\n");
         void draw_pixel(int x, int y, uint32_t color);
