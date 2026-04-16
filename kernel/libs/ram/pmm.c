@@ -43,7 +43,7 @@ void pmm_init(void) {
     /* Initialize all pages as used */
     for (uint64_t i = 0; i < bitmap_size; i++) bitmap[i] = 0xFF;
 
-    /* Free usable regions in the bitmap */
+    /* Precise Memory Mapping: Free only USABLE regions, protect everything else */
     for (uint64_t i = 0; i < memmap->entry_count; i++) {
         struct limine_memmap_entry* entry = memmap->entries[i];
         if (entry->type == LIMINE_MEMMAP_USABLE) {
@@ -55,8 +55,20 @@ void pmm_init(void) {
         }
     }
 
-    /* GOP Shield: Reserve Framebuffer range in the Bitmap */
-    /* This MUST be done after freeing usable regions to prevent allocator collision */
+    /* GOP Shield: Explicitly reserve regions that might overlap with USABLE or are critical */
+    for (uint64_t i = 0; i < memmap->entry_count; i++) {
+        struct limine_memmap_entry* entry = memmap->entries[i];
+        if (entry->type != LIMINE_MEMMAP_USABLE) {
+            for (uint64_t j = 0; j < entry->length; j += PAGE_SIZE) {
+                uint64_t page = (entry->base + j) / PAGE_SIZE;
+                if (page < total_pages) {
+                    bitmap[page / 8] |= (1 << (page % 8));
+                }
+            }
+        }
+    }
+
+    /* Secondary Shield: Reserve Framebuffer address space extracted from GOP */
     struct limine_framebuffer_response* get_framebuffer(void);
     uint64_t vmm_get_phys(void* virt);
     struct limine_framebuffer_response* fb_resp = get_framebuffer();

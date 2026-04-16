@@ -236,5 +236,6 @@ void unice64_schedule(void) {
     task_table[current_task_idx].state = TASK_RUNNING;
 
     /* Update Telemetry on every switch */
-    telemetry_update(current_task_idx, "ACTIVE");
+    extern int g_input_mode;
+    telemetry_update(current_task_idx, (g_input_mode == 0) ? "ACTIVE [SHELL]" : "ACTIVE [WIN]");
 }

@@ -281,7 +281,7 @@ void vga_draw_mouse(int x, int y) {
     }
 
     /* OSx2: Redesign - ONLY Numbers for mice (at bottom telemetry) */
-    /* No longer drawing a cursor square at the mouse position to follow requirements strictly */
+    /* No longer drawing a cursor square or any bitmap at the mouse position */
 
     (void)buf;
 }
@@ -479,7 +479,7 @@ void telemetry_update(int task_id, const char* status) {
     }
 
     /* Print Status: [T:ID] HEARTBEAT STATUS */
-    char buf[64];
+    char buf[128];
     /* Simplified snprintf equivalent */
     int i = 0;
     buf[i++] = '['; buf[i++] = 'T'; buf[i++] = ':';

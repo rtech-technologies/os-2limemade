@@ -227,6 +227,7 @@ static int drag_start_x = -1;
 static int drag_start_y = -1;
 
 bool control_pressed = false;
+bool alt_pressed = false;
 
 #define KBD_BUF_SIZE 64
 static char console_input_buffer[KBD_BUF_SIZE];
@@ -237,7 +238,7 @@ static char window_input_buffer[KBD_BUF_SIZE];
 static int win_input_head = 0;
 static int win_input_tail = 0;
 
-static int g_input_mode = 0; /* 0: Shell, 1: Window */
+int g_input_mode = 0; /* 0: Shell, 1: Window */
 
 void rsl_shell_in(void) { g_input_mode = 0; }
 void rsl_win_in(void) { g_input_mode = 1; }
@@ -287,8 +288,16 @@ void hw_poll(void) {
             else if (scancode == 0xAA || scancode == 0xB6) shift_pressed = false;
             else if (scancode == 0x1D) control_pressed = true;
             else if (scancode == 0x9D) control_pressed = false;
+            else if (scancode == 0x38) alt_pressed = true;
+            else if (scancode == 0xB8) alt_pressed = false;
             else if (!(scancode & 0x80)) {
-                if (control_pressed && scancode == 0x2E) { /* Ctrl+C */
+                if (alt_pressed && scancode == 0x0F) { /* Alt+Tab */
+                    if (g_input_mode == 0) rsl_win_in();
+                    else rsl_shell_in();
+                    /* Force UI Refresh to reflect new focus state */
+                    void telemetry_update(int task_id, const char* status);
+                    telemetry_update(get_current_task() ? get_current_task()->id : 0, "FOCUS_CHANGE");
+                } else if (control_pressed && scancode == 0x2E) { /* Ctrl+C */
                     void console_copy_selection(void);
                     console_copy_selection();
                 } else if (scancode == 0x01) console_push_char(27);
