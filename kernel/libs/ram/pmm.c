@@ -43,7 +43,20 @@ void pmm_init(void) {
     /* Initialize all pages as used */
     for (uint64_t i = 0; i < bitmap_size; i++) bitmap[i] = 0xFF;
 
+    /* Free usable regions in the bitmap */
+    for (uint64_t i = 0; i < memmap->entry_count; i++) {
+        struct limine_memmap_entry* entry = memmap->entries[i];
+        if (entry->type == LIMINE_MEMMAP_USABLE) {
+            for (uint64_t j = 0; j < entry->length; j += PAGE_SIZE) {
+                uint64_t page = (entry->base + j) / PAGE_SIZE;
+                bitmap[page / 8] &= ~(1 << (page % 8));
+                usable_pages++;
+            }
+        }
+    }
+
     /* GOP Shield: Reserve Framebuffer range in the Bitmap */
+    /* This MUST be done after freeing usable regions to prevent allocator collision */
     struct limine_framebuffer_response* get_framebuffer(void);
     uint64_t vmm_get_phys(void* virt);
     struct limine_framebuffer_response* fb_resp = get_framebuffer();
@@ -55,18 +68,6 @@ void pmm_init(void) {
         for (uint64_t i = 0; i < fb_pages; i++) {
             if (start_page + i < total_pages) {
                 bitmap[(start_page + i) / 8] |= (1 << ((start_page + i) % 8));
-            }
-        }
-    }
-
-    /* Free usable regions in the bitmap */
-    for (uint64_t i = 0; i < memmap->entry_count; i++) {
-        struct limine_memmap_entry* entry = memmap->entries[i];
-        if (entry->type == LIMINE_MEMMAP_USABLE) {
-            for (uint64_t j = 0; j < entry->length; j += PAGE_SIZE) {
-                uint64_t page = (entry->base + j) / PAGE_SIZE;
-                bitmap[page / 8] &= ~(1 << (page % 8));
-                usable_pages++;
             }
         }
     }

@@ -189,7 +189,7 @@ uint8_t terminal_attr[TERM_ROWS][TERM_COLS];
 static int selection_x1 = -1, selection_y1 = -1;
 static int selection_x2 = -1, selection_y2 = -1;
 
-static uint32_t mouse_back_buffer[16 * 64];
+static uint32_t mouse_back_buffer[16 * 160];
 static int last_mouse_x = -1;
 static int last_mouse_y = -1;
 
@@ -233,14 +233,21 @@ uint32_t get_pixel(int x, int y) {
 void vga_erase_mouse(void) {
     if (last_mouse_x == -1) return;
     for (int i = 0; i < 16; i++) {
-        for (int j = 0; j < 64; j++) {
-            draw_pixel(last_mouse_x + j, last_mouse_y + i, mouse_back_buffer[i * 64 + j]);
+        for (int j = 0; j < 160; j++) {
+            draw_pixel(last_mouse_x + j, last_mouse_y + i, mouse_back_buffer[i * 160 + j]);
         }
     }
 }
 
 void vga_draw_mouse(int x, int y) {
     if (!global_fb) return;
+
+    /* OSx2: Screen Boundary Enforcement */
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (x >= (int)global_fb->width - 160) x = (int)global_fb->width - 160;
+    if (y >= (int)global_fb->height - 16) y = (int)global_fb->height - 16;
+
     vga_erase_mouse();
 
     last_mouse_x = x;
@@ -266,21 +273,15 @@ void vga_draw_mouse(int x, int y) {
     buf[i++] = ')';
     buf[i] = '\0';
 
-    /* Save background for numeric cursor (approx 64x16 area for "(639,479)") */
+    /* Save background for numeric cursor (approx 160x16 area for safety) */
     for (int row = 0; row < 16; row++) {
-        for (int col = 0; col < 64; col++) {
-            if (row < 16 && col < 64)
-                mouse_back_buffer[row * 64 + col] = get_pixel(x + col, y + row);
+        for (int col = 0; col < 160; col++) {
+            mouse_back_buffer[row * 160 + col] = get_pixel(x + col, y + row);
         }
     }
 
-    /* OSx2: Mouse cursor is now just a pointer or invisible, numeric coordinates go to telemetry */
-    /* Draw small 3x3 Hot Pink square for precision */
-    for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 3; j++) {
-            draw_pixel(x + j, y + i, 0xFF00FF);
-        }
-    }
+    /* OSx2: Redesign - ONLY Numbers for mice (at bottom telemetry) */
+    /* No longer drawing a cursor square at the mouse position to follow requirements strictly */
 
     (void)buf;
 }
