@@ -459,7 +459,8 @@ void xhci_setup_device(int port) {
                         if (type == 0x04) { /* Interface */
                             usb_interface_descriptor_t* iface = (usb_interface_descriptor_t*)ptr;
                             current_iface = iface->bInterfaceNumber;
-                            if (iface->bInterfaceClass == 0x03) { /* HID */
+                            uint8_t cls = iface->bInterfaceClass;
+                            if (cls == 0x03) { /* HID */
                                 if (iface->bInterfaceProtocol == 1) {
                                     serial_write_str("[USB] Identified KEYBOARD.\n");
                                     usb_devices[slot_id].type = USB_TYPE_KBD;
@@ -470,10 +471,47 @@ void xhci_setup_device(int port) {
                                     serial_write_str("[USB] Identified TABLET.\n");
                                     usb_devices[slot_id].type = USB_TYPE_MOUSE;
                                     usb_devices[slot_id].is_tablet = true;
+                                } else {
+                                    serial_write_str("[USB] Identified GENERIC HID.\n");
                                 }
-                            } else if (iface->bInterfaceClass == 0x08) { /* MSC */
+                            } else if (cls == 0x01) {
+                                serial_write_str("[USB] Identified AUDIO Device.\n");
+                            } else if (cls == 0x02) {
+                                serial_write_str("[USB] Identified CDC/COMM Device.\n");
+                            } else if (cls == 0x05) {
+                                serial_write_str("[USB] Identified PHYSICAL Device.\n");
+                            } else if (cls == 0x06) {
+                                serial_write_str("[USB] Identified IMAGE Device.\n");
+                            } else if (cls == 0x07) {
+                                serial_write_str("[USB] Identified PRINTER.\n");
+                            } else if (cls == 0x08) { /* MSC */
                                 serial_write_str("[USB] Identified MASS STORAGE.\n");
                                 usb_devices[slot_id].type = USB_TYPE_MSC;
+                            } else if (cls == 0x09) {
+                                serial_write_str("[USB] Identified HUB.\n");
+                                usb_devices[slot_id].type = USB_TYPE_HUB;
+                            } else if (cls == 0x0A) {
+                                serial_write_str("[USB] Identified CDC-DATA Device.\n");
+                            } else if (cls == 0x0B) {
+                                serial_write_str("[USB] Identified SMART CARD.\n");
+                            } else if (cls == 0x0D) {
+                                serial_write_str("[USB] Identified CONTENT SECURITY Device.\n");
+                            } else if (cls == 0x0E) {
+                                serial_write_str("[USB] Identified VIDEO Device.\n");
+                            } else if (cls == 0x0F) {
+                                serial_write_str("[USB] Identified HEALTHCARE Device.\n");
+                            } else if (cls == 0x10) {
+                                serial_write_str("[USB] Identified AUDIO/VIDEO Device.\n");
+                            } else if (cls == 0x11) {
+                                serial_write_str("[USB] Identified BILLBOARD Device.\n");
+                            } else if (cls == 0x12) {
+                                serial_write_str("[USB] Identified USB TYPE-C BRIDGE.\n");
+                            } else if (cls == 0x13) {
+                                serial_write_str("[USB] Identified BULK DISPLAY Device.\n");
+                            } else if (cls == 0x14) {
+                                serial_write_str("[USB] Identified MCTP over USB.\n");
+                            } else if (cls == 0x3C) {
+                                serial_write_str("[USB] Identified I3C Device.\n");
                             }
                         } else if (type == 0x21) { /* HID Descriptor */
                             usb_hid_descriptor_t* hid = (usb_hid_descriptor_t*)ptr;
@@ -646,7 +684,9 @@ void usb_keyboard_task(void) {
 
             uint8_t modifiers = report[0];
             extern bool control_pressed;
+            extern bool alt_pressed;
             control_pressed = (modifiers & 0x01) || (modifiers & 0x10);
+            alt_pressed = (modifiers & 0x04) || (modifiers & 0x40);
 
             /* Check for releases of the repeat key */
             if (repeat_key != 0) {
@@ -681,6 +721,18 @@ void usb_keyboard_task(void) {
                     if (control_pressed && code == 0x06) { /* 'c' */
                         void console_copy_selection(void);
                         console_copy_selection();
+                    }
+
+                    if (alt_pressed && code == 0x2B) { /* Tab */
+                        extern int g_input_mode;
+                        void rsl_shell_in(void);
+                        void rsl_win_in(void);
+                        if (g_input_mode == 0) rsl_win_in();
+                        else rsl_shell_in();
+
+                        void telemetry_update(int task_id, const char* status);
+                        telemetry_update(get_current_task() ? get_current_task()->id : 0, "FOCUS_CHANGE");
+                        continue;
                     }
 
                     bool shift = (modifiers & 0x02) || (modifiers & 0x20);

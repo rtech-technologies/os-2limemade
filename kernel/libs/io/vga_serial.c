@@ -280,10 +280,11 @@ void vga_draw_mouse(int x, int y) {
         }
     }
 
-    /* OSx2: Redesign - ONLY Numbers for mice (at bottom telemetry) */
-    /* No longer drawing a cursor square or any bitmap at the mouse position */
-
-    (void)buf;
+    /* OSx2: Redesign - Numbers Only Mouse Cursor follows position */
+    /* Render numeric (X,Y) at current position for precision */
+    for (int k = 0; buf[k]; k++) {
+        draw_char_pixel(buf[k], x + (k * 16), y, 0xFF00FF, 0x000000);
+    }
 }
 
 void draw_char_pixel(char c, int px, int py, uint32_t fg, uint32_t bg) {
@@ -523,6 +524,34 @@ void telemetry_update(int task_id, const char* status) {
     for (int j = 0; j < i; j++) {
         /* OSx2: Draw Telemetry at absolute bottom using pixel-positioning */
         draw_char_pixel(buf[j], j * 16, fb->height - 16, 0x00FF88, 0x000000);
+    }
+
+    /* Draw current mouse position in White at bottom right */
+    if (ms && ms->active) {
+        char m_buf[16];
+        int mi = 0;
+        m_buf[mi++] = '(';
+        int mx = ms->x; if (mx == 0) m_buf[mi++] = '0';
+        else {
+            char tmp[8]; int ti = 0;
+            while(mx > 0) { tmp[ti++] = (mx % 10) + '0'; mx /= 10; }
+            while(ti > 0) m_buf[mi++] = tmp[--ti];
+        }
+        m_buf[mi++] = ',';
+        int my = ms->y; if (my == 0) m_buf[mi++] = '0';
+        else {
+            char tmp[8]; int ti = 0;
+            while(my > 0) { tmp[ti++] = (my % 10) + '0'; my /= 10; }
+            while(ti > 0) m_buf[mi++] = tmp[--ti];
+        }
+        m_buf[mi++] = ')';
+        m_buf[mi] = '\0';
+
+        /* Position at bottom-right (approx 160 pixels from right edge) */
+        int start_x = fb->width - 160;
+        for (int k = 0; k < mi; k++) {
+            draw_char_pixel(m_buf[k], start_x + (k * 16), fb->height - 16, 0xFFFFFF, 0x000000);
+        }
     }
 }
 

@@ -17,6 +17,16 @@ void pmm_init(void) {
     uint64_t hhdm = get_hhdm_offset();
     uint64_t highest_addr = 0;
 
+    /* OSx2: Ensure we account for the Framebuffer in the highest address calculation */
+    struct limine_framebuffer_response* get_framebuffer(void);
+    uint64_t vmm_get_phys(void* virt);
+    struct limine_framebuffer_response* fb_resp = get_framebuffer();
+    if (fb_resp && fb_resp->framebuffer_count > 0) {
+        struct limine_framebuffer* fb = fb_resp->framebuffers[0];
+        uint64_t fb_end = vmm_get_phys(fb->address) + fb->pitch * fb->height;
+        if (fb_end > highest_addr) highest_addr = fb_end;
+    }
+
     for (uint64_t i = 0; i < memmap->entry_count; i++) {
         struct limine_memmap_entry* entry = memmap->entries[i];
         if (entry->base + entry->length > highest_addr) {
@@ -69,9 +79,6 @@ void pmm_init(void) {
     }
 
     /* Secondary Shield: Reserve Framebuffer address space extracted from GOP */
-    struct limine_framebuffer_response* get_framebuffer(void);
-    uint64_t vmm_get_phys(void* virt);
-    struct limine_framebuffer_response* fb_resp = get_framebuffer();
     if (fb_resp && fb_resp->framebuffer_count > 0) {
         struct limine_framebuffer* fb = fb_resp->framebuffers[0];
         uint64_t fb_phys = vmm_get_phys(fb->address);
@@ -89,7 +96,8 @@ void* pmm_alloc(uint64_t count) {
     uint64_t found = 0;
     uint64_t start_page = 0;
 
-    for (uint64_t i = 0; i < total_pages; i++) {
+    /* Start searching from 1MB to protect lower memory */
+    for (uint64_t i = 256; i < total_pages; i++) {
         if (!(bitmap[i / 8] & (1 << (i % 8)))) {
             if (found == 0) start_page = i;
             found++;
