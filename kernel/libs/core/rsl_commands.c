@@ -275,12 +275,23 @@ void rsl_execute_command(char* line) {
         sovereign_request_submit(&req);
     } else if (cstr_match_local(argv[0], "settings")) {
         rsl_settings();
-    } else if (cstr_match_local(argv[0], "exec")) {
-        if (argc > 1) {
-            system_request_t req = { .type = REQ_APP_SPAWN, .path = resolve_path_local(curdir, argv[1]) };
-            sovereign_request_submit(&req);
-            release(req.path);
+    } else if (cstr_match_local(argv[0], "exec") || (argc > 0 && argv[0][0] == '.' && argv[0][1] == '/')) {
+        char* bin_path = argv[0];
+        if (cstr_match_local(argv[0], "exec")) {
+            if (argc > 1) bin_path = argv[1];
+            else { print("Usage: exec <path>\n"); return; }
+        } else {
+            bin_path = &argv[0][2];
         }
+
+        void* resolved = resolve_path_local(curdir, bin_path);
+        if (rsl_exists(resolved)) {
+            system_request_t req = { .type = REQ_APP_SPAWN, .path = resolved };
+            sovereign_request_submit(&req);
+        } else {
+            print("Error: Binary not found.\n");
+        }
+        release(resolved);
     } else if (cstr_match_local(argv[0], "win_in")) {
         rsl_win_in();
         print("Input focus shifted to Window Manager.\n");

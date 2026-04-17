@@ -99,9 +99,23 @@ int tasking_spawn_app(const char* path) {
         return -1;
     }
 
-    /* ELF Validation: Ensure we are not drawing bin to screen or executing junk */
-    if (bytes_read < 4 || code_dest[0] != 0x7F || code_dest[1] != 'E' || code_dest[2] != 'L' || code_dest[3] != 'F') {
-        vga_print("[UNICE64] Security: App %s rejected (Not a valid ELF binary).\n", path);
+    void (*entry_point)(void) = (void (*)(void))code_dest;
+
+    /* Binary Validation: ELF or RSL */
+    bool valid = false;
+    if (bytes_read >= 4 && code_dest[0] == 0x7F && code_dest[1] == 'E' && code_dest[2] == 'L' && code_dest[3] == 'F') {
+        valid = true;
+    } else if (bytes_read >= (int)sizeof(rsl_header_t)) {
+        rsl_header_t* header = (rsl_header_t*)code_dest;
+        if (header->magic[0] == 'R' && header->magic[1] == 'S' && header->magic[2] == 'L' && header->magic[3] == '1') {
+            valid = true;
+            entry_point = (void (*)(void))(code_dest + header->entry_offset);
+            vga_print("[UNICE64] Identified RSL Binary. Entry: +0x%x\n", (uint32_t)header->entry_offset);
+        }
+    }
+
+    if (!valid) {
+        vga_print("[UNICE64] Security: App %s rejected (Invalid format).\n", path);
         void slab_release_transient(int id);
         slab_release_transient(slab_id);
         vfs_close(h);
@@ -113,7 +127,7 @@ int tasking_spawn_app(const char* path) {
     release(pstr);
 
     /* Register loaded code as a transient task */
-    int tid = register_transient_task((void (*)(void))code_dest, slab_id, 0);
+    int tid = register_transient_task(entry_point, slab_id, 0);
     if (tid != -1) {
         void scheduler_force_task(int task_id);
         scheduler_force_task(tid);
@@ -138,11 +152,9 @@ void tasking_init(void) {
     /* Register USB Maintenance Task in Slab 6 */
     register_task(usb_main_task, 6);
 
-    /* Register Peripheral and GUI Tasks */
+    /* Register Peripheral Tasks */
     register_task(usb_keyboard_task, 7);
     register_task(usb_mouse_task, 8);
-    register_task(rtc64_wm_task, 9);
-    register_task(text_editor_task, 10);
 
     /* Register Shell Task in Slab 2 */
     if (pending_shell_entry) {

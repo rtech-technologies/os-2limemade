@@ -5,6 +5,15 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+/* RSL Binary Header (Global OS Header) */
+typedef struct {
+    uint8_t magic[4];       /* "RSL1" */
+    uint64_t entry_offset;  /* Offset from start of binary to entry point */
+    uint64_t stack_size;    /* Minimum stack size required */
+    uint32_t flags;         /* Binary flags (0: Pure, 1: GUI-aware) */
+    uint32_t reserved;
+} rsl_header_t;
+
 /* ARC Memory Management */
 void retain(void* ptr);
 void release(void* ptr);
@@ -49,5 +58,26 @@ void rsl_debug_dump(void);
 void rsl_exit(void);
 void rsl_shell_in(void);
 void rsl_win_in(void);
+
+/* Inline Syscall Wrappers for RSL Binaries */
+#ifdef RSL_BINARY_MODE
+static inline void rsl_print(const char* s) {
+    __asm__ volatile ("mov $0, %%rax; mov %0, %%rdi; int $0x03" : : "r"(s) : "rax", "rdi");
+}
+
+static inline void* rsl_input(const char* prompt) {
+    void* ret;
+    __asm__ volatile ("mov $3, %%rax; mov %1, %%rdi; int $0x03; mov %%rax, %0" : "=r"(ret) : "r"(prompt) : "rax", "rdi");
+    return ret;
+}
+
+static inline void rsl_set_color(uint64_t fg, uint64_t bg) {
+    __asm__ volatile ("mov $2, %%rax; mov %0, %%rdi; mov %1, %%rsi; int $0x03" : : "r"(fg), "r"(bg) : "rax", "rdi", "rsi");
+}
+
+static inline void rsl_release(void* ptr) {
+    __asm__ volatile ("mov $5, %%rax; mov %0, %%rdi; int $0x03" : : "r"(ptr) : "rax", "rdi");
+}
+#endif
 
 #endif /* RSL_H */

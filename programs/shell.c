@@ -21,9 +21,10 @@ void shell_main(void) {
     /* Boot Menu Choice-Gate */
     print("\n1. Install OSx2 to SATA HDD\n");
     print("2. Enter Safe Mode (CD-ROM Only)\n");
+    print("3. Launch Window Manager (RTC64)\n");
 
     while(1) {
-        void* choice = input("\nSelect Option (1/2): ");
+        void* choice = input("\nSelect Option (1/2/3): ");
         if (choice) {
             if (str_match(choice, "1")) {
                 print("Preparing Installation...\n");
@@ -33,6 +34,12 @@ void shell_main(void) {
                 break;
             } else if (str_match(choice, "2")) {
                 print("Entering Safe Mode...\n");
+                release(choice);
+                break;
+            } else if (str_match(choice, "3")) {
+                print("Launching RTC64 Window Manager...\n");
+                int tasking_spawn_app(const char* path);
+                tasking_spawn_app("BOOT:/wm.bin");
                 release(choice);
                 break;
             } else {

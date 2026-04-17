@@ -11,12 +11,12 @@ KERNEL_SRC = $(wildcard kernel/unice64/*.c) \
              $(wildcard kernel/libs/storage/*.c) \
              $(wildcard kernel/libs/storage/fatfs/*.c) \
              $(wildcard kernel/libs/core/*.c) \
-             programs/shell.c \
-             programs/text_editor.c
+             programs/shell.c
 AS_SRC = $(wildcard kernel/unice64/*.s)
 KERNEL_OBJ = $(KERNEL_SRC:.c=.o) $(AS_SRC:.s=.o)
 KERNEL_ELF = kernel.elf
 
+PROGRAMS = wm.bin text_editor.bin
 ISO_IMAGE = osx2.iso
 SATA_DISK = sata_disk.img
 LIMINE_DIR = ./limine
@@ -71,9 +71,10 @@ kernel: limine-setup $(KERNEL_OBJ)
 %.o: %.s | limine-setup
 	$(CC) $(CFLAGS) -c $< -o $@
 
-iso: limine-setup kernel
+iso: limine-setup kernel $(PROGRAMS)
 	@mkdir -p iso_root/boot
 	@cp $(KERNEL_ELF) iso_root/boot/
+	@cp $(PROGRAMS) iso_root/boot/
 	@cp boot/limine.cfg iso_root/
 	@python3 scripts/fat_tool.py ramdisk.img
 	@cp ramdisk.img iso_root/boot/
@@ -91,7 +92,12 @@ iso: limine-setup kernel
 	fi
 	@echo "OSx2 Limemade ISO Created: $(ISO_IMAGE)"
 
+%.bin: programs/%.c
+	$(CC) $(CFLAGS) -DRSL_BINARY_MODE -c $< -o programs/$*.o
+	# Using a flat binary format for .bin files
+	$(CC) -static -nostdlib -Wl,-Tprograms/linker.ld programs/$*.o -o $@
+
 clean:
-	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) $(SATA_DISK) ramdisk.img
+	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) $(SATA_DISK) ramdisk.img $(PROGRAMS) programs/*.o
 	rm -rf iso_root
 	@if [ -d "limine" ]; then $(MAKE) -C limine clean || true; fi
