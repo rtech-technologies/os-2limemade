@@ -145,11 +145,11 @@ static inline void xhci_db_write(uint32_t reg, uint32_t val) {
     *(volatile uint32_t*)((uint8_t*)xhci_base + dboff + reg) = val;
 }
 
-static inline void xhci_op_write(uint32_t reg, uint32_t val) {
+void xhci_op_write(uint32_t reg, uint32_t val) {
     *(volatile uint32_t*)((uint8_t*)xhci_base + xhci_cap_len + reg) = val;
 }
 
-static inline uint32_t xhci_op_read(uint32_t reg) {
+uint32_t xhci_op_read(uint32_t reg) {
     return *(volatile uint32_t*)((uint8_t*)xhci_base + xhci_cap_len + reg);
 }
 

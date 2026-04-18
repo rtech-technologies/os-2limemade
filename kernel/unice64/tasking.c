@@ -19,6 +19,7 @@ void idle_task(void) {
 void usb_main_task(void);
 void usb_keyboard_task(void);
 void usb_mouse_task(void);
+void tiny_usb_task(void);
 void rtc64_wm_task(void);
 void text_editor_task(void);
 
@@ -155,6 +156,7 @@ void tasking_init(void) {
     /* Register Peripheral Tasks */
     register_task(usb_keyboard_task, 7);
     register_task(usb_mouse_task, 8);
+    register_task(tiny_usb_task, 12);
 
     /* Register Shell Task in Slab 2 */
     if (pending_shell_entry) {

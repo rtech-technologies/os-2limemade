@@ -79,3 +79,13 @@ int vsnprintf(char* str, size_t size, const char* format, va_list ap) {
     str[i] = '\0';
     return (int)i;
 }
+
+void __memset_chk(void* dest, int c, size_t n, size_t dest_len) {
+    (void)dest_len;
+    memset(dest, c, n);
+}
+
+void __memcpy_chk(void* dest, const void* src, size_t n, size_t dest_len) {
+    (void)dest_len;
+    memcpy(dest, src, n);
+}
