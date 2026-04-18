@@ -214,12 +214,69 @@ static const uint16_t mouse_cursor_bitmap[16] = {
 
 static struct limine_framebuffer* global_fb = NULL;
 
+struct limine_framebuffer* get_global_fb(void) { return global_fb; }
+
 void draw_pixel(int x, int y, uint32_t color) {
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;
     if (x < 0 || (uint64_t)x >= fb->width || y < 0 || (uint64_t)y >= fb->height) return;
     uint32_t* pixel = (uint32_t*)(fb->address + y * fb->pitch + x * 4);
     *pixel = color;
+}
+
+void draw_rect(int x, int y, int w, int h, uint32_t color) {
+    for (int i = 0; i < h; i++) {
+        for (int j = 0; j < w; j++) {
+            draw_pixel(x + j, y + i, color);
+        }
+    }
+}
+
+void draw_circle(int xc, int yc, int r, uint32_t color) {
+    int x = 0, y = r;
+    int d = 3 - 2 * r;
+    while (y >= x) {
+        draw_pixel(xc + x, yc + y, color);
+        draw_pixel(xc - x, yc + y, color);
+        draw_pixel(xc + x, yc - y, color);
+        draw_pixel(xc - x, yc - y, color);
+        draw_pixel(xc + y, yc + x, color);
+        draw_pixel(xc - y, yc + x, color);
+        draw_pixel(xc + y, yc - x, color);
+        draw_pixel(xc - y, yc - x, color);
+        x++;
+        if (d > 0) {
+            y--;
+            d = d + 4 * (x - y) + 10;
+        } else {
+            d = d + 4 * x + 6;
+        }
+    }
+}
+
+void draw_char_scaled(char c, int px, int py, int scale, uint32_t fg, uint32_t bg) {
+    if (!global_fb) return;
+    struct limine_framebuffer* fb = global_fb;
+    if ((uint8_t)c >= 128) return;
+
+    const uint8_t* glyph = font8x8_basic[(uint8_t)c];
+    for (int i = 0; i < 8; i++) {
+        for (int j = 0; j < 8; j++) {
+            uint32_t color = (glyph[i] & (1 << (7 - j))) ? fg : bg;
+            if (color == 0 && bg == 0) continue; // Transparency optimization
+            for (int sy = 0; sy < scale; sy++) {
+                for (int sx = 0; sx < scale; sx++) {
+                    draw_pixel(px + (j * scale) + sx, py + (i * scale) + sy, color);
+                }
+            }
+        }
+    }
+}
+
+void draw_text_scaled(const char* s, int x, int y, int scale, uint32_t color) {
+    for (int i = 0; s[i] != '\0'; i++) {
+        draw_char_scaled(s[i], x + (i * 8 * scale), y, scale, color, 0);
+    }
 }
 
 uint32_t get_pixel(int x, int y) {

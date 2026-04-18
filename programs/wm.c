@@ -15,6 +15,20 @@ rsl_header_t rsl_header = {
 rtc64_window_t windows[MAX_WINDOWS];
 int window_count = 0;
 
+typedef struct {
+    int x, y, w, h;
+    char text[64];
+    int cursor;
+    bool focused;
+} rtc64_textbox_t;
+
+rtc64_textbox_t test_textbox = {
+    .x = 100, .y = 100, .w = 200, .h = 24,
+    .text = "Click to type...",
+    .cursor = 16,
+    .focused = false
+};
+
 /* External dependencies provided by kernel via syscalls or shared memory */
 /* For this proof of concept, we assume the WM has direct access to drawing if in kernel mode,
    but since this is a .bin, it will use syscalls for everything or kernel will call its internal functions.
@@ -71,7 +85,17 @@ void rtc64_draw_gui_primitives(rtc64_window_t* win) {
     }
 }
 
+void rtc64_draw_textbox(rtc64_textbox_t* tb) {
+    uint32_t border = tb->focused ? 0x00FF00 : 0x888888;
+    DRAW_RECT(tb->x, tb->y, tb->w, tb->h, border);
+    DRAW_RECT(tb->x + 2, tb->y + 2, tb->w - 4, tb->h - 4, 0xFFFFFF);
+    DRAW_TEXT(tb->text, tb->x + 4, tb->y + 4, 1, 0x000000);
+}
+
 void rtc64_draw_all(void) {
+    /* Clear Background */
+    DRAW_RECT(0, 0, 640, 480, 0x222222);
+
     for (int i = 0; i < MAX_WINDOWS; i++) {
         if (windows[i].visible) {
             rtc64_draw_gui_primitives(&windows[i]);
@@ -80,16 +104,52 @@ void rtc64_draw_all(void) {
             }
         }
     }
-    /* Mouse drawing should be handled by kernel or via special syscall */
+
+    rtc64_draw_textbox(&test_textbox);
+
+    /* Circle Test */
+    DRAW_CIRCLE(500, 100, 30, 0xFF0000);
+
+    /* PNG Test (Stubbed if file not present) */
+    DRAW_PNG("BOOT:/logo.png", 400, 300);
 }
+
+#include <include/mouse.h>
 
 void wm_main(void) {
     rtc64_init();
     rsl_print("[WM] RTC64 Window Manager Standalone Started.\n");
 
+    uint64_t surface = RSL_SURFACE_CREATE(640, 480);
+
     while(1) {
-        /* In a real standalone app, we'd poll events via syscalls */
-        rtc64_draw_all();
+        int mx = (int)GET_CUR_MPOS(0);
+        int my = (int)GET_CUR_MPOS(1);
+
+        /* Simple Mouse/KB Polling for Text Box */
+        /* Note: left_button check would require updated mouse_state_t exposure or syscall */
+        /* For this refactor, we focus on the drawing API */
+
+        RSL_SURFACE_CLEAR(surface, 0x222222);
+
+        /* Draw windows and components using primitives */
+        for (int i = 0; i < MAX_WINDOWS; i++) {
+            if (windows[i].visible) {
+                rtc64_draw_gui_primitives(&windows[i]);
+            }
+        }
+
+        rtc64_draw_textbox(&test_textbox);
+        DRAW_CIRCLE(500, 100, 30, 0xFF0000);
+        DRAW_PNG("BOOT:/logo.png", 400, 300);
+
+        /* Final Mouse Render: No Ghosting, Numeric only */
+        RSL_DRAW_VAL(mx, my, mx);
+        DRAW_TEXT(",", mx + 48, my, 1, 0xFFFFFF);
+        RSL_DRAW_VAL(mx + 64, my, my);
+
+        RSL_SURFACE_PUSH(surface);
+
         __asm__ volatile ("mov $1, %%rax; int $0x03" ::: "rax"); /* Syscall Yield */
     }
 }

@@ -1,5 +1,7 @@
 #include <include/rsl.h>
+#include <include/rsl.h>
 #include <include/vfs.h>
+#include <kernel/libs/lodepng/lodepng.h>
 #include <kernel/unice64/task.h>
 #include <kernel/libs/storage/fatfs/ff.h>
 #include <kernel/libs/storage/vdisk.h>
@@ -604,6 +606,68 @@ void rsl_scan(void) {
 
 int vdisk_eject_hw(int hw_id);
 bool vdisk_is_busy(int hw_id);
+
+void* malloc(size_t size);
+void free(void* ptr);
+
+void rsl_draw_val(int x, int y, int64_t val) {
+    char buf[32];
+    int i = 0;
+    if (val == 0) { buf[i++] = '0'; }
+    else {
+        if (val < 0) { void draw_char_pixel(char c, int px, int py, uint32_t fg, uint32_t bg); draw_char_pixel('-', x, y, 0xFFFFFF, 0); x += 16; val = -val; }
+        char tmp[32]; int ti = 0;
+        while (val > 0) { tmp[ti++] = (val % 10) + '0'; val /= 10; }
+        while (ti > 0) buf[i++] = tmp[--ti];
+    }
+    buf[i] = '\0';
+    void draw_text_scaled(const char* s, int x, int y, int scale, uint32_t color);
+    draw_text_scaled(buf, x, y, 1, 0xFFFFFF);
+}
+
+void rsl_draw_hex(int x, int y, uint64_t val) {
+    char buf[32];
+    buf[0] = '0'; buf[1] = 'x';
+    const char* hex = "0123456789ABCDEF";
+    for (int i = 0; i < 16; i++) {
+        buf[17 - i] = hex[(val >> (i * 4)) & 0xF];
+    }
+    buf[18] = '\0';
+    void draw_text_scaled(const char* s, int x, int y, int scale, uint32_t color);
+    draw_text_scaled(buf, x, y, 1, 0x00FF00);
+}
+
+void rsl_draw_png(const char* path, int x, int y) {
+    void* pstr = str_create(path);
+    vfs_handle_t* h = vfs_open(pstr, "r");
+    if (!h) {
+        release(pstr);
+        return;
+    }
+
+    size_t sz = h->size;
+    unsigned char* png_data = (unsigned char*)malloc(sz);
+    if (png_data) {
+        vfs_read(h, png_data, sz);
+        unsigned char* image = NULL;
+        unsigned w, h_img;
+        unsigned error = lodepng_decode32(&image, &w, &h_img, png_data, sz);
+        if (!error) {
+            void draw_pixel(int x, int y, uint32_t color);
+            for (unsigned j = 0; j < h_img; j++) {
+                for (unsigned i = 0; i < w; i++) {
+                    unsigned char* p = &image[(j * w + i) * 4];
+                    uint32_t color = (p[3] << 24) | (p[0] << 16) | (p[1] << 8) | p[2];
+                    if (p[3] > 0) draw_pixel(x + i, y + j, color);
+                }
+            }
+            free(image);
+        }
+        free(png_data);
+    }
+    vfs_close(h);
+    release(pstr);
+}
 void rsl_eject(void* path) {
     const char* p = str_to_cstr(path);
     int drive = p[0] - '0';

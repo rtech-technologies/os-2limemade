@@ -1,4 +1,5 @@
 #include <include/rsl.h>
+#include <include/mouse.h>
 #include <include/ahci_hw.h>
 #include <stdint.h>
 #include <stddef.h>
@@ -13,6 +14,15 @@ static inline void outw(uint16_t port, uint16_t val) {
 }
 
 void rsl_shutdown(void) {
+    /* Final UI Update: Show final X,Y */
+    void rsl_draw_val(int x, int y, int64_t val);
+    mouse_state_t* get_mouse_state(void);
+    mouse_state_t* ms = get_mouse_state();
+    if (ms) {
+        rsl_draw_val(10, 10, ms->x);
+        rsl_draw_val(10, 30, ms->y);
+    }
+
     /* VGA Farewell */
     void vga_clear(void);
     void vga_set_cursor(int x, int y);

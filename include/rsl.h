@@ -78,6 +78,50 @@ static inline void rsl_set_color(uint64_t fg, uint64_t bg) {
 static inline void rsl_release(void* ptr) {
     __asm__ volatile ("mov $5, %%rax; mov %0, %%rdi; int $0x03" : : "r"(ptr) : "rax", "rdi");
 }
+
+static inline void DRAW_RECT(int x, int y, int w, int h, uint32_t color) {
+    __asm__ volatile ("mov $12, %%rax; mov %0, %%rdi; mov %1, %%rsi; mov %2, %%rdx; mov %3, %%rcx; mov %4, %%r8; int $0x03" : : "r"((uint64_t)x), "r"((uint64_t)y), "r"((uint64_t)w), "r"((uint64_t)h), "r"((uint64_t)color) : "rax", "rdi", "rsi", "rdx", "rcx", "r8");
+}
+
+static inline void DRAW_CIRCLE(int x, int y, int r, uint32_t color) {
+    __asm__ volatile ("mov $13, %%rax; mov %0, %%rdi; mov %1, %%rsi; mov %2, %%rdx; mov %3, %%rcx; int $0x03" : : "r"((uint64_t)x), "r"((uint64_t)y), "r"((uint64_t)r), "r"((uint64_t)color) : "rax", "rdi", "rsi", "rdx", "rcx");
+}
+
+static inline void DRAW_TEXT(const char* s, int x, int y, int scale, uint32_t color) {
+    __asm__ volatile ("mov $14, %%rax; mov %0, %%rdi; mov %1, %%rsi; mov %2, %%rdx; mov %3, %%rcx; mov %4, %%r8; int $0x03" : : "r"((uint64_t)s), "r"((uint64_t)x), "r"((uint64_t)y), "r"((uint64_t)scale), "r"((uint64_t)color) : "rax", "rdi", "rsi", "rdx", "rcx", "r8");
+}
+
+static inline void DRAW_PNG(const char* path, int x, int y) {
+    __asm__ volatile ("mov $15, %%rax; mov %0, %%rdi; mov %1, %%rsi; mov %2, %%rdx; int $0x03" : : "r"((uint64_t)path), "r"((uint64_t)x), "r"((uint64_t)y) : "rax", "rdi", "rsi", "rdx");
+}
+
+static inline uint64_t GET_CUR_MPOS(int axis) {
+    uint64_t ret;
+    __asm__ volatile ("mov $20, %%rax; mov %1, %%rdi; int $0x03; mov %%rax, %0" : "=r"(ret) : "r"((uint64_t)axis) : "rax", "rdi");
+    return ret;
+}
+
+static inline uint64_t RSL_SURFACE_CREATE(int w, int h) {
+    uint64_t ret;
+    __asm__ volatile ("mov $21, %%rax; mov %1, %%rdi; mov %2, %%rsi; int $0x03; mov %%rax, %0" : "=r"(ret) : "r"((uint64_t)w), "r"((uint64_t)h) : "rax", "rdi", "rsi");
+    return ret;
+}
+
+static inline void RSL_SURFACE_PUSH(uint64_t slab_addr) {
+    __asm__ volatile ("mov $22, %%rax; mov %0, %%rdi; int $0x03" : : "r"(slab_addr) : "rax", "rdi");
+}
+
+static inline void RSL_SURFACE_CLEAR(uint64_t slab_addr, uint32_t color) {
+    __asm__ volatile ("mov $23, %%rax; mov %0, %%rdi; mov %1, %%rsi; int $0x03" : : "r"(slab_addr), "r"((uint64_t)color) : "rax", "rdi", "rsi");
+}
+
+static inline void RSL_DRAW_VAL(int x, int y, int64_t value) {
+    __asm__ volatile ("mov $24, %%rax; mov %0, %%rdi; mov %1, %%rsi; mov %2, %%rdx; int $0x03" : : "r"((uint64_t)x), "r"((uint64_t)y), "r"((uint64_t)value) : "rax", "rdi", "rsi", "rdx");
+}
+
+static inline void RSL_DRAW_HEX(int x, int y, uint64_t value) {
+    __asm__ volatile ("mov $25, %%rax; mov %0, %%rdi; mov %1, %%rsi; mov %2, %%rdx; int $0x03" : : "r"((uint64_t)x), "r"((uint64_t)y), "r"((uint64_t)value) : "rax", "rdi", "rsi", "rdx");
+}
 #endif
 
 #endif /* RSL_H */

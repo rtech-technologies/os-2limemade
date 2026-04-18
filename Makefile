@@ -4,7 +4,7 @@ CC = gcc
 TINYUSB_DIR = kernel/libs/tinyusb/src
 TINYUSB_INC = -I$(TINYUSB_DIR) -I$(TINYUSB_DIR)/common -I$(TINYUSB_DIR)/host -I$(TINYUSB_DIR)/class/hid -I$(TINYUSB_DIR)/class/msc
 
-CFLAGS = -O2 -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -fno-omit-frame-pointer -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include $(TINYUSB_INC) -U_FORTIFY_SOURCE -fno-stack-protector
+CFLAGS = -O2 -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -fno-omit-frame-pointer -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include $(TINYUSB_INC) -U_FORTIFY_SOURCE -fno-stack-protector -DLODEPNG_NO_COMPILE_DISK
 LDFLAGS = -Wl,-T,boot/linker.ld -static -nostdlib -Wl,-z,max-page-size=0x1000
 
 BIN_CFLAGS = -O2 -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -fno-omit-frame-pointer -m64 -march=x86-64 -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include
@@ -24,6 +24,7 @@ KERNEL_SRC = $(wildcard kernel/unice64/*.c) \
              $(wildcard kernel/libs/storage/*.c) \
              $(wildcard kernel/libs/storage/fatfs/*.c) \
              $(wildcard kernel/libs/core/*.c) \
+             kernel/libs/lodepng/lodepng.c \
              $(TINYUSB_SRC) \
              programs/shell.c
 AS_SRC = $(wildcard kernel/unice64/*.s)
