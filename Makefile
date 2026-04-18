@@ -7,6 +7,9 @@ TINYUSB_INC = -I$(TINYUSB_DIR) -I$(TINYUSB_DIR)/common -I$(TINYUSB_DIR)/host -I$
 CFLAGS = -O2 -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -fno-omit-frame-pointer -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include $(TINYUSB_INC) -U_FORTIFY_SOURCE -fno-stack-protector
 LDFLAGS = -Wl,-T,boot/linker.ld -static -nostdlib -Wl,-z,max-page-size=0x1000
 
+BIN_CFLAGS = -O2 -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -fno-omit-frame-pointer -m64 -march=x86-64 -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include
+BIN_LDFLAGS = -static -nostdlib -Wl,-Tprograms/linker.ld
+
 TINYUSB_SRC = $(TINYUSB_DIR)/tusb.c \
               $(TINYUSB_DIR)/common/tusb_fifo.c \
               $(TINYUSB_DIR)/host/usbh.c \
@@ -104,9 +107,9 @@ iso: limine-setup kernel $(PROGRAMS)
 	@echo "OSx2 Limemade ISO Created: $(ISO_IMAGE)"
 
 %.bin: programs/%.c
-	$(CC) $(CFLAGS) -DRSL_BINARY_MODE -c $< -o programs/$*.o
+	$(CC) $(BIN_CFLAGS) -DRSL_BINARY_MODE -c $< -o programs/$*.o
 	# Using a flat binary format for .bin files
-	$(CC) -static -nostdlib -Wl,-Tprograms/linker.ld programs/$*.o -o $@
+	$(CC) $(BIN_LDFLAGS) programs/$*.o -o $@
 
 clean:
 	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) $(SATA_DISK) ramdisk.img $(PROGRAMS) programs/*.o
