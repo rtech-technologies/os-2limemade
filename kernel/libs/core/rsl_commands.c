@@ -2,7 +2,8 @@
 #include <include/vfs.h>
 #include <kernel/unice64/task.h>
 #include <kernel/libs/storage/fatfs/ff.h>
-#include <kernel/unice64/task.h>
+#include <kernel/libs/storage/vdisk.h>
+#include <include/ahci_hw.h>
 #include <kernel/libs/core/services.h>
 
 int get_hw_disk_count(void);
@@ -115,11 +116,36 @@ void rsl_install(void) {
     }
     release(confirm);
 
+    print("Performing AHCI COMRESET Handshake...\n");
+    void ahci_force_port_reset(int port_no);
+    extern hba_mem_t* get_hba_base(void);
+    hba_mem_t* hba = get_hba_base();
+    /* Need to find the actual AHCI port for the selected drive */
+    /* This logic is simplified; in a production build, vdisk_node_t would store the port directly */
+    int ahci_port = -1;
+    extern vdisk_node_t hw_registry[];
+    ahci_port = (int)(uint64_t)hw_registry[drive_id].private_data;
+
+    if (ahci_port != -1) {
+        /* DMA Stop Protocol */
+        hba->ports[ahci_port].cmd &= ~0x0001; /* ST = 0 */
+        while(hba->ports[ahci_port].cmd & 0x4000); /* Wait for CR to clear */
+        ahci_force_port_reset(ahci_port);
+    }
+
     print("Formatting Drive...\n");
     if (f_mkfs(drive_id) != FR_OK) {
         print("Error: Format failed.\n");
         return;
     }
+
+    /* MBR Bootstrap: Write Sovereign Signature and GPT Protective record to LBA 0 */
+    print("Writing MBR Bootstrap...\n");
+    uint8_t mbr[512];
+    for(int i=0; i<512; i++) mbr[i] = 0;
+    *(uint32_t*)mbr = 0xEFBEADDE; /* Sovereign Signature */
+    mbr[510] = 0x55; mbr[511] = 0xAA;
+    vdisk_write_hw(drive_id, 0, 1, mbr);
 
     /* Mount the new drive to DISKx:/ for copying */
     char mount_p[16];

@@ -899,7 +899,7 @@ int xhci_msc_read(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 
     usb_msc_cbw_t cbw = {0};
     cbw.dCBWSignature = MSC_CBW_SIGNATURE;
-    cbw.dCBWTag = 0xDEADBEEF;
+    cbw.dCBWTag = 0x12345678;
     cbw.dCBWDataTransferLength = count * 512;
     cbw.bmCBWFlags = 0x80; /* Data In */
     cbw.bCBWLUN = 0;

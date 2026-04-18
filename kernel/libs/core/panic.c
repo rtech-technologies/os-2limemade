@@ -1,6 +1,7 @@
 #include <include/rsl.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <stdarg.h>
 
 void serial_write_str(const char* s);
 
@@ -10,16 +11,13 @@ void tasking_set_scanning(bool scanning);
 uint64_t get_system_ticks(void);
 uint64_t get_hhdm_offset(void);
 
-static void append_str(char* buf, int* idx, const char* s) {
-    while (*s && *idx < 2047) buf[(*idx)++] = *s++;
-}
+int vsnprintf(char* str, size_t size, const char* format, va_list ap);
 
-static void append_hex64(char* buf, int* idx, uint64_t val) {
-    const char* hex = "0123456789ABCDEF";
-    append_str(buf, idx, "0x");
-    for (int b = 15; b >= 0; b--) {
-        if (*idx < 2047) buf[(*idx)++] = hex[(val >> (b * 4)) & 0xF];
-    }
+static void panic_printf(char* buf, size_t* pos, size_t max, const char* fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    *pos += vsnprintf(buf + *pos, max - *pos, fmt, ap);
+    va_end(ap);
 }
 
 void forensic_panic(const char* message, cpu_context_t* state) {
@@ -32,57 +30,38 @@ void forensic_panic(const char* message, cpu_context_t* state) {
 
     /* Atomic Panic Report: Comprehensive Hardware Autopsy */
     static char panic_buf[2048];
-    int idx = 0;
+    size_t pos = 0;
+    size_t max = 2048;
 
-    append_str(panic_buf, &idx, "\n!!! SOVEREIGN KERNEL PANIC !!!\n");
-    append_str(panic_buf, &idx, "Autopsy Status: [ TERMINATED ]\n");
-    append_str(panic_buf, &idx, "Failure Vector: ");
-    append_str(panic_buf, &idx, message);
-    append_str(panic_buf, &idx, "\n\n");
+    panic_printf(panic_buf, &pos, max, "\n!!! SOVEREIGN KERNEL PANIC !!!\n");
+    panic_printf(panic_buf, &pos, max, "Autopsy Status: [ TERMINATED ]\n");
+    panic_printf(panic_buf, &pos, max, "Failure Vector: %s\n\n", message);
 
     /* System Telemetry */
-    append_str(panic_buf, &idx, "[TELEMETRY] Ticks: ");
-    append_hex64(panic_buf, &idx, get_system_ticks());
+    panic_printf(panic_buf, &pos, max, "[TELEMETRY] Ticks: 0x%p", get_system_ticks());
 
     task_t* current = get_current_task();
     if (current) {
-        append_str(panic_buf, &idx, " | Active Task: 0x");
-        const char* hex = "0123456789ABCDEF";
-        uint32_t tid = current->id;
-        for (int b = 7; b >= 0; b--) panic_buf[idx++] = hex[(tid >> (b * 4)) & 0xF];
+        panic_printf(panic_buf, &pos, max, " | Active Task: 0x%x", current->id);
     }
 
-    uint64_t hhdm = get_hhdm_offset();
-    append_str(panic_buf, &idx, " | HHDM: ");
-    append_hex64(panic_buf, &idx, hhdm);
-    append_str(panic_buf, &idx, "\n\n");
+    panic_printf(panic_buf, &pos, max, " | HHDM: 0x%p\n\n", get_hhdm_offset());
 
     /* CPU Core Dump */
     if (state) {
-        append_str(panic_buf, &idx, "[CPU AUTOPSY]\n");
-        append_str(panic_buf, &idx, "RAX: "); append_hex64(panic_buf, &idx, state->rax);
-        append_str(panic_buf, &idx, " RBX: "); append_hex64(panic_buf, &idx, state->rbx);
-        append_str(panic_buf, &idx, "\nRCX: "); append_hex64(panic_buf, &idx, state->rcx);
-        append_str(panic_buf, &idx, " RDX: "); append_hex64(panic_buf, &idx, state->rdx);
-        append_str(panic_buf, &idx, "\nRSI: "); append_hex64(panic_buf, &idx, state->rsi);
-        append_str(panic_buf, &idx, " RDI: "); append_hex64(panic_buf, &idx, state->rdi);
-        append_str(panic_buf, &idx, "\nRBP: "); append_hex64(panic_buf, &idx, state->rbp);
-        append_str(panic_buf, &idx, " RSP: "); append_hex64(panic_buf, &idx, state->rsp);
-        append_str(panic_buf, &idx, "\nRIP: "); append_hex64(panic_buf, &idx, state->rip);
-        append_str(panic_buf, &idx, " RFLAGS: "); append_hex64(panic_buf, &idx, state->rflags);
-        append_str(panic_buf, &idx, "\nCS : "); append_hex64(panic_buf, &idx, state->cs);
-        append_str(panic_buf, &idx, " SS : "); append_hex64(panic_buf, &idx, state->ss);
-        append_str(panic_buf, &idx, "\n\nR8 : "); append_hex64(panic_buf, &idx, state->r8);
-        append_str(panic_buf, &idx, " R9 : "); append_hex64(panic_buf, &idx, state->r9);
-        append_str(panic_buf, &idx, "\nR10: "); append_hex64(panic_buf, &idx, state->r10);
-        append_str(panic_buf, &idx, " R11: "); append_hex64(panic_buf, &idx, state->r11);
-        append_str(panic_buf, &idx, "\nR12: "); append_hex64(panic_buf, &idx, state->r12);
-        append_str(panic_buf, &idx, " R13: "); append_hex64(panic_buf, &idx, state->r13);
-        append_str(panic_buf, &idx, "\nR14: "); append_hex64(panic_buf, &idx, state->r14);
-        append_str(panic_buf, &idx, " R15: "); append_hex64(panic_buf, &idx, state->r15);
-        append_str(panic_buf, &idx, "\n\n");
+        panic_printf(panic_buf, &pos, max, "[CPU AUTOPSY]\n");
+        panic_printf(panic_buf, &pos, max, "RAX: 0x%p RBX: 0x%p\n", state->rax, state->rbx);
+        panic_printf(panic_buf, &pos, max, "RCX: 0x%p RDX: 0x%p\n", state->rcx, state->rdx);
+        panic_printf(panic_buf, &pos, max, "RSI: 0x%p RDI: 0x%p\n", state->rsi, state->rdi);
+        panic_printf(panic_buf, &pos, max, "RBP: 0x%p RSP: 0x%p\n", state->rbp, state->rsp);
+        panic_printf(panic_buf, &pos, max, "RIP: 0x%p RFLAGS: 0x%p\n", state->rip, state->rflags);
+        panic_printf(panic_buf, &pos, max, "CS : 0x%x SS : 0x%x\n\n", (uint32_t)state->cs, (uint32_t)state->ss);
+        panic_printf(panic_buf, &pos, max, "R8 : 0x%p R9 : 0x%p\n", state->r8, state->r9);
+        panic_printf(panic_buf, &pos, max, "R10: 0x%p R11: 0x%p\n", state->r10, state->r11);
+        panic_printf(panic_buf, &pos, max, "R12: 0x%p R13: 0x%p\n", state->r12, state->r13);
+        panic_printf(panic_buf, &pos, max, "R14: 0x%p R15: 0x%p\n\n", state->r14, state->r15);
     } else {
-        append_str(panic_buf, &idx, "[CPU AUTOPSY] Register state not provided.\n\n");
+        panic_printf(panic_buf, &pos, max, "[CPU AUTOPSY] Register state not provided.\n\n");
     }
 
     /* Control Registers */
@@ -92,14 +71,9 @@ void forensic_panic(const char* message, cpu_context_t* state) {
     __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
     __asm__ volatile ("mov %%cr4, %0" : "=r"(cr4));
 
-    append_str(panic_buf, &idx, "[CONTROL REGISTERS]\n");
-    append_str(panic_buf, &idx, "CR0: "); append_hex64(panic_buf, &idx, cr0);
-    append_str(panic_buf, &idx, " CR2: "); append_hex64(panic_buf, &idx, cr2);
-    append_str(panic_buf, &idx, "\nCR3: "); append_hex64(panic_buf, &idx, cr3);
-    append_str(panic_buf, &idx, " CR4: "); append_hex64(panic_buf, &idx, cr4);
-    append_str(panic_buf, &idx, "\n\n");
-
-    panic_buf[idx] = '\0';
+    panic_printf(panic_buf, &pos, max, "[CONTROL REGISTERS]\n");
+    panic_printf(panic_buf, &pos, max, "CR0: 0x%p CR2: 0x%p\n", cr0, cr2);
+    panic_printf(panic_buf, &pos, max, "CR3: 0x%p CR4: 0x%p\n\n", cr3, cr4);
 
     /* Deliver Atomic Report to Hardware - Use direct write bypass during panic */
     void vga_write_char(char c, uint8_t color_attr);
