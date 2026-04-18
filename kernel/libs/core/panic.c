@@ -11,14 +11,14 @@ uint64_t get_system_ticks(void);
 uint64_t get_hhdm_offset(void);
 
 static void append_str(char* buf, int* idx, const char* s) {
-    while (*s) buf[(*idx)++] = *s++;
+    while (*s && *idx < 2047) buf[(*idx)++] = *s++;
 }
 
 static void append_hex64(char* buf, int* idx, uint64_t val) {
     const char* hex = "0123456789ABCDEF";
     append_str(buf, idx, "0x");
     for (int b = 15; b >= 0; b--) {
-        buf[(*idx)++] = hex[(val >> (b * 4)) & 0xF];
+        if (*idx < 2047) buf[(*idx)++] = hex[(val >> (b * 4)) & 0xF];
     }
 }
 

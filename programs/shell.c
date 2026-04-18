@@ -28,8 +28,8 @@ void shell_main(void) {
         if (choice) {
             if (str_match(choice, "1")) {
                 print("Preparing Installation...\n");
-                int rsl_execute_stream(const char* path);
-                rsl_execute_stream("BOOT:/install.rsl");
+                void rsl_install(void);
+                rsl_install();
                 release(choice);
                 break;
             } else if (str_match(choice, "2")) {

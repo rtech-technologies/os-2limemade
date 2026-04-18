@@ -12,6 +12,35 @@ int get_connect_disk_count(void);
 static FATFS mount_table[MAX_MOUNTS];
 static int mount_count = 0;
 
+/* File Copy Helper */
+int copy_file(const char* src, const char* dest) {
+    void* s_path = str_create(src);
+    void* d_path = str_create(dest);
+    vfs_handle_t* h_src = vfs_open(s_path, "r");
+    if (!h_src) {
+        release(s_path); release(d_path);
+        return -1;
+    }
+    vfs_handle_t* h_dest = vfs_open(d_path, "w");
+    if (!h_dest) {
+        vfs_close(h_src);
+        release(s_path); release(d_path);
+        return -2;
+    }
+
+    char buf[4096];
+    int bytes;
+    while ((bytes = vfs_read(h_src, buf, 4096)) > 0) {
+        vfs_write(h_dest, buf, bytes);
+    }
+
+    vfs_close(h_src);
+    vfs_close(h_dest);
+    release(s_path);
+    release(d_path);
+    return 0;
+}
+
 /* Internal FS Bridge for VFS */
 void internal_fs_ls(void* path, void* priv) {
     DIR dp; FILINFO fno;
@@ -60,6 +89,80 @@ bool internal_fs_exists(void* path, void* priv) {
 }
 
 void rsl_ls(void* path) { vfs_ls(path); sys_yield(); }
+
+void rsl_install(void) {
+    print("\n--- OSx2 Sovereign Installer ---\n");
+    print("Listing available drives:\n");
+    void* root_path = str_create("/");
+    vfs_ls(root_path);
+    release(root_path);
+
+    void* choice = input("\nSelect Target Drive ID (e.g. 0): ");
+    if (!choice) return;
+    int drive_id = str_to_cstr(choice)[0] - '0';
+    release(choice);
+
+    if (drive_id < 0 || drive_id >= get_hw_disk_count()) {
+        print("Error: Invalid drive ID.\n");
+        return;
+    }
+
+    void* confirm = input("WARNING: This will FORMAT the drive. Proceed? (y/n): ");
+    if (!confirm || (str_to_cstr(confirm)[0] != 'y' && str_to_cstr(confirm)[0] != 'Y')) {
+        if (confirm) release(confirm);
+        print("Installation Aborted.\n");
+        return;
+    }
+    release(confirm);
+
+    print("Formatting Drive...\n");
+    if (f_mkfs(drive_id) != FR_OK) {
+        print("Error: Format failed.\n");
+        return;
+    }
+
+    /* Mount the new drive to DISKx:/ for copying */
+    char mount_p[16];
+    mount_p[0] = 'D'; mount_p[1] = 'I'; mount_p[2] = 'S'; mount_p[3] = 'K';
+    mount_p[4] = '0' + drive_id; mount_p[5] = ':'; mount_p[6] = '/'; mount_p[7] = '\0';
+
+    /* Manual mount logic since DISKx prefix router is in VFS */
+    print("Copying System Files...\n");
+
+    char dest_prefix[16];
+    dest_prefix[0] = '0' + drive_id; dest_prefix[1] = ':'; dest_prefix[2] = '/'; dest_prefix[3] = '\0';
+
+    char src[64], dest[64];
+    const char* files[] = {"kernel.elf", "limine.cfg", "BOOT.RSL", "wm.bin", "text_editor.bin", NULL};
+
+    for(int i=0; files[i]; i++) {
+        /* Source is BOOT:/ (which maps to drive 0 or INITRD) */
+        int k=0; const char* b="BOOT:/"; while(b[k]) { src[k]=b[k]; k++; }
+        int m=0; while(files[i][m]) { src[k++]=files[i][m++]; } src[k]='\0';
+
+        k=0; while(dest_prefix[k]) { dest[k]=dest_prefix[k]; k++; }
+        m=0; while(files[i][m]) { dest[k++]=files[i][m++]; } dest[k]='\0';
+
+        vga_print("Copying %s...\n", files[i]);
+        if (copy_file(src, dest) != 0) {
+            vga_print("Warning: Failed to copy %s\n", files[i]);
+        }
+    }
+
+    /* Create INST.me */
+    char inst_path[64];
+    int k=0; while(dest_prefix[k]) { inst_path[k]=dest_prefix[k]; k++; }
+    const char* im="INST.me"; int m=0; while(im[m]) { inst_path[k++]=im[m++]; } inst_path[k]='\0';
+
+    void* p_inst = str_create(inst_path);
+    void* c_inst = str_create("1");
+    vfs_write_dispatch(p_inst, c_inst);
+    release(p_inst); release(c_inst);
+
+    print("\nInstallation Complete! You may now boot from this drive.\n");
+    sys_yield();
+}
+
 void rsl_cat(void* path) { vfs_cat(path); sys_yield(); }
 void vfs_write_dispatch(void* path, void* content);
 void rsl_write(void* path, void* content) { vfs_write_dispatch(path, content); sys_yield(); }
@@ -295,6 +398,8 @@ void rsl_execute_command(char* line) {
     } else if (cstr_match_local(argv[0], "win_in")) {
         rsl_win_in();
         print("Input focus shifted to Window Manager.\n");
+    } else if (cstr_match_local(argv[0], "install")) {
+        rsl_install();
     } else if (cstr_match_local(argv[0], "shell_in")) {
         rsl_shell_in();
         print("Input focus shifted to Shell.\n");
