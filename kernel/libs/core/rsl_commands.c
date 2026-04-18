@@ -143,7 +143,7 @@ void rsl_install(void) {
     print("Writing MBR Bootstrap...\n");
     uint8_t mbr[512];
     for(int i=0; i<512; i++) mbr[i] = 0;
-    *(uint32_t*)mbr = 0xEFBEADDE; /* Sovereign Signature */
+    *(uint32_t*)mbr = 0x5056524E; /* Sovereign Signature */
     mbr[510] = 0x55; mbr[511] = 0xAA;
     vdisk_write_hw(drive_id, 0, 1, mbr);
 

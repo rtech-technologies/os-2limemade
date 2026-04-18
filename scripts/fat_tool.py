@@ -51,8 +51,8 @@ def main():
         f.write(b'\0' * img_size)
         f.seek(0)
 
-        # 2. LBA 0: Sovereign Signature 0xEFBEADDE
-        f.write(struct.pack("<I", 0xEFBEADDE))
+        # 2. LBA 0: Sovereign Signature 0x5056524E
+        f.write(struct.pack("<I", 0x5056524E))
         f.seek(446)
         # Entry 1: GPT Protective Partition (Type 0xEE)
         f.write(b'\x00\x00\x02\x00\xEE\xFF\xFF\xFF')

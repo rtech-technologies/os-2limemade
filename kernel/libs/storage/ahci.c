@@ -238,7 +238,7 @@ int ahci_mechanical_sync(int p) {
     hba_port_t* port = &hba_base->ports[p];
 
     /* Direct SATA Write bypass: Signature Stamp at LBA 0 */
-    uint32_t stamp = 0xEFBEADDE;
+    uint32_t stamp = 0x5056524E;
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
     cmdhdr->dw0 = 5 | (1 << 6) | (1 << 16); /* CFL=5, W=1, PRDTL=1 */
     cmdhdr->prdbc = 0;

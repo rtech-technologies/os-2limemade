@@ -78,7 +78,7 @@ int is_sovereign_disk(int disk_id) {
     int res = 0;
     if (hw_registry[disk_id].read_lba(hw_registry[disk_id].private_data, 0, 1, buf) == 0) {
         uint32_t sig = *(uint32_t*)buf;
-        if (sig == 0xEFBEADDE) res = 1;
+        if (sig == 0x5056524E) res = 1;
     }
     free(buf);
     return res;
