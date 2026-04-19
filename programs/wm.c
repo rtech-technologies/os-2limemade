@@ -132,6 +132,16 @@ void wm_main(void) {
 
         RSL_SURFACE_CLEAR(surface, 0x222222);
 
+        char c = RSL_WIN_GET_CHAR();
+        if (c != 0 && test_textbox.focused) {
+            if (c == '\b') {
+                if (test_textbox.cursor > 0) test_textbox.text[--test_textbox.cursor] = '\0';
+            } else if (test_textbox.cursor < 63) {
+                test_textbox.text[test_textbox.cursor++] = c;
+                test_textbox.text[test_textbox.cursor] = '\0';
+            }
+        }
+
         /* Draw windows and components using primitives */
         for (int i = 0; i < MAX_WINDOWS; i++) {
             if (windows[i].visible) {

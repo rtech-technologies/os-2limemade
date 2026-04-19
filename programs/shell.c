@@ -1,6 +1,9 @@
 #include <include/rsl.h>
 
 void shell_main(void) {
+    RSL_SET_VGA_SILENT(false);
+    RSL_VGA_CLEAR();
+
     set_color(GREEN, BLACK);
     print("  _____ _______ ______ _____ _    _    ____   _____     ___  \n");
     print(" |  __ \\__   __|  ____/ ____| |  | |  / __ \\ / ____|   |__ \\ \n");

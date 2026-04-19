@@ -3,6 +3,13 @@ import struct
 import uuid
 import os
 
+def to_83_name(name):
+    """Converts a filename to FAT 8.3 format."""
+    parts = name.split('.')
+    base = parts[0].upper()[:8]
+    ext = parts[1].upper()[:3] if len(parts) > 1 else ""
+    return base.ljust(8) + ext.ljust(3)
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: fat_tool.py <output_img>")
@@ -11,57 +18,69 @@ def main():
     img_path = sys.argv[1]
     sector_size = 512
     part_offset = 2048           # The Sovereign Offset
+    sectors_per_cluster = 8
+    reserved_sectors = 32
+    num_fats = 2
+    fat_size = 128               # Sectors per FAT
 
     # Files to include in the Right-Sized ramdisk
     files_to_include = ["kernel.elf", "boot/limine.cfg", "wm.bin", "text_editor.bin"]
-    # Add any other .bin files if they exist
+    # Add any other .bin files if they exist in programs/ or root
     for f in os.listdir("."):
         if f.endswith(".bin") and f not in files_to_include:
             files_to_include.append(f)
+    if os.path.exists("programs"):
+        for f in os.listdir("programs"):
+            if f.endswith(".bin") and f not in files_to_include:
+                files_to_include.append(f)
 
     total_file_size = 0
     valid_files = []
     for f_name in files_to_include:
         p = f_name
+        base_name = os.path.basename(f_name)
         if not os.path.exists(p):
-            # Check programs/ if not in root
-            p = os.path.join("programs", f_name)
+            p = os.path.join("programs", base_name)
         if not os.path.exists(p):
-            # Check iso_root/boot/
-            p = os.path.join("iso_root", "boot", f_name)
+            p = os.path.join("iso_root", "boot", base_name)
 
         if os.path.exists(p):
             sz = os.path.getsize(p)
             total_file_size += sz
-            valid_files.append((f_name, p, sz))
+            valid_files.append((base_name, p, sz))
         else:
             print(f"Warning: File {f_name} not found, skipping.")
 
-    # Calculate required sectors (Right-Sized)
-    # Header (1) + GPT (32) + Reserved (part_offset) + FAT Tables + Files + Backup GPT (33)
-    # We add a buffer for FAT overhead and root directory
-    required_data_sectors = (total_file_size // sector_size) + 1024
-    total_sectors = part_offset + required_data_sectors + 33
+    # Calculate required sectors
+    # Root directory (1 cluster) + Files
+    required_clusters = 1 # Start with root dir
+    for name, p, sz in valid_files:
+        required_clusters += (sz + (sectors_per_cluster * sector_size) - 1) // (sectors_per_cluster * sector_size)
+
+    # Ensure FAT is large enough to map all clusters
+    # 4 bytes per cluster in FAT32. fat_size * 512 / 4 clusters mapped.
+    # 128 * 512 / 4 = 16384 clusters. Plenty for our small ramdisk.
+
+    required_data_sectors = required_clusters * sectors_per_cluster
+    total_sectors = part_offset + reserved_sectors + (num_fats * fat_size) + required_data_sectors + 33
     img_size = total_sectors * sector_size
 
     part_sectors = total_sectors - part_offset - 33
 
     with open(img_path, "wb") as f:
-        # 1. Create the file
         f.write(b'\0' * img_size)
         f.seek(0)
 
-        # 2. LBA 0: Sovereign Signature 0x5056524E
+        # 1. LBA 0: Sovereign Signature
         f.write(struct.pack("<I", 0x5056524E))
         f.seek(446)
-        # Entry 1: GPT Protective Partition (Type 0xEE)
         f.write(b'\x00\x00\x02\x00\xEE\xFF\xFF\xFF')
-        f.write(struct.pack("<I", 1)) # Start LBA 1
+        f.write(struct.pack("<I", 1))
         f.write(struct.pack("<I", total_sectors - 1))
         f.seek(510)
         f.write(b'\x55\xAA')
 
-        # 3. Partition Entry Array (LBA 2-33)
+        # 2. GPT (LBAs 1-33)
         entries = bytearray(128 * 128)
         entries[0:16] = uuid.UUID('EBD0A0A2-B9E5-4433-87C0-68B6B72699C7').bytes_le
         entries[16:32] = uuid.uuid4().bytes_le
@@ -69,10 +88,6 @@ def main():
         entries[40:48] = struct.pack("<Q", part_offset + part_sectors - 1)
         entries[56:128] = "Sovereign".encode('utf-16le')
 
-        f.seek(2 * sector_size)
-        f.write(entries)
-
-        # 4. LBA 1: GPT Header
         f.seek(1 * sector_size)
         header = bytearray(92)
         header[0:8] = b'EFI PART'
@@ -92,54 +107,77 @@ def main():
         header[16:20] = b'\x00\x00\x00\x00'
         header[16:20] = struct.pack("<I", zlib.crc32(header) & 0xFFFFFFFF)
         f.write(header)
+        f.seek(2 * sector_size)
+        f.write(entries)
 
-        # 5. LBA 2048: The BPB (FAT32)
+        # 3. BPB (FAT32)
         f.seek(part_offset * sector_size)
         f.write(b'\xEB\x58\x90')
         f.seek(part_offset * sector_size + 3)
-        f.write(b'OSX2.0  ')
+        f.write(b'SVRN2.0 ')
         f.seek(part_offset * sector_size + 11)
         f.write(struct.pack("<H", sector_size))
-        f.write(struct.pack("<B", 8))
-        f.write(struct.pack("<H", 32))
-        f.write(struct.pack("<B", 2))
+        f.write(struct.pack("<B", sectors_per_cluster))
+        f.write(struct.pack("<H", reserved_sectors))
+        f.write(struct.pack("<B", num_fats))
         f.seek(part_offset * sector_size + 32)
         f.write(struct.pack("<I", part_sectors))
-        f.write(struct.pack("<I", 128))
-        f.write(struct.pack("<I", 2))
+        f.write(struct.pack("<I", fat_size))
+        f.seek(part_offset * sector_size + 44)
+        f.write(struct.pack("<I", 2)) # Root Cluster
         f.seek(part_offset * sector_size + 510)
         f.write(b'\x55\xAA')
 
-        # 6. Initialize FAT Tables
-        for i in range(2):
-            f.seek((part_offset + 32 + (i * 128)) * sector_size)
-            f.write(struct.pack("<I", 0x0FFFFFF8))
-            f.write(struct.pack("<I", 0xFFFFFFFF))
-            f.write(struct.pack("<I", 0x0FFFFFFF))
+        # 4. FAT Tables
+        fat = [0] * (fat_size * sector_size // 4)
+        fat[0] = 0x0FFFFFF8
+        fat[1] = 0xFFFFFFFF
+        fat[2] = 0x0FFFFFFF # End of chain for Cluster 2 (Root Dir)
 
-        # 7. Inject Files into Clusters (Simplified Flat Injection for BOOT:/)
-        current_cluster = 2
-        data_start_lba = part_offset + 32 + (2 * 128)
+        # 5. Data Area (Injected Files + Dir Entries)
+        data_start_lba = part_offset + reserved_sectors + (num_fats * fat_size)
 
-        # Root directory (empty but present)
-        # In a real FAT32 we'd write directory entries.
-        # For OSx2 Sovereign BOOT:/ we use a flat loader if FAT fails or simplified VFS.
-        # However, the userland relies on FatFS, so we should really provide a valid FS.
-        # Given the "Right-Sized" constraint, we'll write the files into the data area.
+        # Root Directory Entries
+        root_dir = bytearray()
+        current_cluster = 3
 
         for name, src_p, sz in valid_files:
+            # Create Directory Entry
+            entry = bytearray(32)
+            entry[0:11] = to_83_name(name).encode('ascii')
+            entry[11] = 0x20 # Archive
+            entry[26:28] = struct.pack("<H", current_cluster & 0xFFFF)
+            entry[20:22] = struct.pack("<H", (current_cluster >> 16) & 0xFFFF)
+            entry[28:32] = struct.pack("<I", sz)
+            root_dir.extend(entry)
+
+            # Write File Data
             with open(src_p, "rb") as sf:
                 data = sf.read()
-                offset = (data_start_lba + (current_cluster - 2) * 8) * sector_size
-                f.seek(offset)
+                f.seek((data_start_lba + (current_cluster - 2) * sectors_per_cluster) * sector_size)
                 f.write(data)
 
-                # Calculate clusters used
-                clusters_used = (sz + (8 * sector_size) - 1) // (8 * sector_size)
-                # Link FAT (not fully implemented in this simplified tool, but files are now in the image)
-                current_cluster += clusters_used
+            # Update FAT Chain
+            clusters_needed = (sz + (sectors_per_cluster * sector_size) - 1) // (sectors_per_cluster * sector_size)
+            for i in range(clusters_needed):
+                if i == clusters_needed - 1:
+                    fat[current_cluster + i] = 0x0FFFFFFF
+                else:
+                    fat[current_cluster + i] = current_cluster + i + 1
 
-    print(f"OSX2: {img_size // 1024}KB Right-Sized Sovereign Disk Created at {img_path}.")
+            current_cluster += clusters_needed
+
+        # Write Root Directory to Cluster 2
+        f.seek(data_start_lba * sector_size)
+        f.write(root_dir)
+
+        # Write FAT Tables
+        fat_binary = struct.pack(f"<{len(fat)}I", *fat)
+        for i in range(num_fats):
+            f.seek((part_offset + reserved_sectors + (i * fat_size)) * sector_size)
+            f.write(fat_binary)
+
+    print(f"OSX2: {img_size // 1024}KB Right-Sized Sovereign Disk Created at {img_path} with {len(valid_files)} files.")
 
 if __name__ == "__main__":
     main()

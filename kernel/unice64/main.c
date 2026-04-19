@@ -49,13 +49,19 @@ void _start(void) {
     /* Pre-register IDT to catch early faults */
     idt_init();
 
-    /* OSx2 Sovereign Welcome */
+    /* OSx2 Sovereign Professional Boot */
+    extern bool g_vga_silent;
+    g_vga_silent = true;
     serial_write_str("\n[ RTECH SOVEREIGN KERNEL ]\n");
     serial_write_str("[ BUILD 23:00 - MECHANICAL TRUTH ]\n\n");
 
     /* Initialize Hardware and Core Memory */
     dispatch_event(EVENT_INIT);
     __asm__ volatile ("sti");
+
+    void rtech_draw_logo(void);
+    void boot_spinner_update(int stage);
+    rtech_draw_logo();
 
     /* Start the Shell and Main System Logic */
     serial_write_str("[EVENT] Entering EVENT_MAIN...\n");
@@ -64,13 +70,14 @@ void _start(void) {
 
     /* 1. Sovereign Discovery: Unified Volume Handshake */
     int hw_count = get_hw_disk_count();
-    vga_print("[BOOT] Scanning %d detected hardware volumes...\n", hw_count);
+    serial_write_str("[BOOT] Scanning hardware volumes...\n");
 
     for (int i = 0; i < hw_count; i++) {
-        vga_print("[BOOT] Verifying Volume %d...\n", i);
+        boot_spinner_update(i);
+        serial_write_str("[BOOT] Verifying Volume...\n");
         static FATFS tmp;
         if (f_mount(&tmp, i) == FR_OK) {
-            vga_print("[FS] Volume %d verified as Sovereign.\n", i);
+            serial_write_str("[FS] Volume verified as Sovereign.\n");
             mount_success = true;
         }
     }

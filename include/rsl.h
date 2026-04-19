@@ -122,6 +122,23 @@ static inline void RSL_DRAW_VAL(int x, int y, int64_t value) {
 static inline void RSL_DRAW_HEX(int x, int y, uint64_t value) {
     __asm__ volatile ("mov $25, %%rax; mov %0, %%rdi; mov %1, %%rsi; mov %2, %%rdx; int $0x03" : : "r"((uint64_t)x), "r"((uint64_t)y), "r"((uint64_t)value) : "rax", "rdi", "rsi", "rdx");
 }
+
+static inline void RSL_SET_VGA_SILENT(bool silent) {
+    __asm__ volatile ("mov $30, %%rax; mov %0, %%rdi; int $0x03" : : "r"((uint64_t)silent) : "rax", "rdi");
+}
+
+static inline void RSL_VGA_CLEAR(void) {
+    __asm__ volatile ("mov $31, %%rax; int $0x03" ::: "rax");
+}
+
+static inline char RSL_WIN_GET_CHAR(void) {
+    uint64_t ret;
+    __asm__ volatile ("mov $32, %%rax; int $0x03; mov %%rax, %0" : "=r"(ret) :: "rax");
+    return (char)ret;
+}
+#else
+void RSL_SET_VGA_SILENT(bool silent);
+void RSL_VGA_CLEAR(void);
 #endif
 
 #endif /* RSL_H */

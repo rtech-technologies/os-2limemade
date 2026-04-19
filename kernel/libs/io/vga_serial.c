@@ -213,6 +213,10 @@ static const uint16_t mouse_cursor_bitmap[16] = {
 };
 
 static struct limine_framebuffer* global_fb = NULL;
+bool g_vga_silent = false;
+
+void RSL_SET_VGA_SILENT(bool silent) { g_vga_silent = silent; }
+void RSL_VGA_CLEAR(void) { vga_clear(); }
 
 struct limine_framebuffer* get_global_fb(void) { return global_fb; }
 
@@ -386,6 +390,8 @@ void vga_write_char(char c, uint8_t color_attr) {
     } else {
         serial_write_char(c);
     }
+
+    if (g_vga_silent) return;
 
     /* Ignore non-printable gibberish except for key control codes */
     if ((uint8_t)c < 32 && c != '\n' && c != '\r' && c != '\b' && c != '\t') return;
@@ -675,6 +681,27 @@ void serial_print_hex32(const char* label, uint32_t val) {
         serial_write_char(hex[(val >> (i * 4)) & 0xF]);
     }
     serial_write_char('\n');
+}
+
+void rtech_draw_logo(void) {
+    if (!global_fb) return;
+    int cx = global_fb->width / 2;
+    int cy = global_fb->height / 2;
+
+    /* OSx2 Sovereign Logo: Emerald RTECH Symbol */
+    void draw_rect(int x, int y, int w, int h, uint32_t color);
+    void draw_text_scaled(const char* s, int x, int y, int scale, uint32_t color);
+
+    draw_rect(cx - 100, cy - 10, 200, 20, 0x00FF88);
+    draw_text_scaled("RTECH", cx - 80, cy - 40, 2, 0x00FF88);
+    draw_text_scaled("SOVEREIGN", cx - 80, cy + 20, 1, 0xFFFFFF);
+}
+
+void boot_spinner_update(int stage) {
+    if (!global_fb || g_vga_silent == false) return;
+    const char* spinner = "|/-\\";
+    void draw_char_scaled(char c, int px, int py, int scale, uint32_t fg, uint32_t bg);
+    draw_char_scaled(spinner[stage % 4], global_fb->width / 2 - 8, global_fb->height - 40, 2, 0x00FF88, 0x000000);
 }
 
 void vga_serial_service(kernel_event_t event) {

@@ -41,7 +41,7 @@ uint64_t rsl_syscall_dispatcher(uint64_t id, uint64_t arg1, uint64_t arg2, uint6
         case 11: /* draw_char_pixel(c, px, py, fg, bg) */
         {
             void draw_char_pixel(char c, int px, int py, uint32_t fg, uint32_t bg);
-            draw_char_pixel((char)arg1, (int)arg2, (int)arg3, (uint32_t)arg4, (uint32_t)0); // arg5 not used here yet
+            draw_char_pixel((char)arg1, (int)arg2, (int)arg3, (uint32_t)arg4, (uint32_t)arg5);
             break;
         }
         case 12: /* draw_rect(x, y, w, h, color) */
@@ -110,6 +110,23 @@ uint64_t rsl_syscall_dispatcher(uint64_t id, uint64_t arg1, uint64_t arg2, uint6
             void rsl_draw_hex(int x, int y, uint64_t val);
             rsl_draw_hex((int)arg1, (int)arg2, (uint64_t)arg3);
             break;
+        }
+        case 30: /* rsl_set_vga_silent(bool) */
+        {
+            void RSL_SET_VGA_SILENT(bool silent);
+            RSL_SET_VGA_SILENT((bool)arg1);
+            break;
+        }
+        case 31: /* vga_clear() */
+        {
+            void RSL_VGA_CLEAR(void);
+            RSL_VGA_CLEAR();
+            break;
+        }
+        case 32: /* RSL_WIN_GET_CHAR() - non-blocking */
+        {
+            char window_pop_char(void);
+            return (uint64_t)window_pop_char();
         }
         default:
             vga_print("[SYSCALL] Unknown RSL syscall ID: %d\n", id);
