@@ -7,6 +7,7 @@
 #include <stdbool.h>
 
 void vga_refresh_screen(void);
+void vga_clear(void);
 void draw_char_pixel(char c, int px, int py, uint32_t fg, uint32_t bg);
 
 /* I/O Port Helper */
@@ -260,7 +261,6 @@ void draw_circle(int xc, int yc, int r, uint32_t color) {
 
 void draw_char_scaled(char c, int px, int py, int scale, uint32_t fg, uint32_t bg) {
     if (!global_fb) return;
-    struct limine_framebuffer* fb = global_fb;
     if ((uint8_t)c >= 128) return;
 
     const uint8_t* glyph = font8x8_basic[(uint8_t)c];

@@ -155,9 +155,9 @@ void sys_yield(void) {
     bool tasking_is_scanning(void);
     if (tasking_is_scanning()) return;
 
+    /* Voluntary Yield: Signaled to the kernel via the interrupt gate if needed,
+       but with Hard Preemption enabled, this just spins until the next 30ms tick. */
     yield_signaled = true;
-    /* Sovereign Wait: The task pauses here until the APIC Timer validates the yield */
-    /* ENFORCE: Ensure interrupts are ON during wait so the timer can actually fire! */
     __asm__ volatile ("sti");
     while (yield_signaled) {
         __asm__ volatile ("pause");

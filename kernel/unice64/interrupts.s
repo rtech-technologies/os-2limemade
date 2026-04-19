@@ -34,12 +34,8 @@ irq_timer_handler:
     # Update system ticks
     call timer_handler
 
-    # Sovereign Logic: Check if a task has signaled a yield
-    call scheduler_should_switch
-    test %al, %al
-    jz .no_switch
-
-    # Yield detected: Clear the signal and perform full context switch
+    # Sovereign Logic: Hard Preemption (The Kernel is in Command)
+    # Perform context switch every timer tick (approx 30ms)
     call scheduler_clear_yield
 
     # Restore partial state before full context switch takes over
@@ -78,7 +74,7 @@ irq_timer_handler:
 .extern rsl_syscall_dispatcher
 
 rsl_syscall_handler:
-    # Syscall: RAX=Service ID, RDI, RSI, RDX, RCX are arguments
+    # Syscall: RAX=Service ID, RDI, RSI, RDX, RCX, R8 are arguments
     pushq %rbp
     movq %rsp, %rbp
 
@@ -94,13 +90,14 @@ rsl_syscall_handler:
     pushq %rbx
     pushq %rax
 
-    # Call dispatcher (Service ID in RDI, arguments in RSI, RDX, RCX, R8)
-    # Mapping: RDI=rax (id), RSI=rdi, RDX=rsi, RCX=rdx, R8=rcx
+    # Call dispatcher (Service ID in RDI, arguments in RSI, RDX, RCX, R8, R9)
+    # Mapping: RDI=rax (id), RSI=rdi, RDX=rsi, RCX=rdx, R8=rcx, R9=r8
     movq %rax, %rdi
-    movq 32(%rsp), %rsi   # Saved RDI
-    movq 24(%rsp), %rdx   # Saved RSI
-    movq 16(%rsp), %rcx   # Saved RDX
-    movq 8(%rsp), %r8     # Saved RCX
+    movq 40(%rsp), %rsi   # Saved RDI
+    movq 32(%rsp), %rdx   # Saved RSI
+    movq 24(%rsp), %rcx   # Saved RDX
+    movq 16(%rsp), %r8    # Saved RCX
+    movq 48(%rsp), %r9    # Saved R8
 
     call rsl_syscall_dispatcher
 

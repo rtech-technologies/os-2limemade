@@ -1,5 +1,4 @@
 #include <include/rsl.h>
-#include <include/rsl.h>
 #include <include/vfs.h>
 #include <kernel/libs/lodepng/lodepng.h>
 #include <kernel/unice64/task.h>
@@ -10,6 +9,7 @@
 
 int get_hw_disk_count(void);
 int get_connect_disk_count(void);
+void vga_print(const char* fmt, ...);
 
 #define MAX_MOUNTS 16
 static FATFS mount_table[MAX_MOUNTS];
@@ -464,7 +464,6 @@ void rsl_execute_command(char* line) {
     }
 }
 
-void vga_print(const char* fmt, ...);
 size_t slab_get_usage(int id);
 
 void rsl_settings(void) {
