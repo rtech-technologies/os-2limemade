@@ -252,6 +252,21 @@ typedef struct {
     xhci_endpoint_context_pair_t endpoints[15];
 } __attribute__((packed)) xhci_device_context_t;
 
+typedef struct {
+    uint32_t drop_flags;
+    uint32_t add_flags;
+    uint32_t reserved[5];
+    uint32_t configuration_value : 8;
+    uint32_t interface_number : 8;
+    uint32_t alternate_setting : 8;
+    uint32_t reserved2 : 8;
+} __attribute__((packed)) xhci_input_control_ctx_t;
+
+typedef struct {
+    xhci_input_control_ctx_t control;
+    xhci_device_context_t device;
+} __attribute__((packed)) xhci_input_context_t;
+
 typedef enum {
     TRBTypeNormal = 1,
     TRBTypeSetup = 2,
@@ -287,6 +302,16 @@ typedef enum {
     TRBTypeDeviceNotificationEvent = 38,
     TRBTypeMFINDEXWrapEvent = 39,
 } xhci_trb_type_t;
+
+typedef enum {
+    EndpointTypeControl = 4,
+} xhci_ep_type_t;
+
+typedef enum {
+    NoDataStage = 0,
+    OUTDataStage = 2,
+    INDataStage = 3,
+} xhci_transfer_type_t;
 
 typedef struct {
     uint32_t parameter[2];
@@ -392,20 +417,6 @@ typedef struct {
 } __attribute__((packed)) xhci_status_trb_t;
 
 typedef struct {
-    uint32_t rsvdZ[2];
-    uint32_t rsvdZ2 : 22;
-    uint32_t interrupterTarget : 10;
-    uint32_t cycleBit : 1;
-    uint32_t evaluateNextTRB : 1;
-    uint32_t rsvdZ3 : 2;
-    uint32_t chainBit : 1;
-    uint32_t interruptOnCompletion : 1;
-    uint32_t rsvdZ4 : 4;
-    uint32_t trbType : 6;
-    uint32_t rsvdZ5 : 16;
-} __attribute__((packed)) xhci_noop_trb_t;
-
-typedef struct {
     uint64_t pointer;
     uint32_t transferLength : 24;
     uint32_t completionCode : 8;
@@ -435,26 +446,9 @@ typedef struct {
     uint32_t cycleBit : 1;
     uint32_t rsvdZ2 : 9;
     uint32_t trbType : 6;
-    uint32_t rsvdZ3 : 16;
-} __attribute__((packed)) xhci_noop_command_trb_t;
-
-typedef struct {
-    uint32_t rsvdZ[3];
-    uint32_t cycleBit : 1;
-    uint32_t rsvdZ2 : 9;
-    uint32_t trbType : 6;
     uint32_t slotType : 5;
     uint32_t rsvdZ3 : 11;
 } __attribute__((packed)) xhci_enable_slot_command_trb_t;
-
-typedef struct {
-    uint32_t rsvdZ[3];
-    uint32_t cycleBit : 1;
-    uint32_t rsvdZ2 : 9;
-    uint32_t trbType : 6;
-    uint32_t rsvdZ3 : 8;
-    uint32_t slotID : 8;
-} __attribute__((packed)) xhci_disable_slot_command_trb_t;
 
 typedef struct {
     uint64_t inputContextPointer;
@@ -467,31 +461,10 @@ typedef struct {
     uint32_t slotID : 8;
 } __attribute__((packed)) xhci_address_device_command_trb_t;
 
-typedef struct {
-    uint64_t inputContextPointer;
-    uint32_t rsvdZ;
-    uint32_t cycleBit : 1;
-    uint32_t rsvdZ2 : 8;
-    uint32_t deconfigure : 1;
-    uint32_t trbType : 6;
-    uint32_t rsvdZ3 : 16;
-} __attribute__((packed)) xhci_configure_endpoint_command_trb_t;
-
 _Static_assert(XHCI_TRB_SIZE == sizeof(xhci_trb_t), "xhci_trb_t size mismatch");
 _Static_assert(XHCI_TRB_SIZE == sizeof(xhci_event_trb_t), "xhci_event_trb_t size mismatch");
 _Static_assert(XHCI_TRB_SIZE == sizeof(xhci_link_trb_t), "xhci_link_trb_t size mismatch");
-_Static_assert(XHCI_TRB_SIZE == sizeof(xhci_configure_endpoint_command_trb_t), "xhci_configure_endpoint_command_trb_t size mismatch");
-_Static_assert(XHCI_TRB_SIZE == sizeof(xhci_address_device_command_trb_t), "xhci_address_device_command_trb_t size mismatch");
-_Static_assert(XHCI_TRB_SIZE == sizeof(xhci_disable_slot_command_trb_t), "xhci_disable_slot_command_trb_t size mismatch");
-_Static_assert(XHCI_TRB_SIZE == sizeof(xhci_enable_slot_command_trb_t), "xhci_enable_slot_command_trb_t size mismatch");
-_Static_assert(XHCI_TRB_SIZE == sizeof(xhci_noop_command_trb_t), "xhci_noop_command_trb_t size mismatch");
-_Static_assert(XHCI_TRB_SIZE == sizeof(xhci_command_completion_event_trb_t), "xhci_command_completion_event_trb_t size mismatch");
 _Static_assert(XHCI_TRB_SIZE == sizeof(xhci_transfer_event_trb_t), "xhci_transfer_event_trb_t size mismatch");
-_Static_assert(XHCI_TRB_SIZE == sizeof(xhci_noop_trb_t), "xhci_noop_trb_t size mismatch");
-_Static_assert(XHCI_TRB_SIZE == sizeof(xhci_status_trb_t), "xhci_status_trb_t size mismatch");
-_Static_assert(XHCI_TRB_SIZE == sizeof(xhci_data_trb_t), "xhci_data_trb_t size mismatch");
-_Static_assert(XHCI_TRB_SIZE == sizeof(xhci_setup_trb_t), "xhci_setup_trb_t size mismatch");
-_Static_assert(XHCI_TRB_SIZE == sizeof(xhci_normal_trb_t), "xhci_normal_trb_t size mismatch");
 
 typedef struct {
     xhci_ext_cap_supported_protocol_t* protocol;
@@ -501,8 +474,7 @@ typedef struct {
 typedef struct {
     volatile bool completed;
     union {
-        xhci_command_completion_event_trb_t event;
-        xhci_event_trb_t rawEvent;
+        xhci_trb_t event;
     };
 } xhci_command_completion_event_t;
 
@@ -520,6 +492,15 @@ typedef struct {
 
 typedef struct {
     uintptr_t physicalAddr;
+    xhci_trb_t* ring;
+    unsigned enqueueIndex;
+    unsigned maxIndex;
+    bool cycleState;
+    volatile int last_transfer_status;
+} xhci_transfer_ring_t;
+
+typedef struct {
+    uintptr_t physicalAddr;
     xhci_event_trb_t* segment;
     uint32_t size;
 } xhci_event_ring_segment_t;
@@ -533,6 +514,15 @@ typedef struct {
     uint32_t dequeueIndex;
     bool cycleState;
 } xhci_event_ring_t;
+
+typedef struct {
+    uint8_t slot_id;
+    uint8_t port_speed;
+    xhci_device_context_t* device_context;
+    uintptr_t device_context_phys;
+    xhci_transfer_ring_t rings[32]; // indexed by DCI
+    bool is_tablet;
+} xhci_device_t;
 
 struct xhci_controller {
     uintptr_t xhciBaseAddress;
@@ -563,10 +553,71 @@ struct xhci_controller {
     xhci_command_ring_t commandRing;
     xhci_event_ring_t eventRing;
 
+    xhci_device_t* devices[256];
+
     enum {
         ControllerNotInitialized,
         ControllerInitialized,
     } controllerStatus;
 };
+
+/* USB Requests */
+#define USB_REQ_GET_DESCRIPTOR  0x06
+#define USB_REQ_SET_CONFIGURATION 0x09
+
+#define USB_DESC_DEVICE         0x01
+#define USB_DESC_CONFIG         0x02
+#define USB_DESC_INTERFACE      0x04
+#define USB_DESC_ENDPOINT       0x05
+
+/* USB Descriptors */
+typedef struct {
+    uint8_t  bLength;
+    uint8_t  bDescriptorType;
+    uint16_t bcdUSB;
+    uint8_t  bDeviceClass;
+    uint8_t  bDeviceSubClass;
+    uint8_t  bDeviceProtocol;
+    uint8_t  bMaxPacketSize0;
+    uint16_t idVendor;
+    uint16_t idProduct;
+    uint16_t bcdDevice;
+    uint8_t  iManufacturer;
+    uint8_t  iProduct;
+    uint8_t  iSerialNumber;
+    uint8_t  bNumConfigurations;
+} __attribute__((packed)) usb_device_descriptor_t;
+
+typedef struct {
+    uint8_t  bLength;
+    uint8_t  bDescriptorType;
+    uint16_t wTotalLength;
+    uint8_t  bNumInterfaces;
+    uint8_t  bConfigurationValue;
+    uint8_t  iConfiguration;
+    uint8_t  bmAttributes;
+    uint8_t  bMaxPower;
+} __attribute__((packed)) usb_config_descriptor_t;
+
+typedef struct {
+    uint8_t  bLength;
+    uint8_t  bDescriptorType;
+    uint8_t  bInterfaceNumber;
+    uint8_t  bAlternateSetting;
+    uint8_t  bNumEndpoints;
+    uint8_t  bInterfaceClass;
+    uint8_t  bInterfaceSubClass;
+    uint8_t  bInterfaceProtocol;
+    uint8_t  iInterface;
+} __attribute__((packed)) usb_interface_descriptor_t;
+
+typedef struct {
+    uint8_t  bLength;
+    uint8_t  bDescriptorType;
+    uint8_t  bEndpointAddress;
+    uint8_t  bmAttributes;
+    uint16_t wMaxPacketSize;
+    uint8_t  bInterval;
+} __attribute__((packed)) usb_endpoint_descriptor_t;
 
 #endif

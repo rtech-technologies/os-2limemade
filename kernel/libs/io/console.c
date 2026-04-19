@@ -106,8 +106,32 @@ static char shift_scancode_map[128] = {
 
 static bool shift_pressed = false;
 
+#define INPUT_BUFFER_SIZE 256
+static char g_input_buffer[INPUT_BUFFER_SIZE];
+static int g_input_head = 0;
+static int g_input_tail = 0;
+
+void console_push_char(char c) {
+    int next = (g_input_head + 1) % INPUT_BUFFER_SIZE;
+    if (next != g_input_tail) {
+        g_input_buffer[g_input_head] = c;
+        g_input_head = next;
+    }
+}
+
+static char console_pop_char(void) {
+    if (g_input_head == g_input_tail) return 0;
+    char c = g_input_buffer[g_input_tail];
+    g_input_tail = (g_input_tail + 1) % INPUT_BUFFER_SIZE;
+    return c;
+}
+
 char get_char(void) {
     while (1) {
+        /* 0. Unified USB/Serial Buffer */
+        char uc = console_pop_char();
+        if (uc) return uc;
+
         /* 1. PS/2 Keyboard Polling */
         uint8_t status = inb(0x64);
         if (status & 1) {
