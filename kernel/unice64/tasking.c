@@ -46,10 +46,14 @@ void tasking_init(void) {
     /* Register System Maintenance Task in Slab 2 */
     register_task(system_task, 2);
 
+    /* Register USB Sovereign Task in Slab 3 */
+    void usb_sovereign_task(void);
+    register_task(usb_sovereign_task, 3);
+
     /* Context Guard: Verify that tasks were registered correctly */
     /* (In this architecture, register_task increments task_count) */
     extern int get_task_count(void);
-    if (get_task_count() < 3) {
+    if (get_task_count() < 4) {
         forensic_panic("RTECH: INSUFFICIENT RAM FOR MULTITASKING INITIALIZATION", NULL);
     }
 

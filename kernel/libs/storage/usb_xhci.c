@@ -370,6 +370,17 @@ void xhci_enable_slot(xhci_controller_t* hcd) {
 
 /* --- Service Integration --- */
 
+void usb_sovereign_task(void) {
+    serial_write_str("[USB] Sovereign Task Started.\n");
+    while (1) {
+        for (int i = 0; i < g_xhci_count; i++) {
+            xhci_on_interrupt(g_xhci_controllers[i]);
+        }
+        /* sys_yield() */
+        __asm__ volatile ("int $0x81");
+    }
+}
+
 void xhci_irq_handler(void) {
     for (int i = 0; i < g_xhci_count; i++) {
         xhci_on_interrupt(g_xhci_controllers[i]);

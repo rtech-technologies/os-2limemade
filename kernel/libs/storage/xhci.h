@@ -137,6 +137,7 @@ typedef struct {
     uint32_t usbDeviceAddress : 8;
     uint32_t resvdZ_2 : 19;
     uint32_t slotState : 5;
+    uint32_t reserved[4]; // Padding to 32 bytes
 } __attribute__((packed)) xhci_slot_context_t;
 
 typedef struct {
@@ -170,6 +171,7 @@ typedef struct {
     volatile uint32_t intModerationCounter : 16;
     volatile uint32_t eventRingSegmentTableSize : 16;
     uint32_t rsvdP2 : 16;
+    uint32_t reserved; // Hole at 0x0C
     volatile uint64_t eventRingSegmentTableBaseAddress;
     union {
         volatile uint64_t eventRingDequeuePointer;
