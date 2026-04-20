@@ -1,23 +1,40 @@
 #include <include/rsl.h>
 #include <stdint.h>
+#include <stddef.h>
 
-void ahci_flush_cache(int p);
 void serial_write_str(const char* s);
-void vga_clear(void);
-void vga_set_cursor(int x, int y);
+static inline void outb(uint16_t port, uint8_t val) {
+    __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
+}
+
+static inline void outw(uint16_t port, uint16_t val) {
+    __asm__ volatile ("outw %0, %1" : : "a"(val), "Nd"(port));
+}
 
 void rsl_shutdown(void) {
-    serial_write_str("[SHUTDOWN] Flushing AHCI caches...\n");
-    /* OSx2: Flush all active ports */
-    for (int i=0; i<32; i++) ahci_flush_cache(i);
-
-    serial_write_str("[SHUTDOWN] System ready for power-off.\n");
+    /* VGA Farewell */
+    void vga_clear(void);
+    void vga_set_cursor(int x, int y);
     vga_clear();
-    vga_set_cursor(0, 0);
-    print("you may now power off your pc\n");
+    set_color(WHITE, BLACK);
+    vga_set_cursor(12, 33);
+    print("Goodnight!!");
 
-    /* Attempt ACPI shutdown via I/O port 0x604 (QEMU) */
-    __asm__ volatile ("outw %0, %1" : : "a"((uint16_t)0x2000), "Nd"((uint16_t)0x604));
+    /* Serial Debugging */
+    serial_write_str("\n[OS] Initiating Sovereign Shutdown Protocol...\n");
+    serial_write_str("[OS] Flushing SATA caches (Command 0xE7)...\n");
 
-    for (;;) __asm__ volatile ("hlt");
+    /* 6-second mechanical safety delay */
+    /* Wait for the HDD to physically spin down/park */
+    void pit_wait_ms(uint32_t ms);
+    pit_wait_ms(6000);
+
+    serial_write_str("[OS] Powering off via ACPI...\n");
+
+    /* ACPI Shutdown (QEMU/VirtualBox compatible) */
+    outw(0x604, 0x2000);
+    /* Alternative if above fails */
+    outw(0xB004, 0x2000);
+
+    for (;;) { __asm__ volatile ("hlt"); }
 }

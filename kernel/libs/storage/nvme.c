@@ -7,6 +7,8 @@
 
 void vga_print(const char* fmt, ...);
 uint64_t get_hhdm_offset(void);
+void* pmm_alloc(uint64_t count);
+uint64_t vmm_get_phys(void* virt);
 
 typedef struct {
     uint32_t cdw0; uint32_t nsid; uint64_t rsv0; uint64_t metadata; uint64_t prp1; uint64_t prp2;
@@ -34,9 +36,6 @@ typedef struct {
 } nvme_ctrl_t;
 
 static nvme_ctrl_t g_nvme;
-
-void* pmm_alloc(uint64_t count);
-uint64_t vmm_get_phys(void* virt);
 
 static void local_memset(void* ptr, int val, size_t size) { uint8_t* p = (uint8_t*)ptr; while (size--) *p++ = (uint8_t)val; }
 

@@ -61,12 +61,12 @@ rsl_syscall_stub:
     # r8  = r10 (d)
     # r9  = r8  (e)
 
-    movq 64(%rsp), %rdi  # Original rax (id)
-    movq 32(%rsp), %rsi  # Original rdi (a)
-    movq 40(%rsp), %rdx  # Original rsi (b)
-    movq 48(%rsp), %rcx  # Original rdx (c)
-    movq 16(%rsp), %r8   # Original r10 (d)
-    movq 24(%rsp), %r9   # Original r8  (e)
+    movq 80(%rsp), %rdi  # Original rax (id)
+    movq 48(%rsp), %rsi  # Original rdi (a)
+    movq 56(%rsp), %rdx  # Original rsi (b)
+    movq 64(%rsp), %rcx  # Original rdx (c)
+    movq 24(%rsp), %r8   # Original r10 (d)
+    movq 32(%rsp), %r9   # Original r8  (e)
 
     call rsl_syscall_handler
 
@@ -80,8 +80,6 @@ rsl_syscall_stub:
     popq %rdx
     popq %rcx
     # Do not pop rax if we want to return a value, but rsl_syscall_handler is void for now.
-    # If it returns a value, it will be in rax.
-    # Let's assume it might return a value in rax.
     addq $8, %rsp # skip rax from stack, keep rax from call
     iretq
 
