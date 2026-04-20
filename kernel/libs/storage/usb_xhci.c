@@ -72,23 +72,24 @@ typedef struct { uint32_t sig; uint32_t tag; uint32_t len; uint8_t flg; uint8_t 
 typedef struct { uint32_t sig; uint32_t tag; uint32_t res; uint8_t stat; } __attribute__((packed)) msc_csw_t;
 
 int xhci_msc_read(void* priv, uint64_t lba, uint32_t count, void* buf) {
-    (void)priv;
-    xhci_controller_t* hcd = g_xhci_controllers[0]; // Simplified for now
+    xhci_device_t* dev = (xhci_device_t*)priv;
+    xhci_controller_t* hcd = g_xhci_controllers[0];
+    if (!hcd || !dev) return -1;
 
     msc_cbw_t cbw = { .sig = 0x43425355, .tag = 1, .len = count * 512, .flg = 0x80, .cmdlen = 10 };
     cbw.cmd[0] = 0x28; // READ(10)
     cbw.cmd[2] = (lba>>24)&0xFF; cbw.cmd[3] = (lba>>16)&0xFF; cbw.cmd[4] = (lba>>8)&0xFF; cbw.cmd[5] = lba&0xFF;
     cbw.cmd[7] = (count>>8)&0xFF; cbw.cmd[8] = count&0xFF;
 
-    /* BOT Setup Stage (CBW) */
+    /* BOT Setup Stage (CBW) - Endpoint 2 Out */
     xhci_trb_t setup = { .parameter = {(uint32_t)vmm_get_phys(&cbw), (uint32_t)(vmm_get_phys(&cbw) >> 32)}, .status = 31, .trbType = 1, .control = (1 << 6) };
     xhci_cmd_send(hcd, &setup);
 
-    /* BOT Data Stage */
+    /* BOT Data Stage - Endpoint 3 In */
     xhci_trb_t data = { .parameter = {(uint32_t)vmm_get_phys(buf), (uint32_t)(vmm_get_phys(buf) >> 32)}, .status = count * 512, .trbType = 1, .control = (1 << 6) };
     xhci_cmd_send(hcd, &data);
 
-    /* BOT Status Stage (CSW) */
+    /* BOT Status Stage (CSW) - Endpoint 3 In */
     msc_csw_t csw;
     xhci_trb_t status = { .parameter = {(uint32_t)vmm_get_phys(&csw), (uint32_t)(vmm_get_phys(&csw) >> 32)}, .status = 13, .trbType = 1, .control = (1 << 6) };
     xhci_cmd_send(hcd, &status);
@@ -98,7 +99,7 @@ int xhci_msc_read(void* priv, uint64_t lba, uint32_t count, void* buf) {
         return -1;
     }
 
-    serial_write_str("[USB] MSC BOT READ(10) Completed and Verified.\n");
+    serial_write_str("[USB] MSC BOT READ(10) Completed.\n");
     return 0;
 }
 

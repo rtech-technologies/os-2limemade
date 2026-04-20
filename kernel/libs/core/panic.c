@@ -19,11 +19,5 @@ void forensic_panic(const char* message, cpu_state_t* state) {
     print(message); print("\n");
     serial_write_str("\n[PANIC] Error: "); serial_write_str(message); serial_write_str("\n");
     if (state) serial_write_str("[AUTOPSY] State captured.\n");
-    void* xhci = get_xhci_base();
-    if (xhci) {
-        volatile uint32_t* op = (uint32_t*)((uint64_t)xhci + 0x20);
-        serial_print_hex("XHCI_USBCMD: ", (uint16_t)(op[0] >> 16));
-        serial_print_hex("", (uint16_t)(op[0] & 0xFFFF));
-    }
     for (;;) __asm__ volatile ("hlt");
 }

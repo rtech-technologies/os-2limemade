@@ -45,7 +45,9 @@ int nvme_submit_admin_cmd(nvme_sqe_t* cmd, nvme_cqe_t* res) {
     g_nvme.asq[g_nvme.asq_tail] = *cmd;
     g_nvme.asq_tail = (g_nvme.asq_tail + 1) % 64;
     g_nvme.doorbells[0] = g_nvme.asq_tail;
-    while ((g_nvme.acq[g_nvme.acq_head].status & 1) != g_nvme.acq_phase) __asm__ volatile("pause");
+    int timeout = 1000000;
+    while ((g_nvme.acq[g_nvme.acq_head].status & 1) != g_nvme.acq_phase && timeout--) __asm__ volatile("pause");
+    if (timeout <= 0) return -1;
     *res = g_nvme.acq[g_nvme.acq_head];
     g_nvme.acq_head = (g_nvme.acq_head + 1) % 64;
     if (g_nvme.acq_head == 0) g_nvme.acq_phase ^= 1;
@@ -60,8 +62,9 @@ int nvme_read(void* priv, uint64_t lba, uint32_t count, void* buf) {
     g_nvme.sq[g_nvme.sq_tail] = cmd;
     g_nvme.sq_tail = (g_nvme.sq_tail + 1) % 64;
     g_nvme.doorbells[2 << dstrd] = g_nvme.sq_tail;
-    while ((g_nvme.cq[g_nvme.cq_head].status & 1) != g_nvme.cq_phase) __asm__ volatile("pause");
-    *((nvme_cqe_t*)priv) = g_nvme.cq[g_nvme.cq_head]; // Hack to get status if needed
+    int timeout = 1000000;
+    while ((g_nvme.cq[g_nvme.cq_head].status & 1) != g_nvme.cq_phase && timeout--) __asm__ volatile("pause");
+    if (timeout <= 0) return -1;
     g_nvme.cq_head = (g_nvme.cq_head + 1) % 64;
     if (g_nvme.cq_head == 0) g_nvme.cq_phase ^= 1;
     g_nvme.doorbells[3 << dstrd] = g_nvme.cq_head;

@@ -37,26 +37,52 @@ irq_timer_handler:
 
 rsl_syscall_stub:
     # Syscall: rax=id, rdi=a, rsi=b, rdx=c, r10=d, r8=e
-    # C Conv: rdi, rsi, rdx, rcx, r8, r9
+    # Save all caller-saved registers
+    pushq %rax
+    pushq %rcx
+    pushq %rdx
+    pushq %rsi
+    pushq %rdi
+    pushq %r8
+    pushq %r9
+    pushq %r10
+    pushq %r11
     pushq %rbp
     movq %rsp, %rbp
 
-    # We must move them carefully to avoid clobbering
-    # Save original rdi, rsi, rdx as they are used for C args 2, 3, 4
-    pushq %rdi
-    pushq %rsi
-    pushq %rdx
+    # C Conv: rdi, rsi, rdx, rcx, r8, r9
+    # We need: id (rax), a (rdi), b (rsi), c (rdx), d (r10), e (r8)
 
-    movq %r8, %r9   # e -> arg 6
-    movq %r10, %r8  # d -> arg 5
-    popq %rcx       # rdx -> arg 4 (from stack)
-    popq %rdx       # rsi -> arg 3 (from stack)
-    popq %rsi       # rdi -> arg 2 (from stack)
-    movq %rax, %rdi # rax -> arg 1
+    # Arguments for rsl_syscall_handler(id, a, b, c, d, e)
+    # rdi = rax (id)
+    # rsi = rdi (a)
+    # rdx = rsi (b)
+    # rcx = rdx (c)
+    # r8  = r10 (d)
+    # r9  = r8  (e)
+
+    movq 64(%rsp), %rdi  # Original rax (id)
+    movq 32(%rsp), %rsi  # Original rdi (a)
+    movq 40(%rsp), %rdx  # Original rsi (b)
+    movq 48(%rsp), %rcx  # Original rdx (c)
+    movq 16(%rsp), %r8   # Original r10 (d)
+    movq 24(%rsp), %r9   # Original r8  (e)
 
     call rsl_syscall_handler
 
     popq %rbp
+    popq %r11
+    popq %r10
+    popq %r9
+    popq %r8
+    popq %rdi
+    popq %rsi
+    popq %rdx
+    popq %rcx
+    # Do not pop rax if we want to return a value, but rsl_syscall_handler is void for now.
+    # If it returns a value, it will be in rax.
+    # Let's assume it might return a value in rax.
+    addq $8, %rsp # skip rax from stack, keep rax from call
     iretq
 
 exception_handler_stub:
