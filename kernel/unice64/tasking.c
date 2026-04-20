@@ -57,5 +57,5 @@ void tasking_init(void) {
         forensic_panic("RTECH: INSUFFICIENT RAM FOR MULTITASKING INITIALIZATION", NULL);
     }
 
-    vga_print("[UNICE64] Multitasking initialized (3 tasks).\n");
+    vga_print("[UNICE64] Multitasking initialized (4 tasks).\n");
 }
