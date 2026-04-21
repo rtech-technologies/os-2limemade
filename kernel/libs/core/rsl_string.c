@@ -20,9 +20,8 @@ void* str_create(const char* cstr) {
     if (!r_str) return NULL;
 
     r_str->length = len;
-    for (size_t i = 0; i < len; i++) {
-        r_str->data[i] = cstr[i];
-    }
+    void* memcpy(void* dest, const void* src, size_t n);
+    memcpy(r_str->data, cstr, len);
     r_str->data[len] = '\0';
 
     return (void*)r_str;
@@ -88,8 +87,9 @@ void* str_concat(void* s1, void* s2) {
     const char* c1 = str_to_cstr(s1);
     const char* c2 = str_to_cstr(s2);
 
-    for (size_t i = 0; i < len1; i++) r_str->data[i] = c1[i];
-    for (size_t i = 0; i < len2; i++) r_str->data[len1 + i] = c2[i];
+    void* memcpy(void* dest, const void* src, size_t n);
+    memcpy(r_str->data, c1, len1);
+    memcpy(r_str->data + len1, c2, len2);
     r_str->data[len1 + len2] = '\0';
 
     return (void*)r_str;

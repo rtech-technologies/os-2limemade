@@ -17,12 +17,15 @@ void arc_mem_service(kernel_event_t event) {
     }
 }
 
+void* malloc_ext(int id, size_t size);
+
 void* arc_alloc(size_t size) {
     size_t total_size = size + sizeof(arc_header_t);
     task_t* current = get_current_task();
     int slab_id = current ? current->slab_id : 0;
 
-    arc_header_t* header = (arc_header_t*)slab_alloc(slab_id, total_size);
+    /* Use Slab-specific recycling heap for ARC objects */
+    arc_header_t* header = (arc_header_t*)malloc_ext(slab_id, total_size);
     if (!header) return NULL;
 
     header->ref_count = 1; /* Initial reference count */

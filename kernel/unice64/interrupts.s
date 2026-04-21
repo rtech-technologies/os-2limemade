@@ -11,8 +11,12 @@ idt_load:
 
 .extern timer_handler
 
+.extern scheduler_should_switch
+.extern scheduler_clear_yield
+.extern apic_timer_init
+
 irq_timer_handler:
-    # Save partial state
+    # Save partial state to allow C calls
     pushq %rax
     pushq %rcx
     pushq %rdx
@@ -29,6 +33,34 @@ irq_timer_handler:
     # Update system ticks
     call timer_handler
 
+    # Sovereign Logic: Check if a task has signaled a yield
+    call scheduler_should_switch
+    test %al, %al
+    jz .no_switch
+
+    # Yield detected: Clear the signal and perform full context switch
+    call scheduler_clear_yield
+
+    # Restore partial state before full context switch takes over
+    popq %r11
+    popq %r10
+    popq %r9
+    popq %r8
+    popq %rdi
+    popq %rsi
+    popq %rdx
+    popq %rcx
+    popq %rax
+
+    # Jump into the full context switcher (it expects an iretq frame already on stack)
+    jmp unice64_context_switch
+
+.no_switch:
+    # No yield signaled: Reset timer for next check (Wait again)
+    # Fast Clock: 30ms interval
+    mov $150000, %rdi
+    call apic_timer_init
+
     # Restore partial state
     popq %r11
     popq %r10
@@ -40,7 +72,6 @@ irq_timer_handler:
     popq %rcx
     popq %rax
 
-    # Pure Cooperative: No context switch on timer
     iretq
 
 exception_handler_stub:
