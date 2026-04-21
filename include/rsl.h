@@ -1,33 +1,17 @@
 #ifndef RSL_H
 #define RSL_H
-
-#include <stdint.h>
-#include <stddef.h>
-#include <stdbool.h>
-
-/* ARC Memory Management */
+#include <ksdk/core/types.h>
 void retain(void* ptr);
 void release(void* ptr);
-
-/* String API (Pythonic) */
 void* str_create(const char* cstr);
 void* str_concat(void* s1, void* s2);
-bool str_is_empty(void* str);
 bool str_match(void* str, const char* pattern);
+bool str_is_empty(void* str);
 size_t str_len(void* str);
 const char* str_to_cstr(void* str);
-
-/* Console API */
-typedef enum {
-    BLACK = 0, BLUE, GREEN, CYAN, RED, MAGENTA, BROWN, LIGHT_GRAY,
-    DARK_GRAY, LIGHT_BLUE, LIGHT_GREEN, LIGHT_CYAN, LIGHT_RED, PINK, YELLOW, WHITE
-} color_t;
-
 void set_color(color_t fg, color_t bg);
 void* input(const char* prompt);
 void print(const char* s);
-
-/* File System API (RSL Wrappers) */
 void rsl_ls(void* path);
 void rsl_cat(void* path);
 void rsl_write(void* path, void* content);
@@ -46,5 +30,4 @@ void rsl_copy(void* str);
 void* rsl_paste(void);
 void rsl_settings(void);
 void rsl_debug_dump(void);
-
-#endif /* RSL_H */
+#endif

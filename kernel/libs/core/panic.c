@@ -4,48 +4,110 @@
 
 void serial_write_str(const char* s);
 
-typedef struct {
-    uint64_t r15, r14, r13, r12, r11, r10, r9, r8;
-    uint64_t rbp, rdi, rsi, rdx, rcx, rbx, rax;
-    uint64_t rip, cs, rflags, rsp, ss;
-} cpu_state_t;
+#include <kernel/unice64/task.h>
 
-void* get_xhci_base(void);
+void tasking_set_scanning(bool scanning);
+uint64_t get_system_ticks(void);
 uint64_t get_hhdm_offset(void);
-void serial_print_hex(const char* label, uint16_t val);
 
-void forensic_panic(const char* message, cpu_state_t* state) {
+static void append_str(char* buf, int* idx, const char* s) {
+    while (*s) buf[(*idx)++] = *s++;
+}
+
+static void append_hex64(char* buf, int* idx, uint64_t val) {
+    const char* hex = "0123456789ABCDEF";
+    append_str(buf, idx, "0x");
+    for (int b = 15; b >= 0; b--) {
+        buf[(*idx)++] = hex[(val >> (b * 4)) & 0xF];
+    }
+}
+
+void forensic_panic(const char* message, cpu_context_t* state) {
+    /* Sovereign Emergency Protocol: Synchronous Logging */
+    tasking_set_scanning(true);
+    __asm__ volatile ("cli");
+
     /* Critical Alert: Red on Black */
     set_color(LIGHT_RED, BLACK);
 
-    print("\n!!! SOVEREIGN KERNEL PANIC !!!\n");
-    print("Autopsy Status: [ TERMINATED ]\n");
-    print("Failure Vector: ");
-    print(message);
-    print("\n\n");
+    /* Atomic Panic Report: Comprehensive Hardware Autopsy */
+    static char panic_buf[2048];
+    int idx = 0;
 
-    serial_write_str("\n[PANIC] !!! SOVEREIGN KERNEL EXCEPTION !!!\n");
-    serial_write_str("[PANIC] Error Signature: ");
-    serial_write_str(message);
-    serial_write_str("\n");
+    append_str(panic_buf, &idx, "\n!!! SOVEREIGN KERNEL PANIC !!!\n");
+    append_str(panic_buf, &idx, "Autopsy Status: [ TERMINATED ]\n");
+    append_str(panic_buf, &idx, "Failure Vector: ");
+    append_str(panic_buf, &idx, message);
+    append_str(panic_buf, &idx, "\n\n");
 
+    /* System Telemetry */
+    append_str(panic_buf, &idx, "[TELEMETRY] Ticks: ");
+    append_hex64(panic_buf, &idx, get_system_ticks());
+
+    task_t* current = get_current_task();
+    if (current) {
+        append_str(panic_buf, &idx, " | Active Task: 0x");
+        const char* hex = "0123456789ABCDEF";
+        uint32_t tid = current->id;
+        for (int b = 7; b >= 0; b--) panic_buf[idx++] = hex[(tid >> (b * 4)) & 0xF];
+    }
+
+    uint64_t hhdm = get_hhdm_offset();
+    append_str(panic_buf, &idx, " | HHDM: ");
+    append_hex64(panic_buf, &idx, hhdm);
+    append_str(panic_buf, &idx, "\n\n");
+
+    /* CPU Core Dump */
     if (state) {
-        serial_write_str("[AUTOPSY] CPU Register state capture successful.\n");
+        append_str(panic_buf, &idx, "[CPU AUTOPSY]\n");
+        append_str(panic_buf, &idx, "RAX: "); append_hex64(panic_buf, &idx, state->rax);
+        append_str(panic_buf, &idx, " RBX: "); append_hex64(panic_buf, &idx, state->rbx);
+        append_str(panic_buf, &idx, "\nRCX: "); append_hex64(panic_buf, &idx, state->rcx);
+        append_str(panic_buf, &idx, " RDX: "); append_hex64(panic_buf, &idx, state->rdx);
+        append_str(panic_buf, &idx, "\nRSI: "); append_hex64(panic_buf, &idx, state->rsi);
+        append_str(panic_buf, &idx, " RDI: "); append_hex64(panic_buf, &idx, state->rdi);
+        append_str(panic_buf, &idx, "\nRBP: "); append_hex64(panic_buf, &idx, state->rbp);
+        append_str(panic_buf, &idx, " RSP: "); append_hex64(panic_buf, &idx, state->rsp);
+        append_str(panic_buf, &idx, "\nRIP: "); append_hex64(panic_buf, &idx, state->rip);
+        append_str(panic_buf, &idx, " RFLAGS: "); append_hex64(panic_buf, &idx, state->rflags);
+        append_str(panic_buf, &idx, "\nCS : "); append_hex64(panic_buf, &idx, state->cs);
+        append_str(panic_buf, &idx, " SS : "); append_hex64(panic_buf, &idx, state->ss);
+        append_str(panic_buf, &idx, "\n\nR8 : "); append_hex64(panic_buf, &idx, state->r8);
+        append_str(panic_buf, &idx, " R9 : "); append_hex64(panic_buf, &idx, state->r9);
+        append_str(panic_buf, &idx, "\nR10: "); append_hex64(panic_buf, &idx, state->r10);
+        append_str(panic_buf, &idx, " R11: "); append_hex64(panic_buf, &idx, state->r11);
+        append_str(panic_buf, &idx, "\nR12: "); append_hex64(panic_buf, &idx, state->r12);
+        append_str(panic_buf, &idx, " R13: "); append_hex64(panic_buf, &idx, state->r13);
+        append_str(panic_buf, &idx, "\nR14: "); append_hex64(panic_buf, &idx, state->r14);
+        append_str(panic_buf, &idx, " R15: "); append_hex64(panic_buf, &idx, state->r15);
+        append_str(panic_buf, &idx, "\n\n");
+    } else {
+        append_str(panic_buf, &idx, "[CPU AUTOPSY] Register state not provided.\n\n");
     }
 
-    /* Mandatory Capture: USB controller registers */
-    serial_write_str("[AUTOPSY] Scanning USB registers for mount failure state...\n");
-    void* xhci_ptr = get_xhci_base();
-    if (xhci_ptr) {
-        uint64_t hhdm = get_hhdm_offset();
-        volatile uint32_t* op_regs = (uint32_t*)(hhdm + (uint64_t)xhci_ptr + 0x20); // USBCMD is at +0x20 in Operational Regs
-        serial_print_hex("XHCI_USBCMD: ", (uint16_t)(op_regs[0] >> 16));
-        serial_print_hex("", (uint16_t)(op_regs[0] & 0xFFFF));
-        serial_print_hex("XHCI_USBSTS: ", (uint16_t)(op_regs[1] >> 16));
-        serial_print_hex("", (uint16_t)(op_regs[1] & 0xFFFF));
-    } else {
-        serial_write_str("XHCI Controller Not Found.\n");
+    /* Control Registers */
+    uint64_t cr0, cr2, cr3, cr4;
+    __asm__ volatile ("mov %%cr0, %0" : "=r"(cr0));
+    __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+    __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
+    __asm__ volatile ("mov %%cr4, %0" : "=r"(cr4));
+
+    append_str(panic_buf, &idx, "[CONTROL REGISTERS]\n");
+    append_str(panic_buf, &idx, "CR0: "); append_hex64(panic_buf, &idx, cr0);
+    append_str(panic_buf, &idx, " CR2: "); append_hex64(panic_buf, &idx, cr2);
+    append_str(panic_buf, &idx, "\nCR3: "); append_hex64(panic_buf, &idx, cr3);
+    append_str(panic_buf, &idx, " CR4: "); append_hex64(panic_buf, &idx, cr4);
+    append_str(panic_buf, &idx, "\n\n");
+
+    panic_buf[idx] = '\0';
+
+    /* Deliver Atomic Report to Hardware - Use direct write bypass during panic */
+    void vga_write_char(char c, uint8_t color_attr);
+    void serial_write_str(const char* s);
+    for (int k = 0; panic_buf[k]; k++) {
+        vga_write_char(panic_buf[k], 0x4F); /* White on Red */
     }
+    serial_write_str(panic_buf);
 
     for (;;) {
         __asm__ volatile ("hlt");

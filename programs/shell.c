@@ -44,6 +44,18 @@ static color_t name_to_color(const char* name) {
 }
 
 void shell_main(void) {
+    void rsl_execute_stream(const char* path);
+    bool rsl_exists(void* path);
+    void* boot_path = str_create("BOOT:/BOOT.RSL");
+    void* initrd_path = str_create("INITRD:/BOOT.RSL");
+
+    if (rsl_exists(boot_path)) {
+        rsl_execute_stream("BOOT:/BOOT.RSL");
+    } else if (rsl_exists(initrd_path)) {
+        rsl_execute_stream("INITRD:/BOOT.RSL");
+    }
+    release(boot_path); release(initrd_path);
+
     set_color(GREEN, BLACK);
     print("  _____ _______ ______ _____ _    _    ____   _____     ___  \n");
     print(" |  __ \\__   __|  ____/ ____| |  | |  / __ \\ / ____|   |__ \\ \n");
