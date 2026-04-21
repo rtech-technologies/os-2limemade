@@ -223,7 +223,6 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     return 0;
 }
 
-void ahci_hardware_audit(int p);
 int satapi_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer);
 int satapi_eject(void* priv);
 int satapi_identify(void* priv);

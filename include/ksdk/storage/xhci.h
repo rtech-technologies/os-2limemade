@@ -166,5 +166,4 @@ typedef struct {
 typedef struct {
     uint8_t slot_id;
 } xhci_device_t;
-
 #endif
