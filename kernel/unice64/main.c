@@ -64,7 +64,6 @@ void _start(void) {
 
     /* Initialize Timer Hardware BEFORE device discovery */
     apic_init();
-    /* Extremely Fast Clock for discovery phase: 30ms interval (approx) */
     apic_timer_init(50000);
 
     /* OSx2 Sovereign Welcome */
@@ -78,28 +77,85 @@ void _start(void) {
     /* Start the Shell and Main System Logic */
     serial_write_str("[EVENT] Entering EVENT_MAIN...\n");
 
+    static FATFS boot_fs;
+    int boot_drive = -1;
     bool mount_success = false;
 
     /* 1. Sovereign Discovery: Unified Volume Handshake */
     int hw_count = get_hw_disk_count();
     vga_print("[BOOT] Scanning %d detected hardware volumes...\n", hw_count);
 
-    for (int i = 0; i < hw_count; i++) {
-        vga_print("[BOOT] Verifying Volume %d...\n", i);
-        static FATFS tmp;
-        if (f_mount(&tmp, i) == FR_OK) {
-            vga_print("[FS] Volume %d verified as Sovereign.\n", i);
+    for (int i = 0; hw_count > 0 && i < hw_count; i++) {
+        vga_print("[BOOT] Checking Volume %d...\n", i);
+        if (f_mount(&boot_fs, i) == FR_OK) {
+            vga_print("[FS] Sovereign FAT32 Detected on Volume %d.\n", i);
+            boot_drive = i;
             mount_success = true;
+            break; /* Primary found, stop scan */
         }
     }
 
     if (!mount_success) {
-        set_color(LIGHT_RED, BLACK);
-        print("\n[CRITICAL] SYSTEM CANNOT FIND BOOT DISK.\n");
-        print("[CRITICAL] ENTERING SAFE MODE.\n");
-        vfs_set_safe_mode(true);
+        set_color(YELLOW, BLACK);
+        vga_print("\n[BOOT] NO SOVEREIGN DISK FOUND.\n");
+        vga_print("1. Enter Safe Mode (Ramdisk Only)\n");
+        vga_print("2. Choose disk to Format and Install\n");
+
+        while(1) {
+            void* choice = input("Select Option (1/2): ");
+            if (choice && str_match(choice, "1")) {
+                vga_print("[BOOT] Entering Safe Mode...\n");
+                vfs_set_safe_mode(true);
+                release(choice);
+                break;
+            } else if (choice && str_match(choice, "2")) {
+                vga_print("\nAvailable Disks:\n");
+                for(int k=0; k<hw_count; k++) vga_print("%d. Disk %d\n", k, k);
+                void* disk_idx_str = input("Select Disk ID to format: ");
+                if (disk_idx_str) {
+                    int idx = str_to_cstr(disk_idx_str)[0] - '0';
+                    if (idx >= 0 && idx < hw_count) {
+                        vga_print("[BOOT] Formatting Disk %d...\n", idx);
+                        if (f_mkfs(idx) == FR_OK) {
+                            vga_print("[BOOT] Format Complete. Please Restart.\n");
+                            while(1) __asm__ volatile ("hlt");
+                        } else {
+                            vga_print("[ERROR] Format failed.\n");
+                        }
+                    }
+                    release(disk_idx_str);
+                }
+                release(choice);
+            } else if (choice) {
+                release(choice);
+            }
+        }
     } else {
         vfs_set_safe_mode(false);
+
+        /* Register the boot volume with VFS as "BOOT" */
+        void internal_fs_ls(void* path, void* priv);
+        void internal_fs_cat(void* path, void* priv);
+        void internal_fs_write(void* path, void* content, void* priv);
+        void internal_fs_mkdir(void* path, void* priv);
+        void internal_fs_rmdir(void* path, void* priv);
+        bool internal_fs_exists(void* path, void* priv);
+
+        vfs_node_t boot_node = {
+            .private_data = &boot_fs,
+            .ls = internal_fs_ls,
+            .cat = internal_fs_cat,
+            .write = internal_fs_write,
+            .mkdir = internal_fs_mkdir,
+            .rmdir = internal_fs_rmdir,
+            .exists = internal_fs_exists
+        };
+        const char* bname = "BOOT";
+        int bk = 0; while(bname[bk]) { boot_node.name[bk] = bname[bk]; bk++; } boot_node.name[bk] = '\0';
+        vfs_register_node(boot_node);
+
+        void vdisk_connect(int hw_id);
+        vdisk_connect(boot_drive);
     }
 
     /* Initialize Active-Relay Multitasking */
