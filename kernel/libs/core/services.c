@@ -55,6 +55,13 @@ static void worker_task_entry(void) {
         case REQ_HARDWARE_SCAN:
             rsl_scan();
             break;
+        case REQ_KBD_CONFIG: {
+            extern uint64_t g_kbd_initial_delay;
+            extern uint64_t g_kbd_repeat_rate;
+            g_kbd_initial_delay = req->result; /* initial */
+            g_kbd_repeat_rate = (uint64_t)req->content; /* repeat, hacky passing */
+            break;
+        }
         case REQ_APP_SPAWN: {
             int tasking_spawn_app(const char* path);
             req->result = tasking_spawn_app(str_to_cstr(req->path));

@@ -70,6 +70,12 @@ void _start(void) {
     serial_write_str("\n[ RTECH SOVEREIGN KERNEL ]\n");
     serial_write_str("[ BUILD 23:00 - MECHANICAL TRUTH ]\n\n");
 
+    extern bool g_vga_silent;
+    g_vga_silent = false;
+    void vga_print_logo(void);
+    vga_print_logo();
+    g_vga_silent = true;
+
     /* Initialize Hardware and Core Memory */
     dispatch_event(EVENT_INIT);
     __asm__ volatile ("sti");

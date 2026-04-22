@@ -27,6 +27,7 @@ typedef enum {
     REQ_DISK_STAMP,
     REQ_DISK_EJECT,
     REQ_HARDWARE_SCAN,
+    REQ_KBD_CONFIG,
     REQ_APP_SPAWN
 } system_req_type_t;
 

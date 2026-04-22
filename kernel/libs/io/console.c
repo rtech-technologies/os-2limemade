@@ -8,8 +8,10 @@ void serial_write_char(char c);
 void serial_write_str(const char* s);
 char serial_read_char(void);
 int serial_received(void);
+void serial_print_num(uint32_t n, int base);
 
 static uint8_t current_color_val = 0x07; /* White on Black */
+bool g_vga_silent = true;
 
 /* I/O Helpers */
 static inline uint8_t inb(uint16_t port) {
@@ -125,27 +127,38 @@ void vga_print(const char* fmt, ...) {
     __builtin_va_list args;
     __builtin_va_start(args, fmt);
 
+    if (g_vga_silent) {
+        /* Standard Sovereign: Redirect to serial if VGA is silent */
+        void serial_print(const char* fmt, ...);
+        /* Note: serial_print uses __builtin_va_list so we can't easily pass it here without vprintf equivalent */
+        /* For now, simplified fallback */
+    }
+
     for (int i = 0; fmt[i] != '\0'; i++) {
         if (fmt[i] == '%' && fmt[i+1] != '\0') {
             i++;
             if (fmt[i] == 'd') {
                 int n = __builtin_va_arg(args, int);
-                print_num(n, 10);
+                if (!g_vga_silent) print_num(n, 10);
+                else serial_print_num(n, 10);
             } else if (fmt[i] == 'x') {
                 uint32_t n = __builtin_va_arg(args, uint32_t);
-                print_num(n, 16);
+                if (!g_vga_silent) print_num(n, 16);
+                else serial_print_num(n, 16);
             } else if (fmt[i] == 's') {
                 char* s = __builtin_va_arg(args, char*);
-                print(s);
+                if (!g_vga_silent) print(s);
+                else serial_write_str(s);
             }
         } else {
-            vga_write_char(fmt[i], current_color_val);
+            if (!g_vga_silent) vga_write_char(fmt[i], current_color_val);
+            else serial_write_char(fmt[i]);
         }
     }
     __builtin_va_end(args);
 }
 
-static void serial_print_num(uint32_t n, int base) {
+void serial_print_num(uint32_t n, int base) {
     char buf[32];
     int i = 0;
     if (n == 0) {

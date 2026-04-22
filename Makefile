@@ -7,20 +7,21 @@ CFLAGS = -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-c
          -msse -msse2 -I. -I./include
 LDFLAGS = -Wl,-T,boot/linker.ld -static -nostdlib -Wl,-z,max-page-size=0x1000
 
-# Kernel core objects
+# Kernel core objects (Shell is now integrated)
 KERNEL_SRC = $(wildcard kernel/unice64/*.c) \
              $(wildcard kernel/libs/io/*.c) \
              $(wildcard kernel/libs/ram/*.c) \
              $(wildcard kernel/libs/rtc64/*.c) \
              $(wildcard kernel/libs/storage/*.c) \
              $(wildcard kernel/libs/storage/fatfs/*.c) \
-             $(wildcard kernel/libs/core/*.c)
+             $(wildcard kernel/libs/core/*.c) \
+             programs/shell.c
 AS_SRC = $(wildcard kernel/unice64/*.s)
 KERNEL_OBJ = $(KERNEL_SRC:.c=.o) $(AS_SRC:.s=.o)
 KERNEL_ELF = kernel.elf
 
-# Standalone Programs (Flat RSL Binaries)
-PROGRAMS = shell.bin text_editor.bin wm.bin
+# Standalone Programs (Flat RSL Binaries) - Shell removed, text_editor and wm remain
+PROGRAMS = wm.bin editor.bin
 PROG_LDFLAGS = -Wl,-T,programs/linker.ld -static -nostdlib
 
 ISO_IMAGE = osx2.iso
@@ -84,6 +85,10 @@ iso: limine-setup kernel programs
 	@mkdir -p iso_root/boot
 	@cp $(KERNEL_ELF) iso_root/boot/
 	@cp $(PROGRAMS) iso_root/
+	@touch iso_root/install.rsl
+	@echo "format 0" > iso_root/install.rsl
+	@echo "mount 0" >> iso_root/install.rsl
+	@echo "write BOOT:/boot.rsl \"echo Sovereign Boot sequence initiated.\"" >> iso_root/install.rsl
 	@cp boot/limine.cfg iso_root/
 	@python3 scripts/fat_tool.py ramdisk.img
 	@cp ramdisk.img iso_root/boot/
@@ -102,6 +107,6 @@ iso: limine-setup kernel programs
 	@echo "OSx2 Limemade ISO Created: $(ISO_IMAGE)"
 
 clean:
-	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) $(SATA_DISK) ramdisk.img $(PROGRAMS)
+	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) $(SATA_DISK) ramdisk.img $(PROGRAMS) programs/*.o shell.bin text_editor.bin
 	rm -rf iso_root
 	@if [ -d "limine" ]; then $(MAKE) -C limine clean || true; fi

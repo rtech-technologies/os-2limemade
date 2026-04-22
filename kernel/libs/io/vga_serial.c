@@ -529,6 +529,20 @@ void vga_set_cursor(int x, int y) {
     cursor_y = y;
 }
 
+void vga_print(const char* fmt, ...);
+
+void vga_print_logo(void) {
+    vga_set_cursor(0, 0);
+    vga_print("\n\n");
+    vga_print("  _____ _______ ______ _____ _    _ \n");
+    vga_print(" |  __ \\__   __|  ____/ ____| |  | |\n");
+    vga_print(" | |__) | | |  | |__ | |    | |__| |\n");
+    vga_print(" |  _  /  | |  |  __|| |    |  __  |\n");
+    vga_print(" | | \\ \\  | |  | |___| |____| |  | |\n");
+    vga_print(" |_|  \\_\\ |_|  |______\\_____|_|  |_|\n");
+    vga_print("\n [ RTECH SOVEREIGN ] MECHANICAL TRUTH \n\n");
+}
+
 void vga_pulse_cursor(void) {
     if (!global_fb) return;
     static uint64_t last_pulse = 0;
