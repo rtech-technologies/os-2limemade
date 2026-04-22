@@ -87,6 +87,7 @@ void _start(void) {
 
     for (int i = 0; hw_count > 0 && i < hw_count; i++) {
         vga_print("[BOOT] Checking Volume %d...\n", i);
+        /* Spec: Skip it if it doesn't have the file system (f_mount fails) */
         if (f_mount(&boot_fs, i) == FR_OK) {
             vga_print("[FS] Sovereign FAT32 Detected on Volume %d.\n", i);
             boot_drive = i;
@@ -95,42 +96,7 @@ void _start(void) {
         }
     }
 
-    if (!mount_success) {
-        set_color(YELLOW, BLACK);
-        vga_print("\n[BOOT] NO SOVEREIGN DISK FOUND.\n");
-        vga_print("1. Enter Safe Mode (Ramdisk Only)\n");
-        vga_print("2. Choose disk to Format and Install\n");
-
-        while(1) {
-            void* choice = input("Select Option (1/2): ");
-            if (choice && str_match(choice, "1")) {
-                vga_print("[BOOT] Entering Safe Mode...\n");
-                vfs_set_safe_mode(true);
-                release(choice);
-                break;
-            } else if (choice && str_match(choice, "2")) {
-                vga_print("\nAvailable Disks:\n");
-                for(int k=0; k<hw_count; k++) vga_print("%d. Disk %d\n", k, k);
-                void* disk_idx_str = input("Select Disk ID to format: ");
-                if (disk_idx_str) {
-                    int idx = str_to_cstr(disk_idx_str)[0] - '0';
-                    if (idx >= 0 && idx < hw_count) {
-                        vga_print("[BOOT] Formatting Disk %d...\n", idx);
-                        if (f_mkfs(idx) == FR_OK) {
-                            vga_print("[BOOT] Format Complete. Please Restart.\n");
-                            while(1) __asm__ volatile ("hlt");
-                        } else {
-                            vga_print("[ERROR] Format failed.\n");
-                        }
-                    }
-                    release(disk_idx_str);
-                }
-                release(choice);
-            } else if (choice) {
-                release(choice);
-            }
-        }
-    } else {
+    if (mount_success) {
         vfs_set_safe_mode(false);
 
         /* Register the boot volume with VFS as "BOOT" */
@@ -156,10 +122,13 @@ void _start(void) {
 
         void vdisk_connect(int hw_id);
         vdisk_connect(boot_drive);
+    } else {
+        /* Fallback: If none do, then use safe mode */
+        vga_print("[WARN] No bootable Sovereign volume found. Entering degraded state.\n");
+        vfs_set_safe_mode(true);
     }
 
     /* Initialize Active-Relay Multitasking */
-    void vga_print(const char* fmt, ...);
     bool ahci_is_ready(void);
     if (ahci_is_ready()) {
         vga_print("[INIT] AHCI Polling Success - Handoff to Orchestrator\n");
@@ -169,6 +138,7 @@ void _start(void) {
 
     dispatch_event(EVENT_MAIN);
 
+    /* Hand control to Shell. Shell will allow user to choose disk to format if needed. */
     void tasking_create_kernel_thread(void (*entry)(void), const char* name);
     void shell_main(void);
     tasking_create_kernel_thread(shell_main, "shell");
