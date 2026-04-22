@@ -62,6 +62,11 @@ void _start(void) {
     cr4 |= (1 << 10); /* Set OSXMMEXCPT bit */
     __asm__ volatile ("mov %0, %%cr4" : : "r"(cr4));
 
+    /* Initialize Timer Hardware BEFORE device discovery */
+    apic_init();
+    /* Extremely Fast Clock for discovery phase: 30ms interval (approx) */
+    apic_timer_init(50000);
+
     /* OSx2 Sovereign Welcome */
     serial_write_str("\n[ RTECH SOVEREIGN KERNEL ]\n");
     serial_write_str("[ BUILD 23:00 - MECHANICAL TRUTH ]\n\n");
@@ -112,11 +117,6 @@ void _start(void) {
     void shell_main(void);
     tasking_create_kernel_thread(shell_main, "shell");
     tasking_init();
-
-    /* Initialize APIC for system_ticks (One-Shot Mode) */
-    /* Extremely Fast Clock: 30ms interval (approx) */
-    apic_init();
-    apic_timer_init(50000);
 
     /* The main thread becomes an observer or a task. */
     vga_print("[INIT] Handing control to RSL Shell...\n");
