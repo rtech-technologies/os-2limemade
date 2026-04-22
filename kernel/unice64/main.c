@@ -138,10 +138,10 @@ void _start(void) {
 
     dispatch_event(EVENT_MAIN);
 
-    /* Hand control to Shell. Shell will allow user to choose disk to format if needed. */
+    /* Hand control to Shell task. */
     void tasking_create_kernel_thread(void (*entry)(void), const char* name);
-    void shell_main(void);
-    tasking_create_kernel_thread(shell_main, "shell");
+    void shell_task(void);
+    tasking_create_kernel_thread(shell_task, "shell");
     tasking_init();
 
     /* The main thread becomes an observer or a task. */

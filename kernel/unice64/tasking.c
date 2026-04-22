@@ -22,13 +22,15 @@ void usb_mouse_task(void);
 void rtc64_wm_task(void);
 void text_editor_task(void);
 
-void shell_main(void);
+int tasking_spawn_app(const char* path);
 
 void shell_task(void) {
-    vga_print("[UNICE64] Shell Task Started.\n");
-    shell_main();
-    /* If shell exits, go into infinite sleep */
-    while (1) { __asm__ volatile ("hlt"); }
+    vga_print("[UNICE64] Launching Sovereign Shell binary...\n");
+    if (tasking_spawn_app("BOOT:/shell.bin") == -1) {
+        vga_print("[UNICE64] FATAL: Could not spawn shell.bin\n");
+    }
+    /* This task (Task 2) remains as a supervisor or dies */
+    while (1) { sys_yield(); }
 }
 
 void sovereign_service_orchestrator(void);

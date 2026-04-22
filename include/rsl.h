@@ -5,11 +5,48 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-/* ARC Memory Management */
+typedef enum {
+    BLACK = 0, BLUE, GREEN, CYAN, RED, MAGENTA, BROWN, LIGHT_GRAY,
+    DARK_GRAY, LIGHT_BLUE, LIGHT_GREEN, LIGHT_CYAN, LIGHT_RED, PINK, YELLOW, WHITE
+} color_t;
+
+#ifdef RSL_BINARY_MODE
+/*
+ * Standalone Mode: Use System Calls (int 0x03)
+ * Registers: RAX=ID, RDI, RSI, RDX, R10, R8, R9 for args
+ */
+static inline uint64_t rsl_syscall(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3) {
+    uint64_t ret;
+    __asm__ volatile (
+        "mov %1, %%rax\n"
+        "mov %2, %%rdi\n"
+        "mov %3, %%rsi\n"
+        "mov %4, %%rdx\n"
+        "int $0x03\n"
+        "mov %%rax, %0"
+        : "=r"(ret)
+        : "r"(id), "r"(a1), "r"(a2), "r"(a3)
+        : "rax", "rdi", "rsi", "rdx", "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+#define print(s) rsl_syscall(0, (uint64_t)(s), 0, 0)
+#define input(p) (void*)rsl_syscall(1, (uint64_t)(p), 0, 0)
+#define set_color(f, b) rsl_syscall(2, (uint64_t)(f), (uint64_t)(b), 0)
+#define str_create(c) (void*)rsl_syscall(3, (uint64_t)(c), 0, 0)
+#define release(p) rsl_syscall(4, (uint64_t)(p), 0, 0)
+#define str_match(s, p) (bool)rsl_syscall(5, (uint64_t)(s), (uint64_t)(p), 0)
+#define str_concat(s1, s2) (void*)rsl_syscall(6, (uint64_t)(s1), (uint64_t)(s2), 0)
+#define str_to_cstr(s) (const char*)rsl_syscall(7, (uint64_t)(s), 0, 0)
+#define str_is_empty(s) (bool)rsl_syscall(8, (uint64_t)(s), 0, 0)
+
+#else
+/*
+ * Kernel Mode: Direct Linkage
+ */
 void retain(void* ptr);
 void release(void* ptr);
-
-/* String API (Pythonic) */
 void* str_create(const char* cstr);
 void* str_concat(void* s1, void* s2);
 bool str_is_empty(void* str);
@@ -17,15 +54,10 @@ bool str_match(void* str, const char* pattern);
 size_t str_len(void* str);
 const char* str_to_cstr(void* str);
 
-/* Console API */
-typedef enum {
-    BLACK = 0, BLUE, GREEN, CYAN, RED, MAGENTA, BROWN, LIGHT_GRAY,
-    DARK_GRAY, LIGHT_BLUE, LIGHT_GREEN, LIGHT_CYAN, LIGHT_RED, PINK, YELLOW, WHITE
-} color_t;
-
 void set_color(color_t fg, color_t bg);
 void* input(const char* prompt);
 void print(const char* s);
+#endif
 
 /* File System API (RSL Wrappers) */
 void rsl_ls(void* path);

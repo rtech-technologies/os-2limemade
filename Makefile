@@ -1,32 +1,39 @@
 # OSx2 Limemade OS Makefile
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -I. -I./include
+# SSE Support Enabled: Standard for x86_64, but explicit here for Sovereign ISA compliance
+CFLAGS = -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check \
+         -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone \
+         -msse -msse2 -I. -I./include
 LDFLAGS = -Wl,-T,boot/linker.ld -static -nostdlib -Wl,-z,max-page-size=0x1000
 
+# Kernel core objects
 KERNEL_SRC = $(wildcard kernel/unice64/*.c) \
              $(wildcard kernel/libs/io/*.c) \
              $(wildcard kernel/libs/ram/*.c) \
              $(wildcard kernel/libs/rtc64/*.c) \
              $(wildcard kernel/libs/storage/*.c) \
              $(wildcard kernel/libs/storage/fatfs/*.c) \
-             $(wildcard kernel/libs/core/*.c) \
-             programs/shell.c \
-             programs/text_editor.c
+             $(wildcard kernel/libs/core/*.c)
 AS_SRC = $(wildcard kernel/unice64/*.s)
 KERNEL_OBJ = $(KERNEL_SRC:.c=.o) $(AS_SRC:.s=.o)
 KERNEL_ELF = kernel.elf
+
+# Standalone Programs (Flat RSL Binaries)
+PROGRAMS = shell.bin text_editor.bin wm.bin
+PROG_LDFLAGS = -Wl,-T,programs/linker.ld -static -nostdlib
 
 ISO_IMAGE = osx2.iso
 SATA_DISK = sata_disk.img
 LIMINE_DIR = ./limine
 LIMINE_BIN = $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin $(LIMINE_DIR)/limine-uefi-cd.bin
 
-.PHONY: all menuconfig kernel iso run clean limine-setup
+.PHONY: all menuconfig kernel programs iso run clean limine-setup
 
 all:
 	$(MAKE) limine-setup
 	$(MAKE) kernel
+	$(MAKE) programs
 	$(MAKE) iso
 	$(MAKE) $(SATA_DISK)
 
@@ -58,12 +65,14 @@ $(SATA_DISK):
 	@dd if=/dev/zero of=$(SATA_DISK) bs=1M count=64 status=none
 	@echo "OSx2: 64MB Empty persistent disk created for internal installation test."
 
-menuconfig:
-	python3 scripts/menuconfig.py
-
 kernel: limine-setup $(KERNEL_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(KERNEL_OBJ) -o $(KERNEL_ELF)
 	@echo "OSx2 Limemade Kernel Compiled: $(KERNEL_ELF)"
+
+programs: $(PROGRAMS)
+
+%.bin: programs/%.c
+	$(CC) $(CFLAGS) -DRSL_BINARY_MODE $(PROG_LDFLAGS) $< -o $@
 
 %.o: %.c | limine-setup
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -71,9 +80,10 @@ kernel: limine-setup $(KERNEL_OBJ)
 %.o: %.s | limine-setup
 	$(CC) $(CFLAGS) -c $< -o $@
 
-iso: limine-setup kernel
+iso: limine-setup kernel programs
 	@mkdir -p iso_root/boot
 	@cp $(KERNEL_ELF) iso_root/boot/
+	@cp $(PROGRAMS) iso_root/
 	@cp boot/limine.cfg iso_root/
 	@python3 scripts/fat_tool.py ramdisk.img
 	@cp ramdisk.img iso_root/boot/
@@ -92,6 +102,6 @@ iso: limine-setup kernel
 	@echo "OSx2 Limemade ISO Created: $(ISO_IMAGE)"
 
 clean:
-	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) $(SATA_DISK) ramdisk.img
+	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) $(SATA_DISK) ramdisk.img $(PROGRAMS)
 	rm -rf iso_root
 	@if [ -d "limine" ]; then $(MAKE) -C limine clean || true; fi
