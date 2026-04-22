@@ -2,7 +2,7 @@
 #include <kernel/libs/storage/vdisk.h>
 #include <stddef.h>
 
-static task_t task_table[MAX_TASKS];
+static task_t task_table[MAX_TASKS] __attribute__((aligned(16)));
 static uint8_t task_stacks[MAX_TASKS][TASK_STACK_SIZE] __attribute__((aligned(4096)));
 static uint32_t task_bitmask = 0;
 static int task_count = 0;
@@ -78,6 +78,12 @@ int register_task(void (*entry_point)(void), uint32_t slab_id) {
 
             task_table[i].context.rsp = (uint64_t)stack;
 
+            /* Initialize SSE state */
+            void* memset(void* s, int c, size_t n);
+            memset(task_table[i].fxsave_region, 0, 512);
+            /* Set MXCSR to default value 0x1f80 (all exceptions masked) */
+            *(uint32_t*)&task_table[i].fxsave_region[24] = 0x1f80;
+
             if (task_count <= i) task_count = i + 1;
             vga_print("[UNICE64] Task %d registered in Slab %d\n", i, slab_id);
             return i;
@@ -122,6 +128,11 @@ int register_transient_task(void (*entry_point)(void), uint32_t slab_id, uint64_
             stack[9] = arg;
 
             task_table[i].context.rsp = (uint64_t)stack;
+
+            /* Initialize SSE state */
+            void* memset(void* s, int c, size_t n);
+            memset(task_table[i].fxsave_region, 0, 512);
+            *(uint32_t*)&task_table[i].fxsave_region[24] = 0x1f80;
 
             if (task_count <= i) task_count = i + 1;
             vga_print("[UNICE64] Transient Task %d spawned in Slab %d\n", i, slab_id);
@@ -174,7 +185,7 @@ void unice64_schedule(void) {
 
     /* Reset One-Shot Timer for next tick */
     /* Fast Clock: 30ms interval */
-    apic_timer_init(150000);
+    apic_timer_init(30000);
 
     /* 1. Reaper Phase: Reclaim finished transient tasks */
     if (task_table[current_task_idx].state == TASK_ZOMBIE) {

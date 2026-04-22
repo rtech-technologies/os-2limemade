@@ -23,16 +23,15 @@ typedef struct {
 } cpu_context_t;
 
 typedef struct {
-    uint32_t id;
-    task_state_t state;
-    cpu_context_t context;
-    uint32_t slab_id;
-    int parent_id;
-    uint64_t kernel_stack_top;
+    uint32_t id;                /* 0 */
+    task_state_t state;         /* 4 */
+    cpu_context_t context;      /* 8 (size 168) */
+    uint32_t slab_id;           /* 176 */
+    int parent_id;              /* 180 */
+    uint64_t kernel_stack_top;  /* 184 - 8-aligned, ends at 192 */
+    uint8_t fxsave_region[512] __attribute__((aligned(16))); /* 192 - 16-aligned! */
     bool is_transient;
     bool in_use;
-    uint8_t padding[6];
-    uint8_t fxsave_region[512] __attribute__((aligned(16)));
 } task_t;
 
 void unice64_schedule(void);

@@ -33,6 +33,9 @@ int satapi_send_packet(int p, uint8_t* scsi_packet, void* buffer, uint32_t len, 
     cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)get_port_ctba(p);
+    void* memset(void* s, int c, size_t n);
+    memset(cmdtbl, 0, sizeof(hba_cmd_tbl_t));
+
     if (buffer) {
         uint64_t phys_buffer = vmm_get_phys(buffer);
         cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
@@ -41,22 +44,18 @@ int satapi_send_packet(int p, uint8_t* scsi_packet, void* buffer, uint32_t len, 
     }
 
     uint32_t* fis = (uint32_t*)cmdtbl->cfis;
-    for(int i=0; i<16; i++) fis[i] = 0;
     fis[0] = 0x27 | (1 << 15) | (0xA0 << 16) | ((buffer ? 1 : 0) << 24); /* Type, C, Command, FeatureL */
 
-    for(int i=0; i<16; i++) cmdtbl->acmd[i] = 0;
     for(int i=0; i<12; i++) cmdtbl->acmd[i] = scsi_packet[i];
 
-    /* Idle Wait: Wait for drive to be ready to receive command */
-    if (ahci_wait_status(port, 0x80 | 0x01, 0, 1000000) != 0) return -1;
+    /* Wait for drive to be ready */
+    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
 
     port->ci = (1 << 0);
     if (ahci_wait_status(port, 1 << 0, 0, 1000000) != 0) return -1;
 
-    /* Flush Interrupts */
     port->is = 0xFFFFFFFF;
-
-    if (port->tfd & (1 << 0)) return -1;
+    if (port->tfd & 0x01) return -1; /* Error bit */
     return 0;
 }
 
@@ -82,29 +81,23 @@ int satapi_identify(void* priv) {
     uint64_t phys_buffer = vmm_get_phys(data);
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)get_port_clb(p);
-    /* CFL=5, PRDTL=1 */
     cmdhdr->dw0 = 5 | (1 << 16);
     cmdhdr->prdbc = 0;
 
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)get_port_ctba(p);
+    void* memset(void* s, int c, size_t n);
+    memset(cmdtbl, 0, sizeof(hba_cmd_tbl_t));
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
     cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
     cmdtbl->prdt_entry[0].dw3 = (511 & 0x3FFFFF) | (1U << 31);
 
     uint32_t* fis = (uint32_t*)cmdtbl->cfis;
-    for(int i=0; i<16; i++) fis[i] = 0;
-    fis[0] = 0x27 | (1 << 15) | (0xA1 << 16); /* Type, C, Command */
+    fis[0] = 0x27 | (1 << 15) | (0xA1 << 16); /* Type, C, Command (IDENTIFY PACKET) */
 
-    /* Idle Wait: Wait for drive to be ready to receive command */
-    if (ahci_wait_status(port, 0x80 | 0x01, 0, 1000000) != 0) return -1;
-
+    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
     port->ci = (1 << 0);
     if (ahci_wait_status(port, 1 << 0, 0, 1000000) != 0) return -1;
-
-    /* Flush Interrupts */
     port->is = 0xFFFFFFFF;
-
-    if (port->tfd & (1 << 0)) return -1;
     return 0;
 }
 
@@ -124,7 +117,5 @@ int satapi_read_capacity(void* priv, uint32_t* out_lba, uint32_t* out_ss) {
 int satapi_eject(void* priv) {
     uint8_t packet[12];
     atapi_build_eject_packet(packet);
-    int res = satapi_send_packet((int)(uint64_t)priv, packet, NULL, 0, false);
-    if (res == 0) vga_print("[SATAPI] Port %d: Eject Signal Sent.\n", (int)(uint64_t)priv);
-    return res;
+    return satapi_send_packet((int)(uint64_t)priv, packet, NULL, 0, false);
 }

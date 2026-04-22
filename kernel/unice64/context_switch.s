@@ -84,18 +84,19 @@ unice64_context_switch:
     mov 152(%rax), %rsi
 
     # Forensic Check: RSP Validity (Kernel or HHDM)
-    mov %rsi, %rax
+    # Use RCX as scratch to avoid corrupting RAX (TCB pointer)
+    mov %rsi, %rcx
     mov $0xffffffff80000000, %rbx
-    cmp %rbx, %rax
+    cmp %rbx, %rcx
     jb 4f
     mov $0xffffffff80800000, %rbx
-    cmp %rbx, %rax
+    cmp %rbx, %rcx
     jb 5f # Valid Kernel RSP
 4:
     mov g_hhdm_offset(%rip), %rbx
     test %rbx, %rbx
     jz 3f
-    cmp %rbx, %rax
+    cmp %rbx, %rcx
     jb 3f # Truly Out of Bounds
 5:
     # Restore SSE state
