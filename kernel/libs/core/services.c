@@ -1,6 +1,7 @@
 #include <kernel/libs/core/services.h>
 #include <kernel/unice64/task.h>
 #include <include/rsl.h>
+#include <include/vfs.h>
 #include <stddef.h>
 
 void vga_print(const char* fmt, ...);
@@ -29,31 +30,31 @@ static void worker_task_entry(void) {
 
         switch (req->type) {
         case REQ_FS_LS:
-            rsl_ls(req->path);
+            vfs_ls(req->path);
             break;
         case REQ_FS_CAT:
-            rsl_cat(req->path);
+            vfs_cat(req->path);
             break;
         case REQ_FS_WRITE:
-            rsl_write(req->path, req->content);
+            vfs_write_dispatch(req->path, req->content);
             break;
         case REQ_FS_MKDIR:
-            rsl_mkdir(req->path);
+            vfs_mkdir(req->path);
             break;
         case REQ_DISK_MOUNT:
-            rsl_mount(req->path);
+            /* rsl_mount(req->path); */
             break;
         case REQ_DISK_FORMAT:
-            rsl_format(req->path);
+            /* rsl_format(req->path); */
             break;
         case REQ_DISK_STAMP:
-            rsl_stamp(req->path);
+            /* rsl_stamp(req->path); */
             break;
         case REQ_DISK_EJECT:
-            rsl_eject(req->path);
+            /* rsl_eject(req->path); */
             break;
         case REQ_HARDWARE_SCAN:
-            rsl_scan();
+            /* rsl_scan(); */
             break;
         case REQ_KBD_CONFIG: {
             extern uint64_t g_kbd_initial_delay;
@@ -109,6 +110,7 @@ void sovereign_request_submit(system_request_t* req) {
         int tid = register_transient_task(worker_task_entry, 4, 0);
 
         if (tid != -1) {
+            /* Immediate Context Force to the worker */
             void scheduler_force_task(int task_id);
             scheduler_force_task(tid);
         } else {

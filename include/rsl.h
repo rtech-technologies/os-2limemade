@@ -13,7 +13,6 @@ typedef enum {
 #ifdef RSL_BINARY_MODE
 /*
  * Standalone Mode: Use System Calls (int 0x03)
- * Registers: RAX=ID, RDI, RSI, RDX, R10, R8, R9 for args
  */
 static inline uint64_t rsl_syscall(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3) {
     uint64_t ret;
@@ -41,6 +40,14 @@ static inline uint64_t rsl_syscall(uint64_t id, uint64_t a1, uint64_t a2, uint64
 #define str_to_cstr(s) (const char*)rsl_syscall(7, (uint64_t)(s), 0, 0)
 #define str_is_empty(s) (bool)rsl_syscall(8, (uint64_t)(s), 0, 0)
 
+/* FS API via Syscalls */
+#define rsl_ls(p) rsl_syscall(10, (uint64_t)(p), 0, 0)
+#define rsl_cat(p) rsl_syscall(11, (uint64_t)(p), 0, 0)
+#define rsl_write(p, c) rsl_syscall(12, (uint64_t)(p), (uint64_t)(c), 0)
+#define rsl_mkdir(p) rsl_syscall(13, (uint64_t)(p), 0, 0)
+#define rsl_rmdir(p) rsl_syscall(14, (uint64_t)(p), 0, 0)
+#define rsl_exists(p) (bool)rsl_syscall(15, (uint64_t)(p), 0, 0)
+
 #else
 /*
  * Kernel Mode: Direct Linkage
@@ -57,9 +64,7 @@ const char* str_to_cstr(void* str);
 void set_color(color_t fg, color_t bg);
 void* input(const char* prompt);
 void print(const char* s);
-#endif
 
-/* File System API (RSL Wrappers) */
 void rsl_ls(void* path);
 void rsl_cat(void* path);
 void rsl_write(void* path, void* content);
@@ -67,17 +72,9 @@ void rsl_cd(void* path);
 void rsl_mkdir(void* path);
 void rsl_rmdir(void* path);
 bool rsl_exists(void* path);
-void rsl_mount(void* path);
-void rsl_format(void* path);
-void rsl_stamp(void* path);
-bool rsl_safe_mode(void);
-void rsl_draw_rrif(void* path, int x, int y);
-void rsl_scan(void);
-void rsl_eject(void* path);
-void rsl_copy(void* str);
-void* rsl_paste(void);
-void rsl_settings(void);
-void rsl_debug_dump(void);
+#endif
+
+void rsl_shutdown(void);
 void rsl_exit(void);
 
 #endif /* RSL_H */

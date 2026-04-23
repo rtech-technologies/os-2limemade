@@ -27,7 +27,7 @@ KERNEL_OBJ = $(KERNEL_SRC:.c=.o) $(AS_SRC:.s=.o)
 KERNEL_ELF = kernel.elf
 
 # Standalone Programs (Flat RSL Binaries) - Shell removed, text_editor and wm remain
-PROGRAMS = wm.bin editor.bin
+PROGRAMS = wm.bin editor.bin jit.bin
 PROG_LDFLAGS = -Wl,-T,programs/linker.ld -static -nostdlib
 
 ISO_IMAGE = osx2.iso
@@ -100,7 +100,7 @@ iso: limine-setup kernel programs
 		xorriso -as mkisofs -b limine-bios-cd.bin \
 			-no-emul-boot -boot-load-size 4 -boot-info-table \
 			--efi-boot limine-uefi-cd.bin \
-			-efi-boot-part --efi-boot-image --protective-msdos-label \
+			--efi-boot-part --efi-boot-image --protective-msdos-label \
 			iso_root -o $(ISO_IMAGE); \
 		$(LIMINE_DIR)/limine bios-install $(ISO_IMAGE); \
 	else \
@@ -110,6 +110,6 @@ iso: limine-setup kernel programs
 	@echo "OSx2 Limemade ISO Created: $(ISO_IMAGE)"
 
 clean:
-	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) $(SATA_DISK) ramdisk.img $(PROGRAMS) programs/*.o shell.bin text_editor.bin
+	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) $(SATA_DISK) ramdisk.img $(PROGRAMS) programs/*.o shell.bin text_editor.bin jit.bin
 	rm -rf iso_root
 	@if [ -d "limine" ]; then $(MAKE) -C limine clean || true; fi
