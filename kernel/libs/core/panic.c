@@ -1,12 +1,12 @@
 #include <include/rsl.h>
 #include <stdint.h>
 #include <stddef.h>
-
 #include <kernel/unice64/task.h>
 
 void tasking_set_scanning(bool scanning);
 uint64_t get_system_ticks(void);
 uint64_t get_hhdm_offset(void);
+void vga_write_char(char c, uint8_t color_attr);
 
 static void append_str(char* buf, int* idx, const char* s) {
     while (*s) buf[(*idx)++] = *s++;
@@ -21,7 +21,6 @@ static void append_hex64(char* buf, int* idx, uint64_t val) {
 }
 
 void forensic_panic(const char* message, cpu_context_t* state) {
-    /* Sovereign Emergency Protocol */
     tasking_set_scanning(true);
     __asm__ volatile ("cli");
 
@@ -42,13 +41,9 @@ void forensic_panic(const char* message, cpu_context_t* state) {
 
     panic_buf[idx] = '\0';
 
-    /* Deliver Report to Hardware */
-    void vga_write_char(char c, uint8_t color_attr);
-    void serial_write_str(const char* s);
-
-    /* Deliver to both VGA and Serial via mirroring in vga_write_char */
+    /* delivering report to hardware using 1 print function loop as requested */
     for (int k = 0; panic_buf[k]; k++) {
-        vga_write_char(panic_buf[k], 0x4F); /* White on Red */
+        vga_write_char(panic_buf[k], 0x4F); /* Red Background */
     }
 
     for (;;) {

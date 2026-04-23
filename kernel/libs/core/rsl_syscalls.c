@@ -19,6 +19,11 @@ void rsl_write(void* path, void* content);
 void rsl_mkdir(void* path);
 void rsl_rmdir(void* path);
 bool rsl_exists(void* path);
+void rsl_mount(void* path);
+void rsl_format(void* path);
+void rsl_stamp(void* path);
+void rsl_scan(void);
+void rsl_eject(void* path);
 
 uint64_t rsl_syscall_handler(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3) {
     (void)a3;
@@ -38,8 +43,14 @@ uint64_t rsl_syscall_handler(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3)
         case 13: rsl_mkdir((void*)a1); return 0;
         case 14: rsl_rmdir((void*)a1); return 0;
         case 15: return (uint64_t)rsl_exists((void*)a1);
+        case 16: rsl_mount((void*)a1); return 0;
+        case 17: rsl_format((void*)a1); return 0;
+        case 18: rsl_stamp((void*)a1); return 0;
+        case 19: rsl_scan(); return 0;
+        case 20: rsl_eject((void*)a1); return 0;
         case 100: rsl_execute_command((char*)a1); return 0;
         case 300: return (uint64_t)cmdlets_execute_script((const char*)a1);
+        case 301: return (uint64_t)cmdlets_execute_line((const char*)a1);
         default: return 0xFFFFFFFFFFFFFFFF;
     }
 }

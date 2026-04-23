@@ -6,9 +6,9 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    print("[JIT] Starting compiler-engine...\n");
+    print("[JIT] Loading script for execution...\n");
 
-    /* Standalone programs use syscall ID 300 for script execution */
+    /* Syscall 300: cmdlets_execute_script */
     rsl_syscall(300, (uint64_t)argv[1], 0, 0);
 
     print("[JIT] Execution finished.\n");

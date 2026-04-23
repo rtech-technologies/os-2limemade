@@ -47,6 +47,11 @@ static inline uint64_t rsl_syscall(uint64_t id, uint64_t a1, uint64_t a2, uint64
 #define rsl_mkdir(p) rsl_syscall(13, (uint64_t)(p), 0, 0)
 #define rsl_rmdir(p) rsl_syscall(14, (uint64_t)(p), 0, 0)
 #define rsl_exists(p) (bool)rsl_syscall(15, (uint64_t)(p), 0, 0)
+#define rsl_mount(p) rsl_syscall(16, (uint64_t)(p), 0, 0)
+#define rsl_format(p) rsl_syscall(17, (uint64_t)(p), 0, 0)
+#define rsl_stamp(p) rsl_syscall(18, (uint64_t)(p), 0, 0)
+#define rsl_scan() rsl_syscall(19, 0, 0, 0)
+#define rsl_eject(p) rsl_syscall(20, (uint64_t)(p), 0, 0)
 
 #else
 /*
@@ -72,6 +77,11 @@ void rsl_cd(void* path);
 void rsl_mkdir(void* path);
 void rsl_rmdir(void* path);
 bool rsl_exists(void* path);
+void rsl_mount(void* path);
+void rsl_format(void* path);
+void rsl_stamp(void* path);
+void rsl_scan(void);
+void rsl_eject(void* path);
 #endif
 
 void rsl_shutdown(void);

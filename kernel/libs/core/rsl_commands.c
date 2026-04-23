@@ -60,16 +60,11 @@ void rsl_write(void* path, void* content) { vfs_write_dispatch(path, content); }
 void rsl_mkdir(void* path) { vfs_mkdir(path); }
 void rsl_rmdir(void* path) { vfs_rmdir(path); }
 bool rsl_exists(void* path) { return vfs_exists(path); }
-void rsl_mount(void* path) { (void)path; }
-void rsl_format(void* path) { (void)path; }
-void rsl_stamp(void* path) { (void)path; }
-void rsl_scan(void) { }
-void rsl_eject(void* path) { (void)path; }
-void rsl_exit(void) {
-    task_t* current = get_current_task();
-    if (current) current->state = TASK_ZOMBIE;
-    sys_yield();
-}
+void rsl_mount(void* path) { (void)path; print("[RSL] Mount not implemented.\n"); }
+void rsl_format(void* path) { (void)path; print("[RSL] Format not implemented.\n"); }
+void rsl_stamp(void* path) { (void)path; print("[RSL] Stamp not implemented.\n"); }
+void rsl_scan(void) { print("[RSL] Hardware scan...\n"); }
+void rsl_eject(void* path) { (void)path; print("[RSL] Eject not implemented.\n"); }
 
 static void* curdir = NULL;
 
@@ -152,6 +147,16 @@ void rsl_execute_command(char* line) {
             }
             release(p);
         }
+    } else if (cstr_match_local(argv[0], "mkdir")) {
+        if (argc > 1) {
+            void* p = resolve_path_local(curdir, argv[1]);
+            rsl_mkdir(p); release(p);
+        }
+    } else if (cstr_match_local(argv[0], "rmdir")) {
+        if (argc > 1) {
+            void* p = resolve_path_local(curdir, argv[1]);
+            rsl_rmdir(p); release(p);
+        }
     } else if (cstr_match_local(argv[0], "echo")) {
         for (int i = 1; i < argc; i++) {
             print(argv[i]); if (i < argc - 1) print(" ");
@@ -160,6 +165,10 @@ void rsl_execute_command(char* line) {
     } else if (cstr_match_local(argv[0], "shutdown")) {
         void rsl_shutdown(void);
         rsl_shutdown();
+    } else if (cstr_match_local(argv[0], "exit")) {
+        task_t* current = get_current_task();
+        if (current) current->state = TASK_ZOMBIE;
+        sys_yield();
     } else {
         print("Unknown Command.\n");
     }
