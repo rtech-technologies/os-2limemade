@@ -7,12 +7,18 @@ CFLAGS = -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-c
          -msse -msse2 -I. -I./include
 LDFLAGS = -Wl,-T,boot/linker.ld -static -nostdlib -Wl,-z,max-page-size=0x1000
 
-# Kernel core objects (Shell is now integrated)
+# Kernel core objects (Shell is now integrated, USB removed)
 KERNEL_SRC = $(wildcard kernel/unice64/*.c) \
              $(wildcard kernel/libs/io/*.c) \
              $(wildcard kernel/libs/ram/*.c) \
              $(wildcard kernel/libs/rtc64/*.c) \
-             $(wildcard kernel/libs/storage/*.c) \
+             kernel/libs/storage/ahci.c \
+             kernel/libs/storage/atapi.c \
+             kernel/libs/storage/iso9660.c \
+             kernel/libs/storage/nvme.c \
+             kernel/libs/storage/satapi.c \
+             kernel/libs/storage/vdisk.c \
+             kernel/libs/storage/vfs.c \
              $(wildcard kernel/libs/storage/fatfs/*.c) \
              $(wildcard kernel/libs/core/*.c) \
              programs/shell.c
@@ -57,9 +63,6 @@ run: iso $(SATA_DISK)
 		-drive file=$(SATA_DISK),if=none,id=d0,format=raw \
 		-device ich9-ahci,id=ahci \
 		-device ide-hd,drive=d0,bus=ahci.0 \
-		-device qemu-xhci,id=xhci \
-		-device usb-tablet,bus=xhci.0 \
-		-device usb-kbd,bus=xhci.0 \
 		-nodefaults -vga std
 
 $(SATA_DISK):

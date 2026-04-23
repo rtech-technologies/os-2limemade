@@ -8,10 +8,13 @@ void serial_write_char(char c);
 void serial_write_str(const char* s);
 char serial_read_char(void);
 int serial_received(void);
+
 void serial_print_num(uint32_t n, int base);
 
 static uint8_t current_color_val = 0x07; /* White on Black */
-bool g_vga_silent = true;
+bool g_vga_silent = false;
+uint64_t g_kbd_initial_delay = 500;
+uint64_t g_kbd_repeat_rate = 50;
 
 /* I/O Helpers */
 static inline uint8_t inb(uint16_t port) {
@@ -126,13 +129,6 @@ static void print_num(uint32_t n, int base) {
 void vga_print(const char* fmt, ...) {
     __builtin_va_list args;
     __builtin_va_start(args, fmt);
-
-    if (g_vga_silent) {
-        /* Standard Sovereign: Redirect to serial if VGA is silent */
-        void serial_print(const char* fmt, ...);
-        /* Note: serial_print uses __builtin_va_list so we can't easily pass it here without vprintf equivalent */
-        /* For now, simplified fallback */
-    }
 
     for (int i = 0; fmt[i] != '\0'; i++) {
         if (fmt[i] == '%' && fmt[i+1] != '\0') {

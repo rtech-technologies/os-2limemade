@@ -10,9 +10,17 @@ void shell_main(void) {
     print(" |_|  \\_\\ |_|  |______\\_____|_|  |_|  \\____/|_____/_/\\_\\____|\n");
     print("\n[ OSx2 Sovereign ] Build Success.\n");
 
+    /* Automated Sovereignty: Try to execute BOOT.RSL */
+    int rsl_execute_stream(const char* path);
+    if (rsl_execute_stream("BOOT:/BOOT.RSL") != 0) {
+        set_color(LIGHT_RED, BLACK);
+        print("Warning: BOOT.RSL failed to load.\n");
+        set_color(GREEN, BLACK);
+    }
+
     /* Boot Menu Choice-Gate */
     print("\n1. Install OSx2 to SATA HDD\n");
-    print("2. Enter Safe Mode (Ramdisk Only)\n");
+    print("2. Enter Safe Mode (CD-ROM Only)\n");
 
     while(1) {
         void* choice = input("\nSelect Option (1/2): ");
@@ -38,7 +46,7 @@ void shell_main(void) {
         void rsl_execute_command(char* line);
         void* rsl_get_curdir(void);
         void* cd = rsl_get_curdir();
-        void* suffix = str_create(" OS2>");
+        void* suffix = str_create("OS2>");
         void* prompt = str_concat(cd, suffix);
         release(cd); release(suffix);
 

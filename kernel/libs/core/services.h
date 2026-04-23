@@ -46,7 +46,6 @@ void sovereign_service_orchestrator(void);
 
 /* Core Hardware Drivers */
 void vga_serial_service(kernel_event_t event);
-void usb_xhci_service(kernel_event_t event);
 void ahci_service(kernel_event_t event);
 void ahci_hardware_audit(int p);
 void arc_mem_service(kernel_event_t event);

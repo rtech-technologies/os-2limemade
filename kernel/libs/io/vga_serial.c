@@ -37,12 +37,10 @@ static int is_transmit_empty(void) {
 void pit_wait_ms(uint32_t ms);
 
 void serial_write_char(char c) {
-    int ms = 0;
-    while (is_transmit_empty() == 0 && ms < 100) {
-        pit_wait_ms(1);
-        ms++;
+    while (is_transmit_empty() == 0) {
+        __asm__ volatile ("pause");
     }
-    if (ms < 100) outb(SERIAL_PORT, c);
+    outb(SERIAL_PORT, c);
 }
 
 int serial_received(void) {
@@ -50,13 +48,10 @@ int serial_received(void) {
 }
 
 char serial_read_char(void) {
-    int ms = 0;
-    while (serial_received() == 0 && ms < 100) {
-        pit_wait_ms(1);
-        ms++;
+    while (serial_received() == 0) {
+        __asm__ volatile ("pause");
     }
-    if (ms < 100) return inb(SERIAL_PORT);
-    return 0;
+    return inb(SERIAL_PORT);
 }
 
 void serial_write_str(const char* s) {

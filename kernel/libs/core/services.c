@@ -59,7 +59,7 @@ static void worker_task_entry(void) {
             extern uint64_t g_kbd_initial_delay;
             extern uint64_t g_kbd_repeat_rate;
             g_kbd_initial_delay = req->result; /* initial */
-            g_kbd_repeat_rate = (uint64_t)req->content; /* repeat, hacky passing */
+            g_kbd_repeat_rate = (uint64_t)req->content; /* repeat */
             break;
         }
         case REQ_APP_SPAWN: {
@@ -94,8 +94,6 @@ void sovereign_request_submit(system_request_t* req) {
     int next_tail = (req_tail + 1) % REQ_QUEUE_SIZE;
     if (next_tail == req_head) {
         vga_print("[WARN] Sovereign Request Queue Full!\n");
-        /* Fallback: block caller and wait (it will eventually be picked up if it didn't enqueue, but that's bad)
-           Better: Spin until space available */
         while (((req_tail + 1) % REQ_QUEUE_SIZE) == req_head) {
             sys_yield();
         }
@@ -108,16 +106,13 @@ void sovereign_request_submit(system_request_t* req) {
         worker_active = true;
         /* Spawn worker task for the queue */
         int register_transient_task(void (*entry)(void), uint32_t slab_id, uint64_t arg);
-        /* Use Slab 4 for Service Workers (Isolation) */
         int tid = register_transient_task(worker_task_entry, 4, 0);
 
         if (tid != -1) {
-            /* Immediate Context Force to the worker */
             void scheduler_force_task(int task_id);
             scheduler_force_task(tid);
         } else {
             worker_active = false;
-            /* Fatal: Could not spawn worker */
             vga_print("[ERROR] Failed to spawn Sovereign Worker!\n");
             return;
         }
@@ -130,11 +125,9 @@ void sovereign_request_submit(system_request_t* req) {
 
 void sovereign_service_orchestrator(void) {
     #include <include/config.h>
-    /* Maintenance task now only performs background audits */
     void ahci_hardware_audit(int p);
     for (int i=0; i<8; i++) ahci_hardware_audit(i);
 
-    /* Background Mouse Polling for PS/2 */
 #if defined(CONFIG_INTERFACE_ALL) || defined(CONFIG_INTERFACE_PS2)
     void mouse_poll(void);
     mouse_poll();
@@ -155,10 +148,8 @@ void mouse_service(kernel_event_t event) {
 
 void dispatch_event(kernel_event_t event) {
     if (event == EVENT_INIT) {
-        /* Standard order for INIT */
         register_service(vga_serial_service);
         register_service(arc_mem_service);
-        register_service(usb_xhci_service);
         void nvme_service(kernel_event_t event);
         register_service(nvme_service);
         register_service(ahci_service);

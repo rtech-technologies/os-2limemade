@@ -39,18 +39,6 @@ void serial_write_str(const char* s);
 void serial_write_char(char c);
 
 void apic_init(void) {
-    /* Professional Startup Spinner: Mechanical Truth */
-    serial_write_str("[INIT] Spinning hardware discovery gears...\n");
-    for (int i=0; i<1000; i++) {
-        static int gear = 0;
-        const char* gear_chars = "|/-\\";
-        if (i % 250 == 0) {
-            serial_write_char('\r');
-            serial_write_char(gear_chars[gear++ % 4]);
-        }
-    }
-    serial_write_str("\n");
-
     uint64_t hhdm = get_hhdm_offset();
     g_apic_base = hhdm + 0xFEE00000;
 

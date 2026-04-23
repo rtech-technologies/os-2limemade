@@ -34,7 +34,7 @@ void _start(void) {
     /* Switch to larger stack before anything else */
     __asm__ volatile (
         "mov %0, %%rsp\n"
-        "add $32760, %%rsp\n"  /* 16-byte Alignment Trick for x86_64 */
+        "add 2760, %%rsp\n"  /* 16-byte Alignment Trick for x86_64 */
         : : "r" (kernel_stack) : "memory"
     );
 
@@ -70,11 +70,8 @@ void _start(void) {
     serial_write_str("\n[ RTECH SOVEREIGN KERNEL ]\n");
     serial_write_str("[ BUILD 23:00 - MECHANICAL TRUTH ]\n\n");
 
-    extern bool g_vga_silent;
-    g_vga_silent = false;
     void vga_print_logo(void);
     vga_print_logo();
-    g_vga_silent = true;
 
     /* Initialize Hardware and Core Memory */
     dispatch_event(EVENT_INIT);
@@ -83,55 +80,52 @@ void _start(void) {
     /* Start the Shell and Main System Logic */
     serial_write_str("[EVENT] Entering EVENT_MAIN...\n");
 
-    static FATFS boot_fs;
-    int boot_drive = -1;
     bool mount_success = false;
+    static FATFS boot_fs;
 
     /* 1. Sovereign Discovery: Unified Volume Handshake */
     int hw_count = get_hw_disk_count();
     vga_print("[BOOT] Scanning %d detected hardware volumes...\n", hw_count);
 
-    for (int i = 0; hw_count > 0 && i < hw_count; i++) {
-        vga_print("[BOOT] Checking Volume %d...\n", i);
-        /* Spec: Skip it if it doesn't have the file system (f_mount fails) */
+    for (int i = 0; i < hw_count; i++) {
+        vga_print("[BOOT] Verifying Volume %d...\n", i);
         if (f_mount(&boot_fs, i) == FR_OK) {
-            vga_print("[FS] Sovereign FAT32 Detected on Volume %d.\n", i);
-            boot_drive = i;
+            vga_print("[FS] Volume %d verified as Sovereign.\n", i);
             mount_success = true;
-            break; /* Primary found, stop scan */
+
+            /* Bridge to VFS */
+            void internal_fs_ls(void* path, void* priv);
+            void internal_fs_cat(void* path, void* priv);
+            void internal_fs_write(void* path, void* content, void* priv);
+            void internal_fs_mkdir(void* path, void* priv);
+            void internal_fs_rmdir(void* path, void* priv);
+            bool internal_fs_exists(void* path, void* priv);
+
+            vfs_node_t boot_node = {
+                .private_data = &boot_fs,
+                .ls = internal_fs_ls,
+                .cat = internal_fs_cat,
+                .write = internal_fs_write,
+                .mkdir = internal_fs_mkdir,
+                .rmdir = internal_fs_rmdir,
+                .exists = internal_fs_exists
+            };
+            const char* bname = "BOOT";
+            int bk = 0; while(bname[bk]) { boot_node.name[bk] = bname[bk]; bk++; } boot_node.name[bk] = '\0';
+            vfs_register_node(boot_node);
+
+            void vdisk_connect(int hw_id);
+            vdisk_connect(i);
+            break;
         }
     }
 
-    if (mount_success) {
-        vfs_set_safe_mode(false);
-
-        /* Register the boot volume with VFS as "BOOT" */
-        void internal_fs_ls(void* path, void* priv);
-        void internal_fs_cat(void* path, void* priv);
-        void internal_fs_write(void* path, void* content, void* priv);
-        void internal_fs_mkdir(void* path, void* priv);
-        void internal_fs_rmdir(void* path, void* priv);
-        bool internal_fs_exists(void* path, void* priv);
-
-        vfs_node_t boot_node = {
-            .private_data = &boot_fs,
-            .ls = internal_fs_ls,
-            .cat = internal_fs_cat,
-            .write = internal_fs_write,
-            .mkdir = internal_fs_mkdir,
-            .rmdir = internal_fs_rmdir,
-            .exists = internal_fs_exists
-        };
-        const char* bname = "BOOT";
-        int bk = 0; while(bname[bk]) { boot_node.name[bk] = bname[bk]; bk++; } boot_node.name[bk] = '\0';
-        vfs_register_node(boot_node);
-
-        void vdisk_connect(int hw_id);
-        vdisk_connect(boot_drive);
-    } else {
-        /* Fallback: If none do, then use safe mode */
-        vga_print("[WARN] No bootable Sovereign volume found. Entering degraded state.\n");
+    if (!mount_success) {
+        vga_print("\n[CRITICAL] SYSTEM CANNOT FIND BOOT DISK.\n");
+        vga_print("[CRITICAL] ENTERING SAFE MODE.\n");
         vfs_set_safe_mode(true);
+    } else {
+        vfs_set_safe_mode(false);
     }
 
     /* Initialize Active-Relay Multitasking */
@@ -144,7 +138,6 @@ void _start(void) {
 
     dispatch_event(EVENT_MAIN);
 
-    /* Hand control to Shell task. */
     void tasking_create_kernel_thread(void (*entry)(void), const char* name);
     void shell_task(void);
     tasking_create_kernel_thread(shell_task, "shell");

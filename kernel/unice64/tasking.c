@@ -125,13 +125,6 @@ void tasking_init(void) {
     /* Register System Maintenance Task in Slab 1 */
     register_task(system_task, 1);
 
-    /* Register USB Maintenance Task in Slab 6 */
-    register_task(usb_main_task, 6);
-
-    /* Register Peripheral Tasks */
-    register_task(usb_keyboard_task, 7);
-    register_task(usb_mouse_task, 8);
-
     /* Register Shell Task in Slab 2 */
     if (pending_shell_entry) {
         register_task(pending_shell_entry, 2);
