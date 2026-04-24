@@ -32,7 +32,8 @@ typedef struct {
     uint8_t fxsave_region[512] __attribute__((aligned(16))); /* 192 - 16-aligned! */
     bool is_transient;
     bool in_use;
-} task_t;
+    uint8_t padding[14]; /* Pad to 16-byte multiple (720 bytes total) */
+} __attribute__((aligned(16))) task_t;
 
 void unice64_schedule(void);
 void unice64_scheduler_init(void);

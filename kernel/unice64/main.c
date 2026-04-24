@@ -54,6 +54,9 @@ void _start(void) {
     pmm_init();
     slab_init();
 
+    void cmdlets_init(void);
+    cmdlets_init();
+
     /* Pre-register IDT to catch early faults */
     idt_init();
 

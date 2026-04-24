@@ -41,6 +41,7 @@ int64_t rsl_get_var(const char* name) {
 
 int rsl_execute_stream(const char* path) {
     void* pstr = str_create(path);
+    void vga_print(const char* fmt, ...);
     vfs_handle_t* h = vfs_open(pstr, "r");
     if (!h) {
         /* Silently return error code, caller handles UI */
@@ -48,9 +49,7 @@ int rsl_execute_stream(const char* path) {
         return -1;
     }
 
-    serial_write_str("[RSL] Executing script streamer: ");
-    serial_write_str(path);
-    serial_write_str("\n");
+    vga_print("[RSL] Executing script streamer: %s\n", path);
 
     char c;
     char line[256];
@@ -61,9 +60,7 @@ int rsl_execute_stream(const char* path) {
             line[idx] = '\0';
             if (idx > 0) {
                 /* Precise Execution: Single Line Processor */
-                serial_write_str("[RSL] Executing: ");
-                serial_write_str(line);
-                serial_write_str("\n");
+                vga_print("[RSL] Executing: %s\n", line);
 
                 void rsl_execute_command(char* line);
                 rsl_execute_command(line);

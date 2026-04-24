@@ -169,6 +169,32 @@ void rsl_execute_command(char* line) {
         task_t* current = get_current_task();
         if (current) current->state = TASK_ZOMBIE;
         sys_yield();
+    } else if (cstr_match_local(argv[0], "run")) {
+        if (argc > 1) {
+            int rsl_execute_stream(const char* path);
+            rsl_execute_stream(argv[1]);
+        }
+    } else if (argv[0][0] == '.' && argv[0][1] == '/') {
+        /* Direct Execution: ./program */
+        void sovereign_request_submit(system_request_t* req);
+        system_request_t req = {
+            .type = REQ_APP_SPAWN,
+            .path = resolve_path_local(curdir, &argv[0][2]),
+            .done = false
+        };
+        sovereign_request_submit(&req);
+        release(req.path);
+    } else if (cstr_match_local(argv[0], "exec")) {
+        if (argc > 1) {
+            void sovereign_request_submit(system_request_t* req);
+            system_request_t req = {
+                .type = REQ_APP_SPAWN,
+                .path = resolve_path_local(curdir, argv[1]),
+                .done = false
+            };
+            sovereign_request_submit(&req);
+            release(req.path);
+        }
     } else {
         print("Unknown Command.\n");
     }

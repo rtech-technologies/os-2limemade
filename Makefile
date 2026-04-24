@@ -86,15 +86,15 @@ programs: $(PROGRAMS)
 
 iso: limine-setup kernel programs
 	@mkdir -p iso_root/boot
-	@cp $(KERNEL_ELF) iso_root/
+	@cp $(KERNEL_ELF) iso_root/boot/
 	@cp $(PROGRAMS) iso_root/
 	@touch iso_root/install.rsl
 	@echo "format 0" > iso_root/install.rsl
 	@echo "mount 0" >> iso_root/install.rsl
 	@echo "write BOOT:/boot.rsl \"echo Sovereign Boot sequence initiated.\"" >> iso_root/install.rsl
-	@cp boot/limine.cfg iso_root/
+	@cp boot/limine.cfg iso_root/boot/
 	@python3 scripts/fat_tool.py ramdisk.img
-	@cp ramdisk.img iso_root/
+	@cp ramdisk.img iso_root/boot/
 	@if command -v xorriso >/dev/null 2>&1; then \
 		cp $(LIMINE_BIN) iso_root/; \
 		xorriso -as mkisofs -b limine-bios-cd.bin \
