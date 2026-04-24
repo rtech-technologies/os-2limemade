@@ -29,6 +29,8 @@ static uint8_t kernel_stack[32768];
 
 uint64_t g_hhdm_offset = 0;
 
+void serial_init(void);
+
 /* The Ritual: Entry Point */
 void _start(void) {
     /* Switch to larger stack and ensure 16-byte alignment for SSE/ABI compliance */
@@ -42,6 +44,10 @@ void _start(void) {
 
     /* Sovereign Silicon Foundation */
     __asm__ volatile ("cli");
+
+    /* Initialize Serial immediately for debugging */
+    serial_init();
+
     g_hhdm_offset = get_hhdm_offset();
 
     gdt_init();
@@ -68,10 +74,6 @@ void _start(void) {
     apic_init();
     apic_timer_init(50000);
 
-    /* OSx2 Sovereign Welcome */
-    serial_write_str("\n[ RTECH SOVEREIGN KERNEL ]\n");
-    serial_write_str("[ BUILD 23:00 - MECHANICAL TRUTH ]\n\n");
-
     /*
      * Opaque Sheep Boot Flow:
      * Check if 'quiet' is passed in the command line from Limine.
@@ -97,6 +99,13 @@ void _start(void) {
         g_vga_silent = true;
     } else {
         g_vga_silent = false;
+    }
+
+    /* OSx2 Sovereign Welcome */
+    vga_print("\n[ RTECH SOVEREIGN KERNEL ]\n");
+    vga_print("[ BUILD 23:00 - MECHANICAL TRUTH ]\n\n");
+
+    if (!quiet_mode) {
         void vga_print_logo(void);
         vga_print_logo();
     }

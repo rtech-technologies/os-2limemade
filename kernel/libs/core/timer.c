@@ -23,19 +23,13 @@ void pit_wait_ms(uint32_t ms) {
         outb(0x61, (val & 0xFD) | 0x01);
 
         /* PIT Channel 2: Mode 0 (Interrupt on Terminal Count), LSB/MSB */
-        outb(0x43, 0xB2); /* 10110010: Ch2, LSB/MSB, Mode 1 (Hardware Retriggerable One-Shot) */
+        outb(0x43, 0xB0);
 
         /* 1193182 Hz / 1000 = 1193 (0x04A9) ticks per millisecond */
         outb(0x42, 0xA9); /* LSB */
         outb(0x42, 0x04); /* MSB */
 
-        /* Mode 1 starts counting when Gate goes from Low to High */
-        outb(0x61, val & 0xFE); /* Gate Low */
-        outb(0x61, (val & 0xFD) | 0x01); /* Gate High */
-
         /* Wait for OUT bit (bit 5) of System Control Port B to go high */
-        /* For Mode 1, OUT goes low when count starts and high when finished. */
-        /* Wait for OUT to go high. */
         volatile int safety = 2000000;
         while (!(inb(0x61) & 0x20)) {
             if (--safety == 0) break;

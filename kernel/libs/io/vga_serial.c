@@ -20,7 +20,7 @@ static inline uint8_t inb(uint16_t port) {
 /* Serial Port Initialization */
 #define SERIAL_PORT CONFIG_SERIAL_PORT
 
-static void serial_init(void) {
+void serial_init(void) {
     outb(SERIAL_PORT + 1, 0x00);
     outb(SERIAL_PORT + 3, 0x80);
     outb(SERIAL_PORT + 0, 0x03);
@@ -282,14 +282,6 @@ void vga_set_selection(int x1, int y1, int x2, int y2) {
 
 void vga_write_char(char c, uint8_t color_attr) {
     vga_erase_mouse();
-
-    if (c == '\b') {
-        serial_write_char('\b');
-        serial_write_char(' ');
-        serial_write_char('\b');
-    } else {
-        serial_write_char(c);
-    }
 
     /* Ignore non-printable gibberish except for key control codes */
     if ((uint8_t)c < 32 && c != '\n' && c != '\r' && c != '\b' && c != '\t') return;

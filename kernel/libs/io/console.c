@@ -27,85 +27,17 @@ void set_color(color_t fg, color_t bg) {
     current_color_val = ((uint8_t)bg << 4) | ((uint8_t)fg & 0x0F);
 }
 
-#define PRINT_QUEUE_SIZE 32
-static const char* print_queue[PRINT_QUEUE_SIZE];
-static task_t* print_callers[PRINT_QUEUE_SIZE];
-static int print_head = 0;
-static int print_tail = 0;
-static bool print_worker_active = false;
-
-static void print_worker_entry(void) {
-    while (print_head != print_tail) {
-        const char* s = print_queue[print_head];
-        for (int i = 0; s[i] != '\0'; i++) {
-            vga_write_char(s[i], current_color_val);
-        }
-
-        task_t* caller = print_callers[print_head];
-        if (caller) caller->state = TASK_READY;
-
-        print_head = (print_head + 1) % PRINT_QUEUE_SIZE;
-        sys_yield();
-    }
-
-    print_worker_active = false;
-    task_t* self = get_current_task();
-    if (self) self->state = TASK_ZOMBIE;
-    sys_yield();
-}
-
 void print(const char* s) {
     if (!s) return;
 
-    /* Pure hardware output during scanning or if scheduler is not yet active */
-    bool tasking_is_scanning(void);
-    if (tasking_is_scanning()) {
+    /* Always output to Serial */
+    serial_write_str(s);
+
+    /* Output to VGA if not silenced */
+    if (!g_vga_silent) {
         for (int i = 0; s[i] != '\0'; i++) {
             vga_write_char(s[i], current_color_val);
         }
-        return;
-    }
-
-    /* Enqueue Print */
-    int next_tail = (print_tail + 1) % PRINT_QUEUE_SIZE;
-    if (next_tail == print_head) {
-        vga_write_char('!', current_color_val); /* Overflow Signal */
-        while (next_tail == print_head) {
-            sys_yield(); /* Wait for queue space */
-            next_tail = (print_tail + 1) % PRINT_QUEUE_SIZE;
-        }
-    }
-
-    task_t* caller = get_current_task();
-    print_queue[print_tail] = s;
-    print_callers[print_tail] = caller;
-    print_tail = next_tail;
-
-    if (!print_worker_active) {
-        print_worker_active = true;
-        int register_transient_task(void (*entry)(void), uint32_t slab_id, uint64_t arg);
-        /* Use Slab 3 for Print Workers (Isolation from Core System Task) */
-        int tid = register_transient_task(print_worker_entry, 3, 0);
-
-        if (tid != -1) {
-            void scheduler_force_task(int task_id);
-            scheduler_force_task(tid);
-        } else {
-            print_worker_active = false;
-            /* Emergency Fallback: Direct Print */
-            for (int i = 0; s[i] != '\0'; i++) {
-                vga_write_char(s[i], current_color_val);
-            }
-            /* Don't block caller if worker failed to spawn */
-            print_head = (print_head + 1) % PRINT_QUEUE_SIZE;
-            return;
-        }
-    }
-
-    /* Block caller and yield until worker wakes us */
-    if (caller) {
-        caller->state = TASK_WAITING;
-        sys_yield();
     }
 }
 
@@ -135,20 +67,22 @@ void vga_print(const char* fmt, ...) {
             i++;
             if (fmt[i] == 'd') {
                 int n = __builtin_va_arg(args, int);
+                serial_print_num(n, 10);
                 if (!g_vga_silent) print_num(n, 10);
-                else serial_print_num(n, 10);
             } else if (fmt[i] == 'x') {
                 uint32_t n = __builtin_va_arg(args, uint32_t);
+                serial_print_num(n, 16);
                 if (!g_vga_silent) print_num(n, 16);
-                else serial_print_num(n, 16);
             } else if (fmt[i] == 's') {
                 char* s = __builtin_va_arg(args, char*);
-                if (!g_vga_silent) print(s);
-                else serial_write_str(s);
+                serial_write_str(s);
+                if (!g_vga_silent) {
+                    for (int k = 0; s[k] != '\0'; k++) vga_write_char(s[k], current_color_val);
+                }
             }
         } else {
+            serial_write_char(fmt[i]);
             if (!g_vga_silent) vga_write_char(fmt[i], current_color_val);
-            else serial_write_char(fmt[i]);
         }
     }
     __builtin_va_end(args);

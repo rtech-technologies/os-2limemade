@@ -75,27 +75,36 @@ int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_
     return -1;
 }
 
+void ahci_port_stop(int p) {
+    hba_port_t* port = &hba_base->ports[p];
+
+    /* 1. Clear ST (bit 0) */
+    port->cmd &= ~0x0001;
+
+    /* 2. Wait until CR (bit 15) is cleared */
+    int timeout = 500;
+    while ((port->cmd & 0x8000) && timeout--) {
+        pit_wait_ms(1);
+    }
+
+    /* 3. Clear FRE (bit 4) */
+    port->cmd &= ~0x0010;
+
+    /* 4. Wait until FR (bit 14) is cleared */
+    timeout = 500;
+    while ((port->cmd & 0x4000) && timeout--) {
+        pit_wait_ms(1);
+    }
+}
+
 void ahci_port_start(int p) {
     hba_port_t* port = &hba_base->ports[p];
-    serial_print("[AHCI] Port %d: Stopping engines...\n", p);
+    serial_print("[AHCI] Port %d: Starting Sequence...\n", p);
 
-    /* 1. Ensure DMA engines are stopped */
-    port->cmd &= ~0x0001; /* ST */
-    port->cmd &= ~0x0010; /* FRE */
+    /* Ensure stopped first */
+    ahci_port_stop(p);
 
-    /* Wait for bit 15 (CR) and bit 14 (FR) to clear */
-    int ms = 0;
-    while ((port->cmd & (0x8000 | 0x4000)) && ms < 500) {
-        if (ms % 100 == 0) serial_print("[AHCI] Port %d: Waiting for CR/FR clear (CMD: 0x%x)...\n", p, port->cmd);
-        pit_wait_ms(1);
-        ms++;
-    }
-
-    if (port->cmd & (0x8000 | 0x4000)) {
-        serial_print("[AHCI] Port %d: WARNING - CR/FR did not clear. Continuing anyway.\n", p);
-    }
-
-    /* 2. Physical Registration while engine is IDLE */
+    /* Physical Registration: The Controller cannot see HHDM */
     uint64_t clb_phys = virtual_to_physical(port_clb_virt[p]);
     port->clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
     port->clbu = (uint32_t)(clb_phys >> 32);
@@ -104,44 +113,43 @@ void ahci_port_start(int p) {
     port->fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
     port->fbu = (uint32_t)(fb_phys >> 32);
 
-    /* 3. Start Engines */
+    /* Enable FIS reception */
     port->cmd |= 0x0010; /* FRE */
-    pit_wait_ms(1);
+    pit_wait_ms(10);
+
+    /* Start Engine */
     port->cmd |= 0x0001; /* ST */
 
-    serial_print("[AHCI] Port %d started (CMD: 0x%x).\n", p, port->cmd);
+    serial_print("[AHCI] Port %d started (CMD: 0x%x, TFD: 0x%x)\n", p, port->cmd, port->tfd);
 }
 
 void ahci_force_port_reset(int port_no) {
     hba_port_t* port = &hba_base->ports[port_no];
+    serial_print("[AHCI] Port %d: Initiating Hardware COMRESET...\n", port_no);
+
+    ahci_port_stop(port_no);
+
     port->serr = 0xFFFFFFFF;
     port->is = 0xFFFFFFFF;
-    port->cmd &= ~0x0001;
-    port->cmd &= ~0x0010;
 
-    int engine_ms = 0;
-    while ((port->cmd & 0x8000 || port->cmd & 0x4000) && engine_ms < 100) {
-        pit_wait_ms(1);
-        engine_ms++;
-    }
-
-    port->sctl = (port->sctl & ~0x0F) | 0x301;
+    /* SCTL: DET=1 (Perform Interface Communication Initialization) */
+    port->sctl = (port->sctl & ~0x0F) | 0x01;
     pit_wait_ms(10);
-    port->sctl = (port->sctl & ~0x0F) | 0x300;
-    pit_wait_ms(50);
+    /* SCTL: DET=0 (Normal Operation) */
+    port->sctl = (port->sctl & ~0x0F) | 0x00;
+    pit_wait_ms(100);
 
     int status_ms = 0;
-    while ((port->ssts & 0x0F) != 0x03 && status_ms < 100) {
+    while ((port->ssts & 0x0F) != 0x03 && status_ms < 500) {
         pit_wait_ms(1);
         status_ms++;
     }
 
     if ((port->ssts & 0x0F) == 0x03) {
-        serial_print("[AHCI] PORT %d: LINK ESTABLISHED\n", port_no);
-        port->cmd |= 0x0010;
+        serial_print("[AHCI] Port %d: Link Re-established (SSTS: 0x%x)\n", port_no, port->ssts);
         ahci_port_start(port_no);
     } else {
-        serial_print("[AHCI] PORT %d: MECHANICAL FAILURE\n", port_no);
+        serial_print("[AHCI] Port %d: Link Failure (SSTS: 0x%x)\n", port_no, port->ssts);
     }
 }
 

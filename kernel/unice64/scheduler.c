@@ -170,6 +170,9 @@ void sys_yield(void) {
     /* Sovereign Wait: The task pauses here until the APIC Timer validates the yield */
     /* ENFORCE: Ensure interrupts are ON during wait so the timer can actually fire! */
     __asm__ volatile ("sti");
+    /* Soft Yield: Use software interrupt to trigger scheduler immediately */
+    __asm__ volatile ("int $0x81");
+
     while (yield_signaled) {
         __asm__ volatile ("pause");
     }
