@@ -122,7 +122,6 @@ void ahci_force_port_reset(int port_no) {
 
     if ((port->ssts & 0x0F) == 0x03) {
         serial_print("[AHCI] PORT %d: LINK ESTABLISHED\n", port_no);
-        port->cmd |= 0x0010;
         ahci_port_start(port_no);
     } else {
         serial_print("[AHCI] PORT %d: MECHANICAL FAILURE\n", port_no);

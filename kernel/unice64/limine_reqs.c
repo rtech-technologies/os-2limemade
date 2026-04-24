@@ -37,6 +37,12 @@ static volatile struct limine_kernel_address_request kernel_address_request = {
 };
 
 __attribute__((used, section(".limine_requests")))
+static volatile struct limine_kernel_file_request kernel_file_request = {
+    .id = LIMINE_KERNEL_FILE_REQUEST,
+    .revision = 0
+};
+
+__attribute__((used, section(".limine_requests")))
 static volatile struct limine_bootloader_info_request bootloader_info_request = {
     .id = LIMINE_BOOTLOADER_INFO_REQUEST,
     .revision = 0
@@ -69,6 +75,10 @@ struct limine_kernel_address_response* get_kernel_address(void) {
     return kernel_address_request.response;
 }
 
+struct limine_kernel_file_response* get_kernel_file(void) {
+    return kernel_file_request.response;
+}
+
 struct limine_bootloader_info_response* get_bootloader_info(void) {
     return bootloader_info_request.response;
 }
@@ -82,16 +92,13 @@ uint64_t vmm_get_phys(void* virt) {
     uint64_t hhdm = hhdm_request.response ? hhdm_request.response->offset : 0;
     struct limine_kernel_address_response* ka = kernel_address_request.response;
 
-    /* 1. Kernel range check (must come first as it's a subset of high memory) */
     if (ka && v >= ka->virtual_base) {
         return v - ka->virtual_base + ka->physical_base;
     }
 
-    /* 2. Limine HHDM range check */
     if (hhdm != 0 && v >= hhdm) {
         return v - hhdm;
     }
 
-    /* 3. Fallback for low-memory addresses or absolute physical pointers */
     return v;
 }

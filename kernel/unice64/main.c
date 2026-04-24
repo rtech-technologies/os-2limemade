@@ -34,7 +34,7 @@ void _start(void) {
     /* Switch to larger stack before anything else */
     __asm__ volatile (
         "mov %0, %%rsp\n"
-        "add 2760, %%rsp\n"  /* 16-byte Alignment Trick for x86_64 */
+        "add $32760, %%rsp\n"  /* 16-byte Alignment Trick for x86_64 */
         : : "r" (kernel_stack) : "memory"
     );
 
@@ -70,8 +70,34 @@ void _start(void) {
     serial_write_str("\n[ RTECH SOVEREIGN KERNEL ]\n");
     serial_write_str("[ BUILD 23:00 - MECHANICAL TRUTH ]\n\n");
 
-    void vga_print_logo(void);
-    vga_print_logo();
+    /*
+     * Opaque Sheep Boot Flow:
+     * Check if 'quiet' is passed in the command line from Limine.
+     */
+    extern bool g_vga_silent;
+    struct limine_kernel_file_response* kf_resp = (void*)0;
+    extern struct limine_kernel_file_response* get_kernel_file(void);
+    kf_resp = get_kernel_file();
+
+    bool quiet_mode = false;
+    if (kf_resp && kf_resp->kernel_file && kf_resp->kernel_file->cmdline) {
+        const char* cmd = kf_resp->kernel_file->cmdline;
+        /* Simple substring check for "quiet" */
+        for (int i = 0; cmd[i]; i++) {
+            if (cmd[i] == 'q' && cmd[i+1] == 'u' && cmd[i+2] == 'i' && cmd[i+3] == 'e' && cmd[i+4] == 't') {
+                quiet_mode = true;
+                break;
+            }
+        }
+    }
+
+    if (quiet_mode) {
+        g_vga_silent = true;
+    } else {
+        g_vga_silent = false;
+        void vga_print_logo(void);
+        vga_print_logo();
+    }
 
     /* Initialize Hardware and Core Memory */
     dispatch_event(EVENT_INIT);
@@ -138,10 +164,18 @@ void _start(void) {
 
     dispatch_event(EVENT_MAIN);
 
+    /* End of boot sequence: Shell starts, so we need VGA output even if was quiet */
+    g_vga_silent = false;
+
     void tasking_create_kernel_thread(void (*entry)(void), const char* name);
     void shell_task(void);
     tasking_create_kernel_thread(shell_task, "shell");
     tasking_init();
+
+    /* Initialize APIC for system_ticks (One-Shot Mode) */
+    /* Extremely Fast Clock: 30ms interval (approx) */
+    apic_init();
+    apic_timer_init(50000);
 
     /* The main thread becomes an observer or a task. */
     vga_print("[INIT] Handing control to RSL Shell...\n");

@@ -7,7 +7,7 @@ CFLAGS = -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-c
          -msse -msse2 -I. -I./include
 LDFLAGS = -Wl,-T,boot/linker.ld -static -nostdlib -Wl,-z,max-page-size=0x1000
 
-# Kernel core objects (Shell is now integrated, USB removed)
+# Kernel core objects
 KERNEL_SRC = $(wildcard kernel/unice64/*.c) \
              $(wildcard kernel/libs/io/*.c) \
              $(wildcard kernel/libs/ram/*.c) \
@@ -26,7 +26,7 @@ AS_SRC = $(wildcard kernel/unice64/*.s)
 KERNEL_OBJ = $(KERNEL_SRC:.c=.o) $(AS_SRC:.s=.o)
 KERNEL_ELF = kernel.elf
 
-# Standalone Programs (Flat RSL Binaries) - Shell removed, text_editor and wm remain
+# Standalone Programs (Flat RSL Binaries)
 PROGRAMS = wm.bin editor.bin jit.bin
 PROG_LDFLAGS = -Wl,-T,programs/linker.ld -static -nostdlib
 
@@ -85,8 +85,8 @@ programs: $(PROGRAMS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 iso: limine-setup kernel programs
-	@mkdir -p iso_root/boot
-	@cp $(KERNEL_ELF) iso_root/boot/
+	@mkdir -p iso_root
+	@cp $(KERNEL_ELF) iso_root/
 	@cp $(PROGRAMS) iso_root/
 	@touch iso_root/install.rsl
 	@echo "format 0" > iso_root/install.rsl
@@ -94,13 +94,13 @@ iso: limine-setup kernel programs
 	@echo "write BOOT:/boot.rsl \"echo Sovereign Boot sequence initiated.\"" >> iso_root/install.rsl
 	@cp boot/limine.cfg iso_root/
 	@python3 scripts/fat_tool.py ramdisk.img
-	@cp ramdisk.img iso_root/boot/
+	@cp ramdisk.img iso_root/
 	@if command -v xorriso >/dev/null 2>&1; then \
 		cp $(LIMINE_BIN) iso_root/; \
 		xorriso -as mkisofs -b limine-bios-cd.bin \
 			-no-emul-boot -boot-load-size 4 -boot-info-table \
 			--efi-boot limine-uefi-cd.bin \
-			--efi-boot-part --efi-boot-image --protective-msdos-label \
+			-efi-boot-part --efi-boot-image --protective-msdos-label \
 			iso_root -o $(ISO_IMAGE); \
 		$(LIMINE_DIR)/limine bios-install $(ISO_IMAGE); \
 	else \
