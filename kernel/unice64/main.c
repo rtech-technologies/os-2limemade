@@ -98,11 +98,11 @@ void _start(void) {
         }
     }
 
-    if (quiet_mode) {
-        g_vga_silent = true;
-    } else {
-        g_vga_silent = false;
-    }
+    /*
+     * Sovereign Boot Phase 1: Full Visibility
+     * We ignore 'quiet' for initial hardware discovery as requested.
+     */
+    g_vga_silent = false;
 
     /* OSx2 Sovereign Welcome */
     vga_print("\n[ RTECH SOVEREIGN KERNEL ]\n");
@@ -181,8 +181,11 @@ void _start(void) {
 
     dispatch_event(EVENT_MAIN);
 
-    /* End of boot sequence: Shell starts, so we need VGA output even if was quiet */
-    g_vga_silent = false;
+    /*
+     * Sovereign Boot Phase 2: Silent Console
+     * All logs up to the shell have been displayed. Stop logging to VGA.
+     */
+    g_vga_silent = true;
 
     void tasking_create_kernel_thread(void (*entry)(void), const char* name);
     void shell_task(void);
