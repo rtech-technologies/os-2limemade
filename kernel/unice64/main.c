@@ -31,10 +31,12 @@ uint64_t g_hhdm_offset = 0;
 
 /* The Ritual: Entry Point */
 void _start(void) {
-    /* Switch to larger stack before anything else */
+    /* Switch to larger stack and ensure 16-byte alignment for SSE/ABI compliance */
     __asm__ volatile (
         "mov %0, %%rsp\n"
-        "add $32760, %%rsp\n"  /* 16-byte Alignment Trick for x86_64 */
+        "add $32768, %%rsp\n"
+        "and $-16, %%rsp\n"
+        "sub $8, %%rsp\n" /* Maintain alignment after call push */
         : : "r" (kernel_stack) : "memory"
     );
 
@@ -99,7 +101,10 @@ void _start(void) {
         vga_print_logo();
     }
 
-    /* Initialize Hardware and Core Memory */
+    /* Force serial logging for critical init regardless of VGA silence */
+    serial_write_str("[BOOT] Critical Init sequence started.\n");
+
+    /* Deliver INIT event to all services */
     dispatch_event(EVENT_INIT);
     __asm__ volatile ("sti");
 
@@ -171,15 +176,6 @@ void _start(void) {
     void shell_task(void);
     tasking_create_kernel_thread(shell_task, "shell");
     tasking_init();
-
-    /* Initialize APIC for system_ticks (One-Shot Mode) */
-    /* Extremely Fast Clock: 30ms interval (approx) */
-    apic_init();
-    apic_timer_init(50000);
-
-    /* The main thread becomes an observer or a task. */
-    vga_print("[INIT] Handing control to RSL Shell...\n");
-    vga_print("[UNICE64] Kernel handover to Scheduler.\n");
 
     /* Release yield-lock before handover */
     void tasking_set_scanning(bool scanning);

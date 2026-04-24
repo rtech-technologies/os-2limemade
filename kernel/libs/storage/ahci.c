@@ -77,13 +77,25 @@ int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_
 
 void ahci_port_start(int p) {
     hba_port_t* port = &hba_base->ports[p];
+    serial_print("[AHCI] Port %d: Stopping engines...\n", p);
+
+    /* 1. Ensure DMA engines are stopped */
+    port->cmd &= ~0x0001; /* ST */
+    port->cmd &= ~0x0010; /* FRE */
+
+    /* Wait for bit 15 (CR) and bit 14 (FR) to clear */
     int ms = 0;
-    while ((port->cmd & (1 << 15)) && ms < 100) {
+    while ((port->cmd & (0x8000 | 0x4000)) && ms < 500) {
+        if (ms % 100 == 0) serial_print("[AHCI] Port %d: Waiting for CR/FR clear (CMD: 0x%x)...\n", p, port->cmd);
         pit_wait_ms(1);
         ms++;
     }
 
-    /* Physical Registration: The Controller cannot see HHDM */
+    if (port->cmd & (0x8000 | 0x4000)) {
+        serial_print("[AHCI] Port %d: WARNING - CR/FR did not clear. Continuing anyway.\n", p);
+    }
+
+    /* 2. Physical Registration while engine is IDLE */
     uint64_t clb_phys = virtual_to_physical(port_clb_virt[p]);
     port->clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
     port->clbu = (uint32_t)(clb_phys >> 32);
@@ -92,8 +104,12 @@ void ahci_port_start(int p) {
     port->fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
     port->fbu = (uint32_t)(fb_phys >> 32);
 
-    port->cmd |= (1 << 4);
-    port->cmd |= (1 << 0);
+    /* 3. Start Engines */
+    port->cmd |= 0x0010; /* FRE */
+    pit_wait_ms(1);
+    port->cmd |= 0x0001; /* ST */
+
+    serial_print("[AHCI] Port %d started (CMD: 0x%x).\n", p, port->cmd);
 }
 
 void ahci_force_port_reset(int port_no) {
@@ -122,6 +138,7 @@ void ahci_force_port_reset(int port_no) {
 
     if ((port->ssts & 0x0F) == 0x03) {
         serial_print("[AHCI] PORT %d: LINK ESTABLISHED\n", port_no);
+        port->cmd |= 0x0010;
         ahci_port_start(port_no);
     } else {
         serial_print("[AHCI] PORT %d: MECHANICAL FAILURE\n", port_no);
@@ -390,14 +407,14 @@ void ahci_service(kernel_event_t event) {
                     uint64_t hhdm = get_hhdm_offset();
                     hba_base = (hba_mem_t*)(hhdm + (uint64_t)(bar5 & 0xFFFFFFF0));
 
-                    hba_base->ghc |= (1 << 31);
-                    hba_base->ghc |= (1 << 0);
+                    hba_base->ghc |= (1 << 31); /* AE */
+                    hba_base->ghc |= (1 << 0);  /* HR */
                     int ghc_ms = 0;
-                    while ((hba_base->ghc & (1 << 0)) && ghc_ms < 100) {
+                    while ((hba_base->ghc & (1 << 0)) && ghc_ms < 500) {
                         pit_wait_ms(1);
                         ghc_ms++;
                     }
-                    hba_base->ghc |= (1 << 31);
+                    hba_base->ghc |= (1 << 31); /* AE */
 
                     /* OSx2: Scan the first 9 ports on boot per Sovereign mandate */
                     void* slab_alloc_aligned(int id, size_t size, size_t align);

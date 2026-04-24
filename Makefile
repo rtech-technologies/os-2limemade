@@ -85,7 +85,7 @@ programs: $(PROGRAMS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 iso: limine-setup kernel programs
-	@mkdir -p iso_root
+	@mkdir -p iso_root/boot
 	@cp $(KERNEL_ELF) iso_root/
 	@cp $(PROGRAMS) iso_root/
 	@touch iso_root/install.rsl

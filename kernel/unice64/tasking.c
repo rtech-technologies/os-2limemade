@@ -102,8 +102,11 @@ int tasking_spawn_app(const char* path) {
     vfs_close(h);
     release(pstr);
 
+    /* Skip 32-byte RSL header */
+    void (*entry_point)(void) = (void (*)(void))(code_dest + 32);
+
     /* Register loaded code as a transient task */
-    int tid = register_transient_task((void (*)(void))code_dest, slab_id, 0);
+    int tid = register_transient_task(entry_point, slab_id, 0);
     if (tid != -1) {
         void scheduler_force_task(int task_id);
         scheduler_force_task(tid);
