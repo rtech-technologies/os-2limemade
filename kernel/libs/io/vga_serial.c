@@ -281,6 +281,20 @@ void vga_set_selection(int x1, int y1, int x2, int y2) {
 }
 
 void vga_write_char(char c, uint8_t color_attr) {
+    /*
+     * Mirror VGA to Serial:
+     * Every character passed to the VGA console is transmitted to Serial COM1.
+     */
+    if (c == '\b') {
+        serial_write_char('\b');
+        serial_write_char(' ');
+        serial_write_char('\b');
+    } else {
+        serial_write_char(c);
+    }
+
+    if (g_vga_silent) return;
+
     vga_erase_mouse();
 
     /* Ignore non-printable gibberish except for key control codes */

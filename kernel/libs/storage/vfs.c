@@ -59,6 +59,7 @@ static bool str_match_prefix(const char* s1, const char* prefix) {
 }
 
 static int get_drive_id_from_path(const char* p) {
+    if (*p == '/') p++;
     if (str_match_prefix(p, "BOOT:/")) return get_boot_drive_id();
     if (str_match_prefix(p, "DISK")) {
         if (p[4] >= '0' && p[4] <= '9' && p[5] == ':' && p[6] == '/') return p[4] - '0';
@@ -68,12 +69,14 @@ static int get_drive_id_from_path(const char* p) {
 }
 
 static const char* get_subpath_from_path(const char* p) {
+    const char* start = p;
+    if (*p == '/') p++;
     if (str_match_prefix(p, "BOOT:/")) return &p[6];
     if (str_match_prefix(p, "DISK")) {
         if (p[4] >= '0' && p[4] <= '9' && p[5] == ':' && p[6] == '/') return &p[7];
     }
     if (p[0] >= '0' && p[0] <= '9' && p[1] == ':' && p[2] == '/') return &p[3];
-    return p;
+    return start;
 }
 
 void vfs_ls(void* path) {
@@ -289,18 +292,21 @@ vfs_handle_t* vfs_open(void* path, const char* mode) {
     const char* subpath_cstr = p;
 
     /* Sovereign Alias Router: Handle BOOT:/, DISKx:/, and x:/ */
-    if (str_match_prefix(p, "BOOT:/")) {
+    const char* router_p = p;
+    if (*router_p == '/') router_p++;
+
+    if (str_match_prefix(router_p, "BOOT:/")) {
         drive = get_boot_drive_id();
-        subpath_cstr = &p[6];
-    } else if (str_match_prefix(p, "DISK")) {
+        subpath_cstr = &router_p[6];
+    } else if (str_match_prefix(router_p, "DISK")) {
         /* DISKx:/ check */
-        if (p[4] >= '0' && p[4] <= '9' && p[5] == ':' && p[6] == '/') {
-            drive = p[4] - '0';
-            subpath_cstr = &p[7];
+        if (router_p[4] >= '0' && router_p[4] <= '9' && router_p[5] == ':' && router_p[6] == '/') {
+            drive = router_p[4] - '0';
+            subpath_cstr = &router_p[7];
         }
-    } else if (p[0] >= '0' && p[0] <= '9' && p[1] == ':' && p[2] == '/') {
-        drive = p[0] - '0';
-        subpath_cstr = &p[3];
+    } else if (router_p[0] >= '0' && router_p[0] <= '9' && router_p[1] == ':' && router_p[2] == '/') {
+        drive = router_p[0] - '0';
+        subpath_cstr = &router_p[3];
     }
 
     FATFS* fs = NULL;

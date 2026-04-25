@@ -91,9 +91,14 @@ def main():
             f.write(struct.pack("<I", 0xFFFFFFFF))
             f.write(struct.pack("<I", 0x0FFFFFFF))
 
-        # 6. Inject install.rsl and boot.rsl if they exist in iso_root
+        # 6. Inject all files from iso_root into the ramdisk
         import os
-        files_to_inject = ["install.rsl", "boot.rsl"]
+        files_to_inject = []
+        if os.path.exists("iso_root"):
+            for f_name in os.listdir("iso_root"):
+                if os.path.isfile(os.path.join("iso_root", f_name)):
+                    files_to_inject.append(f_name)
+
         data_offset = (part_offset + 32 + (2 * 128)) * sector_size
 
         # Root Directory: Cluster 2 (4KB)

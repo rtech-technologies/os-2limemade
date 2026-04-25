@@ -25,14 +25,15 @@ typedef struct {
 typedef struct {
     uint32_t id;                /* 0 */
     task_state_t state;         /* 4 */
-    cpu_context_t context;      /* 8 (size 168) */
-    uint32_t slab_id;           /* 176 */
-    int parent_id;              /* 180 */
-    uint64_t kernel_stack_top;  /* 184 - 8-aligned, ends at 192 */
+    cpu_context_t context;      /* 8 (size 160) */
+    uint32_t slab_id;           /* 168 */
+    int parent_id;              /* 172 */
+    uint64_t kernel_stack_top;  /* 176 */
+    uint64_t reserved_align;    /* 184 - Pad to reach 192 */
     uint8_t fxsave_region[512] __attribute__((aligned(16))); /* 192 - 16-aligned! */
-    bool is_transient;
-    bool in_use;
-    uint8_t padding[14]; /* Pad to 16-byte multiple (720 bytes total) */
+    bool is_transient;          /* 704 */
+    bool in_use;                /* 705 */
+    uint8_t padding[14];        /* 706 - Pad to 720 (16-byte multiple) */
 } __attribute__((aligned(16))) task_t;
 
 void unice64_schedule(void);

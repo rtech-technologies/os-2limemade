@@ -182,6 +182,9 @@ void vga_pulse_cursor(void);
 void apic_timer_init(uint32_t count);
 
 void unice64_schedule(void) {
+    /* Clear yield signal to allow the task to continue when resumed */
+    yield_signaled = false;
+
     /* Update UI Pulse */
     vga_pulse_cursor();
     burst_counter++;
