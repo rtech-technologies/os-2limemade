@@ -62,6 +62,7 @@ void serial_write_str(const char* s) {
 
 uint64_t get_hhdm_offset(void);
 struct limine_framebuffer_response* get_framebuffer(void);
+extern bool g_vga_silent;
 
 /* Complete 8x8 Font (ASCII 0-127) */
 static const uint8_t font8x8_basic[128][8] = {

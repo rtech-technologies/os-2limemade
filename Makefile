@@ -69,6 +69,9 @@ $(SATA_DISK):
 	@dd if=/dev/zero of=$(SATA_DISK) bs=1M count=64 status=none
 	@echo "OSx2: 64MB Empty persistent disk created for internal installation test."
 
+ramdisk.img:
+	@python3 scripts/fat_tool.py ramdisk.img
+
 kernel: limine-setup $(KERNEL_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(KERNEL_OBJ) -o $(KERNEL_ELF)
 	@echo "OSx2 Limemade Kernel Compiled: $(KERNEL_ELF)"
