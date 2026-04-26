@@ -161,6 +161,11 @@ void ahci_hardware_audit(int p) {
     /* SKIP: If port is "LIVE" (Busy or DRQ set), skip audit to avoid collision */
     if (port->tfd & 0x88) return;
 
+    /* Sovereign Optimization: If engine is already running and link is healthy, don't reset */
+    if (port->cmd & 0x0001) {
+        if ((port->ssts & 0x0F) == 0x03) return;
+    }
+
     uint32_t ssts = port->ssts;
     if ((ssts & 0x0F) == 0x03) {
         ahci_port_start(p);

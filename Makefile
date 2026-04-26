@@ -95,7 +95,7 @@ iso: limine-setup kernel programs
 	@echo "format 0" > iso_root/install.rsl
 	@echo "mount 0" >> iso_root/install.rsl
 	@echo "write BOOT:/boot.rsl \"echo Sovereign Boot sequence initiated.\"" >> iso_root/install.rsl
-	@cp boot/limine.cfg iso_root/boot/
+	@cp boot/limine.cfg iso_root/
 	@python3 scripts/fat_tool.py ramdisk.img
 	@cp ramdisk.img iso_root/boot/
 	@if command -v xorriso >/dev/null 2>&1; then \
