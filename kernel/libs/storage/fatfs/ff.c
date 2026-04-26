@@ -209,10 +209,11 @@ static uint32_t resolve_path_to_cluster(FATFS* fs, const char* path, fat_dir_ent
         }
         name[j] = '\0';
 
-        /* Drain redundant slashes - MUST advance i to avoid infinite loop */
+        uint32_t next = find_entry(fs, cluster, name, out_entry, out_lba, out_idx);
+
+        /* Drain redundant slashes after component */
         while (path[i] == '/') i++;
 
-        uint32_t next = find_entry(fs, cluster, name, out_entry, out_lba, out_idx);
         if (!next) return 0;
         if (path[i] == '\0') return next;
         cluster = next;
@@ -348,29 +349,50 @@ FRESULT f_write(FIL* fp, const void* buff, uint32_t btw, uint32_t* bw) {
     if (fs->ro) return FR_WRITE_PROTECTED;
     uint32_t ss = fs->sector_size ? fs->sector_size : 512;
     uint32_t cluster_size = ss * fs->sectors_per_cluster;
-    uint32_t bytes_left = btw;
+    uint32_t total_written = 0;
     const uint8_t* p = (const uint8_t*)buff;
 
-    while (bytes_left > 0) {
-        uint32_t sector_in_cluster = (fp->fptr / ss) % fs->sectors_per_cluster;
+    uint8_t* sector_buf = slab_alloc_persistent(2048);
+    if (!sector_buf) return FR_NOT_ENOUGH_CORE;
+
+    while (total_written < btw) {
+        uint32_t bytes_remaining = btw - total_written;
         uint32_t cluster_offset = fp->fptr % cluster_size;
+
         if (fp->fptr > 0 && cluster_offset == 0) {
             uint32_t next = get_next_cluster(fs, fp->clust);
             if (next >= 0x0FFFFFF8) {
                 next = find_free_cluster(fs);
-                if (!next) return FR_DENIED;
+                if (!next) { slab_free_persistent(sector_buf); return FR_DENIED; }
                 set_cluster_link(fs, fp->clust, next);
                 set_cluster_link(fs, next, 0x0FFFFFFF);
             }
             fp->clust = next;
         }
+
+        uint32_t sector_in_cluster = (fp->fptr / ss) % fs->sectors_per_cluster;
+        uint32_t offset_in_sector = fp->fptr % ss;
         uint64_t lba = get_sector_lba(fs, fp->clust) + sector_in_cluster;
-        if (disk_write(fs->drv, p, lba, 1) != RES_OK) break;
-        p += ss; fp->fptr += ss;
+
+        uint32_t can_write = ss - offset_in_sector;
+        if (can_write > bytes_remaining) can_write = bytes_remaining;
+
+        if (offset_in_sector == 0 && can_write == ss) {
+            /* Full sector write */
+            if (disk_write(fs->drv, p, lba, 1) != RES_OK) break;
+        } else {
+            /* Partial sector: Read-Modify-Write */
+            if (disk_read(fs->drv, sector_buf, lba, 1) != RES_OK) break;
+            for (uint32_t i = 0; i < can_write; i++) sector_buf[offset_in_sector + i] = p[i];
+            if (disk_write(fs->drv, sector_buf, lba, 1) != RES_OK) break;
+        }
+
+        p += can_write; fp->fptr += can_write; total_written += can_write;
         if (fp->fptr > fp->fsize) fp->fsize = fp->fptr;
-        if (bytes_left > ss) bytes_left -= ss; else bytes_left = 0;
     }
-    if (bw) *bw = btw - bytes_left;
+
+    slab_free_persistent(sector_buf);
+    if (bw) *bw = total_written;
     return FR_OK;
 }
 

@@ -64,13 +64,19 @@ void rtc64_update(void) {
     if (!ms || !ms->active) return;
 
     static bool last_left = false;
+    static int lx = -1, ly = -1;
+
     rtc64_event_t ev = { .type = RTC64_EVENT_NONE, .x = ms->x, .y = ms->y };
 
     if (ms->left_button && !last_left) ev.type = RTC64_EVENT_MOUSE_DOWN;
     else if (!ms->left_button && last_left) ev.type = RTC64_EVENT_MOUSE_UP;
     else ev.type = RTC64_EVENT_MOUSE_MOVE;
 
+    int dx = (lx == -1) ? 0 : (ms->x - lx);
+    int dy = (ly == -1) ? 0 : (ms->y - ly);
+
     last_left = ms->left_button;
+    lx = ms->x; ly = ms->y;
 
     /* Process windows from front to back (hit testing) */
     for (int i = MAX_WINDOWS - 1; i >= 0; i--) {
@@ -84,6 +90,14 @@ void rtc64_update(void) {
             /* Focus window */
             for(int j=0; j<MAX_WINDOWS; j++) windows[j].focused = false;
             win->focused = true;
+
+            /* Move window to front */
+            if (i < window_count - 1) {
+                rtc64_window_t tmp = windows[i];
+                for (int k = i; k < window_count - 1; k++) windows[k] = windows[k+1];
+                windows[window_count - 1] = tmp;
+                win = &windows[window_count - 1];
+            }
 
             /* Drag check (title bar) */
             if (ms->y < win->y + 24) win->dragging = true;
@@ -112,15 +126,10 @@ void rtc64_update(void) {
 
         if (ev.type == RTC64_EVENT_MOUSE_UP) win->dragging = false;
 
-        static int lx = -1, ly = -1;
-        if (win->dragging && ev.type == RTC64_EVENT_MOUSE_MOVE) {
-            /* Move logic (simplified) */
-            if (lx != -1) {
-                win->x += (ms->x - lx);
-                win->y += (ms->y - ly);
-            }
+        if (win->dragging) {
+            win->x += dx;
+            win->y += dy;
         }
-        lx = ms->x; ly = ms->y;
 
         if (in_win && win->on_event) win->on_event(ev);
     }

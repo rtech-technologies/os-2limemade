@@ -43,6 +43,9 @@ int get_ready_task_count(void) {
 void unice64_scheduler_init(void) {
     task_count = 0;
     current_task_idx = 0;
+    task_bitmask = 0;
+    forced_next_task = -1;
+    yield_signaled = false;
 }
 
 int register_task(void (*entry_point)(void), uint32_t slab_id) {

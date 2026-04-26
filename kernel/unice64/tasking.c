@@ -24,7 +24,7 @@ void text_editor_task(void);
 
 void shell_main(void);
 
-void shell_task(void) {
+void task_shell(void) {
     vga_print("[UNICE64] Shell Task Started (Kernel Integrated).\n");
     shell_main();
     /* If shell exits, go into infinite sleep */
@@ -122,6 +122,9 @@ int tasking_spawn_app(const char* path) {
 void print_service_task(void);
 
 void tasking_init(void) {
+    /* ENFORCE: Initialize scheduler state BEFORE registering tasks */
+    unice64_scheduler_init();
+
     /* Register Idle Task in Slab 0 */
     register_task(idle_task, 0);
 
@@ -137,6 +140,5 @@ void tasking_init(void) {
     extern int get_task_count(void);
     PANIC_ON(get_task_count() < 3, "MULTITASKING_INIT: INSUFFICIENT SYSTEM TASKS");
 
-    unice64_scheduler_init();
     vga_print("[UNICE64] Multitasking initialized.\n");
 }

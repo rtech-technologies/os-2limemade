@@ -90,23 +90,31 @@ void* malloc(size_t size);
 void free(void* ptr);
 
 /* Permanent Buffers: Used by core kernel subsystems (like FatFS) to avoid recycling */
-static uint8_t fatfs_buffer_shield[2048];
-static bool fatfs_shield_in_use = false;
+/* Sovereign Shield: Support up to 4 nested levels for filesystem walk/write operations */
+#define SHIELD_DEPTH 4
+static uint8_t fatfs_buffer_shields[SHIELD_DEPTH][2048];
+static bool fatfs_shields_in_use[SHIELD_DEPTH] = {false, false, false, false};
 
 void* slab_alloc_persistent(size_t size) {
-    if (size <= 2048 && !fatfs_shield_in_use) {
-        fatfs_shield_in_use = true;
-        return fatfs_buffer_shield;
+    if (size <= 2048) {
+        for (int i = 0; i < SHIELD_DEPTH; i++) {
+            if (!fatfs_shields_in_use[i]) {
+                fatfs_shields_in_use[i] = true;
+                return fatfs_buffer_shields[i];
+            }
+        }
     }
-    return malloc(size); /* Fallback to recycling heap if shield busy */
+    return malloc(size); /* Fallback to recycling heap if all shields busy */
 }
 
 void slab_free_persistent(void* ptr) {
-    if (ptr == fatfs_buffer_shield) {
-        fatfs_shield_in_use = false;
-    } else {
-        free(ptr);
+    for (int i = 0; i < SHIELD_DEPTH; i++) {
+        if (ptr == fatfs_buffer_shields[i]) {
+            fatfs_shields_in_use[i] = false;
+            return;
+        }
     }
+    free(ptr);
 }
 
 void slab_reset(int id) {

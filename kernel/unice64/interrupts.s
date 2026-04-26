@@ -40,6 +40,10 @@ irq_timer_handler:
     and $-16, %rdi
     fxsave (%rdi)
 
+    # 16-byte Alignment for initial C calls
+    mov %rsp, %rbp
+    and $-16, %rsp
+
     # Send EOI to APIC
     call apic_eoi
 
@@ -84,6 +88,9 @@ irq_timer_handler:
     # Fast Clock: 30ms interval
     mov $30000, %rdi
     call apic_timer_init
+
+    # Restore stack pointer from the alignment anchorage
+    mov %rbp, %rsp
 
     # Restore SSE state
     mov %rsp, %rdi

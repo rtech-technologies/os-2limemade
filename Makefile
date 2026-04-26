@@ -97,6 +97,8 @@ iso: limine-setup kernel programs
 	@echo "format 0" > iso_root/sys/install.rsl
 	@echo "mount 0" >> iso_root/sys/install.rsl
 	@echo "write BOOT:/sys/boot.rsl \"echo Sovereign Boot sequence initiated.\"" >> iso_root/sys/install.rsl
+	@echo "echo Sovereign System Online." > iso_root/sys/boot.rsl
+	@echo "echo Initializing Mechanical Truth..." >> iso_root/sys/boot.rsl
 	@cp boot/limine.cfg iso_root/boot/
 	@python3 scripts/fat_tool.py ramdisk.img
 	@cp ramdisk.img iso_root/boot/

@@ -173,8 +173,9 @@ void _start(void) {
         if (mod_resp && mod_resp->module_count > 0) {
             vga_print("[BOOT] Mounting INITRD as fallback BOOT node...\n");
             static FATFS initrd_fs;
-            /* RAMDISK is always Disk 0 if registered during vdisk_service init */
-            if (f_mount(&initrd_fs, 0) == FR_OK) {
+            int get_hw_disk_id_by_name(const char* name);
+            int ram_id = get_hw_disk_id_by_name("RAMDISK");
+            if (ram_id != -1 && f_mount(&initrd_fs, ram_id) == FR_OK) {
                 vfs_node_t initrd_node = {
                     .private_data = &initrd_fs,
                     .ls = internal_fs_ls,
@@ -202,7 +203,9 @@ void _start(void) {
         struct limine_module_response* mod_resp = get_modules();
         if (mod_resp && mod_resp->module_count > 0) {
             static FATFS initrd_fs;
-            if (f_mount(&initrd_fs, 0) == FR_OK) {
+            int get_hw_disk_id_by_name(const char* name);
+            int ram_id = get_hw_disk_id_by_name("RAMDISK");
+            if (ram_id != -1 && f_mount(&initrd_fs, ram_id) == FR_OK) {
                 vfs_node_t initrd_node = {
                     .private_data = &initrd_fs,
                     .ls = internal_fs_ls,
@@ -236,8 +239,8 @@ void _start(void) {
     g_vga_silent = true;
 
     void tasking_create_kernel_thread(void (*entry)(void), const char* name);
-    void shell_task(void);
-    tasking_create_kernel_thread(shell_task, "shell");
+    void task_shell(void);
+    tasking_create_kernel_thread(task_shell, "shell");
     tasking_init();
 
     /* Release yield-lock before handover */

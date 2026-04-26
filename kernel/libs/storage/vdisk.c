@@ -68,6 +68,13 @@ int vdisk_write(int disk_id, uint64_t lba, uint32_t count, void* buffer) {
 int get_hw_disk_count(void) { return hw_count; }
 int get_connect_disk_count(void) { return connect_count; }
 
+int get_hw_disk_id_by_name(const char* name) {
+    for (int i = 0; i < hw_count; i++) {
+        if (str_match_local(hw_registry[i].name, name)) return i;
+    }
+    return -1;
+}
+
 int is_sovereign_disk(int disk_id) {
     if (disk_id < 0 || disk_id >= hw_count) return 0;
     void* malloc(size_t size);

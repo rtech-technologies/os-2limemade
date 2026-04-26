@@ -9,6 +9,9 @@ rsl_syscall_stub:
     push %rbp
     mov %rsp, %rbp
 
+    # 16-byte Alignment for ABI
+    and $-16, %rsp
+
     # Call C handler
     # Arguments already in RDI, RSI, RDX, RCX (Wait, syscall uses different regs)
     # Our inline asm uses RDI, RSI, RDX. RAX is the ID.
@@ -21,6 +24,7 @@ rsl_syscall_stub:
     call rsl_syscall_handler
 
     # Restore registers and return
+    mov %rbp, %rsp
     pop %rbp
     pop %r11
     pop %rcx
