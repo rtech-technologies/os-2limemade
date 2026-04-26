@@ -27,7 +27,7 @@ KERNEL_OBJ = $(KERNEL_SRC:.c=.o) $(AS_SRC:.s=.o)
 KERNEL_ELF = kernel.elf
 
 # Standalone Programs (Flat RSL Binaries)
-PROGRAMS = wm.bin editor.bin jit.bin
+PROGRAMS = wm.bin editor.bin jit.bin gui_test.bin nk_demo.bin
 PROG_LDFLAGS = -Wl,-T,programs/linker.ld -static -nostdlib
 
 ISO_IMAGE = osx2.iso

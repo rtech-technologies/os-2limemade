@@ -172,7 +172,7 @@ static int cursor_x = 0;
 static int cursor_y = 0;
 static bool cursor_visible = true;
 
-#define SCALE 2
+int g_vga_scale = 2;
 #define TERM_COLS 80
 #define TERM_ROWS 40
 
@@ -249,6 +249,11 @@ void vga_draw_mouse(int x, int y) {
     }
 }
 
+void vga_set_scale(int scale) {
+    if (scale < 1) scale = 1;
+    g_vga_scale = scale;
+}
+
 void draw_char_pixel(char c, int px, int py, uint32_t fg, uint32_t bg) {
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;
@@ -258,10 +263,10 @@ void draw_char_pixel(char c, int px, int py, uint32_t fg, uint32_t bg) {
     for (int i = 0; i < 8; i++) {
         for (int j = 0; j < 8; j++) {
             uint32_t color = (glyph[i] & (1 << (7 - j))) ? fg : bg;
-            for (int sy = 0; sy < SCALE; sy++) {
-                for (int sx = 0; sx < SCALE; sx++) {
-                    int final_x = px + (j * SCALE) + sx;
-                    int final_y = py + (i * SCALE) + sy;
+            for (int sy = 0; sy < g_vga_scale; sy++) {
+                for (int sx = 0; sx < g_vga_scale; sx++) {
+                    int final_x = px + (j * g_vga_scale) + sx;
+                    int final_y = py + (i * g_vga_scale) + sy;
                     if (final_x >= 0 && (uint64_t)final_x < fb->width && final_y >= 0 && (uint64_t)final_y < fb->height) {
                         uint32_t* pixel = (uint32_t*)(fb->address + final_y * fb->pitch + final_x * 4);
                         *pixel = color;
@@ -273,7 +278,7 @@ void draw_char_pixel(char c, int px, int py, uint32_t fg, uint32_t bg) {
 }
 
 void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
-    draw_char_pixel(c, x * 8 * SCALE, y * 8 * SCALE, fg, bg);
+    draw_char_pixel(c, x * 8 * g_vga_scale, y * 8 * g_vga_scale, fg, bg);
 }
 
 void vga_set_selection(int x1, int y1, int x2, int y2) {
@@ -304,7 +309,7 @@ void vga_write_char(char c, uint8_t color_attr) {
 
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;
-    int char_width = 8 * SCALE;
+    int char_width = 8 * g_vga_scale;
     int max_cols = fb->width / char_width;
 
     uint32_t fg = vga_colors[color_attr & 0x0F];
@@ -357,7 +362,7 @@ void vga_write_char(char c, uint8_t color_attr) {
     struct limine_framebuffer_response* fb_resp = get_framebuffer();
     if (!fb_resp || fb_resp->framebuffer_count == 0) return;
 
-    int char_height = 8 * SCALE;
+    int char_height = 8 * g_vga_scale;
     /* OSx2: Cap terminal based on user configuration */
     /* Leave room for telemetry row */
     int max_rows = (fb->height / char_height) - 1;
@@ -409,9 +414,9 @@ void vga_refresh_screen(void) {
     vga_erase_mouse();
 
     struct limine_framebuffer* fb = global_fb;
-    int char_width = 8 * SCALE;
+    int char_width = 8 * g_vga_scale;
     int max_cols = fb->width / char_width;
-    int char_height = 8 * SCALE;
+    int char_height = 8 * g_vga_scale;
     int max_rows = (fb->height / char_height) - 1;
 
     for (int r = 0; r < max_rows; r++) {
@@ -442,8 +447,8 @@ void vga_refresh_screen(void) {
 void telemetry_update(int task_id, const char* status) {
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;
-    int char_height = 8 * SCALE;
-    int char_width = 8 * SCALE;
+    int char_height = 8 * g_vga_scale;
+    int char_width = 8 * g_vga_scale;
     int bottom_row = (fb->height / char_height) - 1;
     int max_cols = fb->width / char_width;
 
@@ -556,10 +561,10 @@ void vga_pulse_cursor(void) {
         cursor_visible = !cursor_visible;
         /* Full Pure Green Pulse for Text Cursor visibility */
         uint32_t color = cursor_visible ? 0x00FF00 : 0x000000;
-        /* Draw 8x16 block cursor */
-        for (int i = 0; i < 8 * SCALE; i++) {
-            for (int j = 0; j < 8 * SCALE; j++) {
-                draw_pixel(cursor_x * 8 * SCALE + j, cursor_y * 8 * SCALE + i, color);
+        /* Draw block cursor based on scale */
+        for (int i = 0; i < 8 * g_vga_scale; i++) {
+            for (int j = 0; j < 8 * g_vga_scale; j++) {
+                draw_pixel(cursor_x * 8 * g_vga_scale + j, cursor_y * 8 * g_vga_scale + i, color);
             }
         }
     }

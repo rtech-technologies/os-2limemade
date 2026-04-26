@@ -53,6 +53,12 @@ static inline uint64_t rsl_syscall(uint64_t id, uint64_t a1, uint64_t a2, uint64
 #define rsl_scan() rsl_syscall(19, 0, 0, 0)
 #define rsl_eject(p) rsl_syscall(20, (uint64_t)(p), 0, 0)
 
+/* GUI API */
+#define rsl_get_fb_info(idx) rsl_syscall(202, (uint64_t)(idx), 0, 0)
+#define rsl_de_start() rsl_syscall(203, 0, 0, 0)
+#define rsl_get_mouse(idx) rsl_syscall(204, (uint64_t)(idx), 0, 0)
+#define rsl_draw_char(c, px, py, fg, bg) rsl_syscall(213, (uint64_t)(c) | ((uint64_t)(px) << 32), (uint64_t)(py) | ((uint64_t)(fg) << 32), (uint64_t)(bg))
+
 #else
 /*
  * Kernel Mode: Direct Linkage

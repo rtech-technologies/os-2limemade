@@ -71,4 +71,9 @@ void rtc64_wm_task(void);
 void rtc64_draw_rect(int x, int y, int w, int h, uint32_t color);
 void rtc64_draw_text(const char* s, int x, int y, uint32_t color);
 
+/* ImGui Backend Primitives */
+void rtc64_draw_line(int x1, int y1, int x2, int y2, uint32_t color);
+void rtc64_draw_triangle(int x1, int y1, int x2, int y2, int x3, int y3, uint32_t color);
+void rtc64_blit(int x, int y, int w, int h, uint32_t* data);
+
 #endif

@@ -2,6 +2,7 @@
 #include <kernel/unice64/task.h>
 #include <include/rsl.h>
 #include <include/cmdlets.h>
+#include <limine.h>
 
 void rsl_execute_command(char* line);
 void* input(const char* prompt);
@@ -75,6 +76,67 @@ uint64_t rsl_syscall_handler(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3)
             return 0;
         }
         case 201: { /* RTC64 Get Surface - Placeholder */
+            return 0;
+        }
+        case 202: { /* Get Framebuffer Info */
+            struct limine_framebuffer_response* get_framebuffer(void);
+            struct limine_framebuffer_response* fb_resp = get_framebuffer();
+            if (!fb_resp || fb_resp->framebuffer_count == 0) return 0;
+            struct limine_framebuffer* fb = fb_resp->framebuffers[0];
+            if (a1 == 0) return (uint64_t)fb->address;
+            if (a1 == 1) return fb->width;
+            if (a1 == 2) return fb->height;
+            if (a1 == 3) return fb->pitch;
+            return 0;
+        }
+        case 203: { /* DE_start - Prepare for GUI High Fidelity Mode */
+            void vga_set_scale(int scale);
+            vga_set_scale(1);
+            void vga_clear(void);
+            vga_clear();
+            return 0;
+        }
+        case 204: { /* Get Mouse State */
+            #include <include/mouse.h>
+            mouse_state_t* ms = get_mouse_state();
+            if (a1 == 0) return ms->x;
+            if (a1 == 1) return ms->y;
+            if (a1 == 2) {
+                uint64_t buttons = 0;
+                if (ms->left_button) buttons |= 1;
+                if (ms->right_button) buttons |= 2;
+                if (ms->middle_button) buttons |= 4;
+                return buttons;
+            }
+            return 0;
+        }
+        case 210: { /* GUI Draw Line (x1:y1, x2:y2, color) */
+            uint32_t x1 = (uint32_t)(a1 >> 32), y1 = (uint32_t)a1;
+            uint32_t x2 = (uint32_t)(a2 >> 32), y2 = (uint32_t)a2;
+            void rtc64_draw_line(int x1, int y1, int x2, int y2, uint32_t color);
+            rtc64_draw_line(x1, y1, x2, y2, (uint32_t)a3);
+            return 0;
+        }
+        case 211: { /* ImGui Draw Triangle (p1, p2, p3, color) - Packed args */
+            /* a1: x1:y1, a2: x2:y2, a3: x3:y3, a4 (not present, use global color or pack) */
+            /* Simplified: ID 211 (p1:x|y, p2:x|y, p3:x|y) - uses current color */
+            uint32_t x1 = (uint32_t)(a1 >> 32), y1 = (uint32_t)a1;
+            uint32_t x2 = (uint32_t)(a2 >> 32), y2 = (uint32_t)a2;
+            uint32_t x3 = (uint32_t)(a3 >> 32), y3 = (uint32_t)a3;
+            void rtc64_draw_triangle(int x1, int y1, int x2, int y2, int x3, int y3, uint32_t color);
+            rtc64_draw_triangle(x1, y1, x2, y2, x3, y3, 0xFFFFFF);
+            return 0;
+        }
+        case 212: { /* GUI Blit (x, y, w, h, data) */
+            uint32_t x = (uint32_t)(a1 >> 32), y = (uint32_t)a1;
+            uint32_t w = (uint32_t)(a2 >> 32), h = (uint32_t)a2;
+            void rtc64_blit(int x, int y, int w, int h, uint32_t* data);
+            rtc64_blit(x, y, w, h, (uint32_t*)translate_user_ptr((void*)a3));
+            return 0;
+        }
+        case 213: { /* GUI Draw Char (c, px, py, fg, bg) */
+            void draw_char_pixel(char c, int px, int py, uint32_t fg, uint32_t bg);
+            draw_char_pixel((char)a1, (int)(a1 >> 32), (int)a2, (uint32_t)(a2 >> 32), (uint32_t)a3);
             return 0;
         }
         case 300: return (uint64_t)cmdlets_execute_script((const char*)translate_user_ptr((void*)a1));

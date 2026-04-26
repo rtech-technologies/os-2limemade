@@ -99,12 +99,11 @@ void ahci_port_stop(int p) {
 
 void ahci_port_start(int p) {
     hba_port_t* port = &hba_base->ports[p];
-    serial_print("[AHCI] Port %d: Starting Sequence...\n", p);
 
-    /* Ensure stopped first */
+    /* 1. Ensure the engine is stopped before configuring addresses */
     ahci_port_stop(p);
 
-    /* Physical Registration: The Controller cannot see HHDM */
+    /* 2. Register Physical Addresses (The Controller ignores HHDM) */
     uint64_t clb_phys = virtual_to_physical(port_clb_virt[p]);
     port->clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
     port->clbu = (uint32_t)(clb_phys >> 32);
@@ -113,44 +112,49 @@ void ahci_port_start(int p) {
     port->fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
     port->fbu = (uint32_t)(fb_phys >> 32);
 
-    /* Enable FIS reception */
-    port->cmd |= 0x0010; /* FRE */
+    /* 3. THE QEMU FIX: Force Interface to ACTIVE */
+    /* We clear ICC (bits 28-31) and set it to 1 (Active) */
+    /* We also set SUD (bit 1) to ensure the drive spins up */
+    uint32_t cmd = port->cmd;
+    cmd &= ~0xF0000000;      /* Clear ICC */
+    cmd |= 0x10000000;       /* Set ICC to Active */
+    cmd |= (1 << 1);         /* SUD: Spin Up Device */
+    port->cmd = cmd;
+
+    /* 4. Clear SError and Interrupts to prevent "Ghost" stalls */
+    port->serr = 0xFFFFFFFF;
+    port->is = 0xFFFFFFFF;
+
+    /* 5. Enable FIS reception (FRE) */
+    port->cmd |= (1 << 4);
     pit_wait_ms(10);
 
-    /* Start Engine */
-    port->cmd |= 0x0001; /* ST */
+    /* 6. Start Engine (ST) */
+    port->cmd |= (1 << 0);
 
-    serial_print("[AHCI] Port %d started (CMD: 0x%x, TFD: 0x%x)\n", p, port->cmd, port->tfd);
+    serial_print("[AHCI] Port %d: Engine Online. SSTS: 0x%x, TFD: 0x%x\n",
+                  p, port->ssts, port->tfd);
 }
 
 void ahci_force_port_reset(int port_no) {
     hba_port_t* port = &hba_base->ports[port_no];
-    serial_print("[AHCI] Port %d: Initiating Hardware COMRESET...\n", port_no);
 
     ahci_port_stop(port_no);
 
-    port->serr = 0xFFFFFFFF;
-    port->is = 0xFFFFFFFF;
-
-    /* SCTL: DET=1 (Perform Interface Communication Initialization) */
-    port->sctl = (port->sctl & ~0x0F) | 0x01;
+    /* Perform COMRESET */
+    port->sctl = (port->sctl & ~0x0F) | 0x01; /* DET=1 */
     pit_wait_ms(10);
-    /* SCTL: DET=0 (Normal Operation) */
-    port->sctl = (port->sctl & ~0x0F) | 0x00;
+    port->sctl = (port->sctl & ~0x0F) | 0x00; /* DET=0 */
     pit_wait_ms(100);
 
-    int status_ms = 0;
-    while ((port->ssts & 0x0F) != 0x03 && status_ms < 500) {
+    /* Wait for the link to transition out of "Partial" (0x1) to "Active" (0x3) */
+    int timeout = 500;
+    while ((port->ssts & 0x0F) != 0x03 && timeout--) {
         pit_wait_ms(1);
-        status_ms++;
     }
 
-    if ((port->ssts & 0x0F) == 0x03) {
-        serial_print("[AHCI] Port %d: Link Re-established (SSTS: 0x%x)\n", port_no, port->ssts);
-        ahci_port_start(port_no);
-    } else {
-        serial_print("[AHCI] Port %d: Link Failure (SSTS: 0x%x)\n", port_no, port->ssts);
-    }
+    /* Even if it's 0x113, ahci_port_start will now force it to Active */
+    ahci_port_start(port_no);
 }
 
 void ahci_hardware_audit(int p) {
@@ -301,93 +305,93 @@ int satapi_check_medium(void* priv);
 int satapi_read_capacity(void* priv, uint32_t* out_lba, uint32_t* out_ss);
 int rtech_iso_init(int drive);
 
+void register_hardware_disk_from_port(int p);
+
+static void ahci_init_port_hw(int p) {
+    void* slab_alloc_aligned(int id, size_t size, size_t align);
+    /* CLB Alignment: AHCI Command Lists must be 1KB aligned, FB 256B aligned */
+    port_clb_virt[p] = slab_alloc_aligned(0, 1024, 1024);
+    port_fb_virt[p] = slab_alloc_aligned(0, 4096, 256);
+    port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
+
+    if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
+        serial_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);
+        return;
+    }
+
+    ahci_force_port_reset(p);
+
+    /* Signature Delay: Wait for hardware to update registers after reset */
+    pit_wait_ms(10);
+}
+
 void ahci_scan_remaining(void) {
     if (!hba_base) return;
-    serial_write_str("[AHCI] Performing extended scan (Ports 9-31)...\n");
-    void* slab_alloc_aligned(int id, size_t size, size_t align);
-    for (int p = 9; p < 32; p++) {
+    static bool scanned = false;
+    if (scanned) return;
+    scanned = true;
+
+    serial_write_str("[AHCI] Performing background scan (Ports 5-31)...\n");
+    for (int p = 5; p < 32; p++) {
         if (hba_base->pi & (1 << p)) {
-            /* CLB Alignment: AHCI Command Lists must be 1KB aligned, FB 256B aligned */
-            port_clb_virt[p] = slab_alloc_aligned(0, 1024, 1024);
-            port_fb_virt[p] = slab_alloc_aligned(0, 4096, 256);
-            port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
-
-            if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
-                serial_write_str("[AHCI] FATAL: Port Heap Allocation Failure.\n");
-                continue;
-            }
-
-            /* Physical Registration: The Controller cannot see HHDM */
-            uint64_t clb_phys = virtual_to_physical(port_clb_virt[p]);
-            hba_base->ports[p].clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
-            hba_base->ports[p].clbu = (uint32_t)(clb_phys >> 32);
-
-            uint64_t fb_phys = virtual_to_physical(port_fb_virt[p]);
-            hba_base->ports[p].fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
-            hba_base->ports[p].fbu = (uint32_t)(fb_phys >> 32);
-
-            uint64_t ctba_phys = virtual_to_physical(port_ctba_virt[p]);
-            hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
-            cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
-            cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
-
-            ahci_force_port_reset(p);
-
-            /* Signature Delay: Wait for hardware to update registers after reset */
-            pit_wait_ms(10);
-
+            ahci_init_port_hw(p);
             if ((hba_base->ports[p].ssts & 0x0F) == 0x03) {
-                uint32_t sig = hba_base->ports[p].sig;
-                if (sig == 0x00000101) { /* SATA */
-                    vdisk_node_t sata_disk = {
-                        .name = "SATA_HDD",
-                        .sector_size = 512,
-                        .total_lba = 1024 * 1024 * 10,
-                        .partition_offset = 2048, /* GPT Sovereignty Offset */
-                        .read_lba = ahci_read_sectors,
-                        .write_lba = ahci_write_sectors,
-                        .private_data = (void*)(uint64_t)p,
-                        .is_atapi = false
-                    };
-                    register_hardware_disk(sata_disk);
-                    serial_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
-                } else if (sig == 0xEB140101) { /* ATAPI */
-                    vdisk_node_t cdrom = {
-                        .name = "SATA_CD",
-                        .sector_size = 2048,
-                        .total_lba = 0,
-                        .partition_offset = 0,
-                        .read_lba = satapi_read_sectors,
-                        .write_lba = NULL,
-                        .eject = satapi_eject,
-                        .private_data = (void*)(uint64_t)p,
-                        .is_atapi = true
-                    };
-
-                    /* IDENTIFY PACKET DEVICE logic */
-                    if (satapi_identify(cdrom.private_data) == 0 &&
-                        satapi_check_medium(cdrom.private_data) == 0) {
-                        uint32_t max_lba, block_size;
-                        if (satapi_read_capacity(cdrom.private_data, &max_lba, &block_size) == 0) {
-                            cdrom.total_lba = (uint64_t)max_lba + 1;
-                            cdrom.sector_size = block_size;
-                        }
-                    } else {
-                        /* Label as No Medium */
-                        int k = 0; const char* tag = " [NO MEDIUM]";
-                        while(cdrom.name[k]) k++;
-                        while(*tag) cdrom.name[k++] = *tag++;
-                        cdrom.name[k] = '\0';
-                    }
-
-                    register_hardware_disk(cdrom);
-                    serial_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
-
-                    /* ISO Discovery Handshake */
-                    rtech_iso_init(get_hw_disk_count() - 1);
-                }
+                register_hardware_disk_from_port(p);
             }
+            sys_yield(); /* Background: Don't hog init time */
         }
+    }
+}
+
+void register_hardware_disk_from_port(int p) {
+    uint32_t sig = hba_base->ports[p].sig;
+    if (sig == 0x00000101) { /* SATA */
+        vdisk_node_t sata_disk = {
+            .name = "SATA_HDD",
+            .sector_size = 512,
+            .total_lba = 1024 * 1024 * 10,
+            .partition_offset = 2048, /* GPT Sovereignty Offset */
+            .read_lba = ahci_read_sectors,
+            .write_lba = ahci_write_sectors,
+            .private_data = (void*)(uint64_t)p,
+            .is_atapi = false
+        };
+        register_hardware_disk(sata_disk);
+        serial_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
+    } else if (sig == 0xEB140101) { /* ATAPI */
+        vdisk_node_t cdrom = {
+            .name = "SATA_CD",
+            .sector_size = 2048,
+            .total_lba = 0,
+            .partition_offset = 0,
+            .read_lba = satapi_read_sectors,
+            .write_lba = NULL,
+            .eject = satapi_eject,
+            .private_data = (void*)(uint64_t)p,
+            .is_atapi = true
+        };
+
+        int satapi_identify(void* priv);
+        if (satapi_identify(cdrom.private_data) == 0 &&
+            satapi_check_medium(cdrom.private_data) == 0) {
+            uint32_t max_lba, block_size;
+            if (satapi_read_capacity(cdrom.private_data, &max_lba, &block_size) == 0) {
+                cdrom.total_lba = (uint64_t)max_lba + 1;
+                cdrom.sector_size = block_size;
+            }
+        } else {
+            /* Label as No Medium */
+            int k = 0; const char* tag = " [NO MEDIUM]";
+            while(cdrom.name[k]) k++;
+            while(*tag) cdrom.name[k++] = *tag++;
+            cdrom.name[k] = '\0';
+        }
+
+        register_hardware_disk(cdrom);
+        serial_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
+
+        /* ISO Discovery Handshake */
+        rtech_iso_init(get_hw_disk_count() - 1);
     }
 }
 
@@ -424,87 +428,12 @@ void ahci_service(kernel_event_t event) {
                     }
                     hba_base->ghc |= (1 << 31); /* AE */
 
-                    /* OSx2: Scan the first 9 ports on boot per Sovereign mandate */
-                    void* slab_alloc_aligned(int id, size_t size, size_t align);
-                    for (int p = 0; p < 9; p++) {
+                    /* OSx2: Scan the first 5 ports on boot per Sovereign mandate (Single Threaded) */
+                    for (int p = 0; p < 5; p++) {
                         if (hba_base->pi & (1 << p)) {
-                            /* CLB Alignment: AHCI Command Lists must be 1KB aligned, FB 256B aligned */
-                            port_clb_virt[p] = slab_alloc_aligned(0, 1024, 1024);
-                            port_fb_virt[p] = slab_alloc_aligned(0, 4096, 256);
-                            port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
-
-                            if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
-                                serial_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);
-                                continue;
-                            }
-
-                            /* Physical Registration: The Controller cannot see HHDM */
-                            uint64_t clb_phys = virtual_to_physical(port_clb_virt[p]);
-                            hba_base->ports[p].clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
-                            hba_base->ports[p].clbu = (uint32_t)(clb_phys >> 32);
-
-                            uint64_t fb_phys = virtual_to_physical(port_fb_virt[p]);
-                            hba_base->ports[p].fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
-                            hba_base->ports[p].fbu = (uint32_t)(fb_phys >> 32);
-
-                            uint64_t ctba_phys = virtual_to_physical(port_ctba_virt[p]);
-                            hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
-                            cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
-                            cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
-
-                            ahci_force_port_reset(p);
-
-                            /* Signature Delay: Wait for hardware to update registers after reset */
-                            pit_wait_ms(10);
-
+                            ahci_init_port_hw(p);
                             if ((hba_base->ports[p].ssts & 0x0F) == 0x03) {
-                                uint32_t sig = hba_base->ports[p].sig;
-                                if (sig == 0x00000101) { /* SATA */
-                                    vdisk_node_t sata_disk = {
-                                        .name = "SATA_HDD",
-                                        .sector_size = 512,
-                                        .total_lba = 1024 * 1024 * 10,
-                                        .partition_offset = 2048, /* GPT Sovereignty Offset */
-                                        .read_lba = ahci_read_sectors,
-                                        .write_lba = ahci_write_sectors,
-                                        .private_data = (void*)(uint64_t)p,
-                                        .is_atapi = false
-                                    };
-                                    register_hardware_disk(sata_disk);
-                                    serial_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
-                                } else if (sig == 0xEB140101) { /* ATAPI */
-                                    vdisk_node_t cdrom = {
-                                        .name = "SATA_CD",
-                                        .sector_size = 2048,
-                        .total_lba = 0,
-                        .partition_offset = 0,
-                        .read_lba = satapi_read_sectors,
-                                        .write_lba = NULL,
-                        .eject = satapi_eject,
-                                        .private_data = (void*)(uint64_t)p,
-                                        .is_atapi = true
-                                    };
-
-                    if (satapi_check_medium(cdrom.private_data) == 0) {
-                        uint32_t max_lba, block_size;
-                        if (satapi_read_capacity(cdrom.private_data, &max_lba, &block_size) == 0) {
-                            cdrom.total_lba = (uint64_t)max_lba + 1;
-                            cdrom.sector_size = block_size;
-                        }
-                    } else {
-                        /* Label as No Medium */
-                        int k = 0; const char* tag = " [NO MEDIUM]";
-                        while(cdrom.name[k]) k++;
-                        while(*tag) cdrom.name[k++] = *tag++;
-                        cdrom.name[k] = '\0';
-                    }
-
-                    register_hardware_disk(cdrom);
-                    serial_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
-
-                    /* ISO Discovery Handshake */
-                    rtech_iso_init(get_hw_disk_count() - 1);
-                }
+                                register_hardware_disk_from_port(p);
                             }
                         }
                     }

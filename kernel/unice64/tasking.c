@@ -56,10 +56,6 @@ bool tasking_is_scanning(void) {
 
 void (*pending_shell_entry)(void) = NULL;
 
-void tasking_create_kernel_thread(void (*entry)(void), const char* name) {
-    (void)name;
-    pending_shell_entry = entry;
-}
 
 void tasking_create_process(const char* name) {
     (void)name;
@@ -121,6 +117,17 @@ int tasking_spawn_app(const char* path) {
 
 void print_service_task(void);
 
+#define MAX_PENDING_THREADS 8
+static void (*pending_threads[MAX_PENDING_THREADS])(void);
+static int pending_thread_count = 0;
+
+void tasking_create_kernel_thread(void (*entry)(void), const char* name) {
+    (void)name;
+    if (pending_thread_count < MAX_PENDING_THREADS) {
+        pending_threads[pending_thread_count++] = entry;
+    }
+}
+
 void tasking_init(void) {
     /* ENFORCE: Initialize scheduler state BEFORE registering tasks */
     unice64_scheduler_init();
@@ -132,8 +139,8 @@ void tasking_init(void) {
     register_task(system_task, 1);
 
     /* Register Shell Task in Slab 2 */
-    if (pending_shell_entry) {
-        register_task(pending_shell_entry, 2);
+    for (int i = 0; i < pending_thread_count; i++) {
+        register_task(pending_threads[i], 2 + i);
     }
 
     /* Context Guard: Verify that tasks were registered correctly */
