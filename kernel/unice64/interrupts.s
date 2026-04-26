@@ -34,10 +34,9 @@ irq_timer_handler:
     pushq %r15
 
     # SSE HARDENING: Save SSE state on stack to prevent corruption during C calls
-    # We need 512 bytes + 16 byte alignment. Sub 528 ensures we have space even if aligned down.
-    sub $528, %rsp
+    # We need 512 bytes + 16 byte alignment
+    sub $512, %rsp
     mov %rsp, %rdi
-    add $15, %rdi
     and $-16, %rdi
     fxsave (%rdi)
 
@@ -55,8 +54,10 @@ irq_timer_handler:
     # Yield detected: Clear the signal and perform full context switch
     call scheduler_clear_yield
 
-    # Restore SSE state before potential task switch
-    add $528, %rsp
+    # Restore SSE state before potential task switch (actually switch will handle its own)
+    # But if we are switching, we discard the current saved state on stack and let the
+    # context switcher handle the TCB-based save.
+    add $512, %rsp
 
     # Restore ALL GPRs before full context switch takes over
     popq %r15
@@ -86,10 +87,9 @@ irq_timer_handler:
 
     # Restore SSE state
     mov %rsp, %rdi
-    add $15, %rdi
     and $-16, %rdi
     fxrstor (%rdi)
-    add $528, %rsp
+    add $512, %rsp
 
     # Restore ALL GPRs
     popq %r15

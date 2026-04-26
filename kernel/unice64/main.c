@@ -22,6 +22,14 @@ void apic_init(void);
 void apic_timer_init(uint32_t count);
 void tasking_init(void);
 void slab_init(void);
+struct limine_module_response* get_modules(void);
+
+void internal_fs_ls(void* path, void* priv);
+void internal_fs_cat(void* path, void* priv);
+void internal_fs_write(void* path, void* content, void* priv);
+void internal_fs_mkdir(void* path, void* priv);
+void internal_fs_rmdir(void* path, void* priv);
+bool internal_fs_exists(void* path, void* priv);
 
 /* 32KB Sovereign Stack */
 __attribute__((used, section(".bss"), aligned(16)))
@@ -136,14 +144,6 @@ void _start(void) {
             vga_print("[FS] Volume %d verified as Sovereign.\n", i);
             mount_success = true;
 
-            /* Bridge to VFS */
-            void internal_fs_ls(void* path, void* priv);
-            void internal_fs_cat(void* path, void* priv);
-            void internal_fs_write(void* path, void* content, void* priv);
-            void internal_fs_mkdir(void* path, void* priv);
-            void internal_fs_rmdir(void* path, void* priv);
-            bool internal_fs_exists(void* path, void* priv);
-
             vfs_node_t boot_node = {
                 .private_data = &boot_fs,
                 .ls = internal_fs_ls,
@@ -167,8 +167,56 @@ void _start(void) {
         vga_print("\n[CRITICAL] SYSTEM CANNOT FIND BOOT DISK.\n");
         vga_print("[CRITICAL] ENTERING SAFE MODE.\n");
         vfs_set_safe_mode(true);
+
+        /* Try to mount INITRD as a fallback BOOT if physical fails */
+        struct limine_module_response* mod_resp = get_modules();
+        if (mod_resp && mod_resp->module_count > 0) {
+            vga_print("[BOOT] Mounting INITRD as fallback BOOT node...\n");
+            static FATFS initrd_fs;
+            /* RAMDISK is always Disk 0 if registered during vdisk_service init */
+            if (f_mount(&initrd_fs, 0) == FR_OK) {
+                vfs_node_t initrd_node = {
+                    .private_data = &initrd_fs,
+                    .ls = internal_fs_ls,
+                    .cat = internal_fs_cat,
+                    .write = internal_fs_write,
+                    .mkdir = internal_fs_mkdir,
+                    .rmdir = internal_fs_rmdir,
+                    .exists = internal_fs_exists
+                };
+                const char* iname = "INITRD";
+                int ik = 0; while(iname[ik]) { initrd_node.name[ik] = iname[ik]; ik++; } initrd_node.name[ik] = '\0';
+                vfs_register_node(initrd_node);
+
+                /* Alias INITRD as BOOT for system scripts */
+                const char* bname = "BOOT";
+                int bk = 0; while(bname[bk]) { initrd_node.name[bk] = bname[bk]; bk++; } initrd_node.name[bk] = '\0';
+                vfs_register_node(initrd_node);
+                vga_print("[BOOT] INITRD promoted to BOOT node.\n");
+                mount_success = true;
+            }
+        }
     } else {
         vfs_set_safe_mode(false);
+        /* Also register INITRD node for direct access if physical boot succeeded */
+        struct limine_module_response* mod_resp = get_modules();
+        if (mod_resp && mod_resp->module_count > 0) {
+            static FATFS initrd_fs;
+            if (f_mount(&initrd_fs, 0) == FR_OK) {
+                vfs_node_t initrd_node = {
+                    .private_data = &initrd_fs,
+                    .ls = internal_fs_ls,
+                    .cat = internal_fs_cat,
+                    .write = internal_fs_write,
+                    .mkdir = internal_fs_mkdir,
+                    .rmdir = internal_fs_rmdir,
+                    .exists = internal_fs_exists
+                };
+                const char* iname = "INITRD";
+                int ik = 0; while(iname[ik]) { initrd_node.name[ik] = iname[ik]; ik++; } initrd_node.name[ik] = '\0';
+                vfs_register_node(initrd_node);
+            }
+        }
     }
 
     /* Initialize Active-Relay Multitasking */

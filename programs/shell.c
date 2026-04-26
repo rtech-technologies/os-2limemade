@@ -12,9 +12,9 @@ void shell_main(void) {
 
     /* Automated Sovereignty: Try to execute BOOT.RSL */
     int rsl_execute_stream(const char* path);
-    if (rsl_execute_stream("BOOT:/BOOT.RSL") != 0) {
+    if (rsl_execute_stream("BOOT:/sys/boot.rsl") != 0) {
         set_color(LIGHT_RED, BLACK);
-        print("Warning: BOOT.RSL failed to load.\n");
+        print("Warning: /sys/boot.rsl failed to load.\n");
         set_color(GREEN, BLACK);
     }
 
@@ -28,7 +28,7 @@ void shell_main(void) {
             if (str_match(choice, "1")) {
                 print("Preparing Installation...\n");
                 int rsl_execute_stream(const char* path);
-                rsl_execute_stream("BOOT:/install.rsl");
+                rsl_execute_stream("BOOT:/sys/install.rsl");
                 release(choice);
                 break;
             } else if (str_match(choice, "2")) {

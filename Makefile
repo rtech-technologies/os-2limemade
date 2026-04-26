@@ -88,14 +88,16 @@ programs: $(PROGRAMS)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 iso: limine-setup kernel programs
+	@rm -rf iso_root
 	@mkdir -p iso_root/boot
+	@mkdir -p iso_root/bin
+	@mkdir -p iso_root/sys
 	@cp $(KERNEL_ELF) iso_root/boot/
-	@cp $(PROGRAMS) iso_root/
-	@touch iso_root/install.rsl
-	@echo "format 0" > iso_root/install.rsl
-	@echo "mount 0" >> iso_root/install.rsl
-	@echo "write BOOT:/boot.rsl \"echo Sovereign Boot sequence initiated.\"" >> iso_root/install.rsl
-	@cp boot/limine.cfg iso_root/
+	@cp $(PROGRAMS) iso_root/bin/
+	@echo "format 0" > iso_root/sys/install.rsl
+	@echo "mount 0" >> iso_root/sys/install.rsl
+	@echo "write BOOT:/sys/boot.rsl \"echo Sovereign Boot sequence initiated.\"" >> iso_root/sys/install.rsl
+	@cp boot/limine.cfg iso_root/boot/
 	@python3 scripts/fat_tool.py ramdisk.img
 	@cp ramdisk.img iso_root/boot/
 	@if command -v xorriso >/dev/null 2>&1; then \
