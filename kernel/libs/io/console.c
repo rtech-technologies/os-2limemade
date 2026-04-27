@@ -30,9 +30,14 @@ void set_color(color_t fg, color_t bg) {
 void print(const char* s) {
     if (!s) return;
 
-    /* Mirroring Gate: vga_write_char handles both VGA and Serial output */
-    for (int i = 0; s[i] != '\0'; i++) {
-        vga_write_char(s[i], current_color_val);
+    /* Always output to Serial */
+    serial_write_str(s);
+
+    /* Output to VGA if not silenced */
+    if (!g_vga_silent) {
+        for (int i = 0; s[i] != '\0'; i++) {
+            vga_write_char(s[i], current_color_val);
+        }
     }
 }
 
@@ -62,18 +67,22 @@ void vga_print(const char* fmt, ...) {
             i++;
             if (fmt[i] == 'd') {
                 int n = __builtin_va_arg(args, int);
-                print_num(n, 10);
+                serial_print_num(n, 10);
+                if (!g_vga_silent) print_num(n, 10);
             } else if (fmt[i] == 'x') {
                 uint32_t n = __builtin_va_arg(args, uint32_t);
-                print_num(n, 16);
+                serial_print_num(n, 16);
+                if (!g_vga_silent) print_num(n, 16);
             } else if (fmt[i] == 's') {
                 char* s = __builtin_va_arg(args, char*);
-                if (s) {
+                serial_write_str(s);
+                if (!g_vga_silent) {
                     for (int k = 0; s[k] != '\0'; k++) vga_write_char(s[k], current_color_val);
                 }
             }
         } else {
-            vga_write_char(fmt[i], current_color_val);
+            serial_write_char(fmt[i]);
+            if (!g_vga_silent) vga_write_char(fmt[i], current_color_val);
         }
     }
     __builtin_va_end(args);

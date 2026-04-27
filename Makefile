@@ -27,7 +27,8 @@ KERNEL_OBJ = $(KERNEL_SRC:.c=.o) $(AS_SRC:.s=.o)
 KERNEL_ELF = kernel.elf
 
 # Standalone Programs (Flat RSL Binaries)
-PROGRAMS = wm.bin editor.bin jit.bin gui_test.bin nk_demo.bin
+PROGRAMS = wm.bin editor.bin jit.bin gui_test.bin
+NUKLEAR_PROGS = nk_demo.bin
 PROG_LDFLAGS = -Wl,-T,programs/linker.ld -static -nostdlib
 
 ISO_IMAGE = osx2.iso
@@ -76,7 +77,10 @@ kernel: limine-setup $(KERNEL_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(KERNEL_OBJ) -o $(KERNEL_ELF)
 	@echo "OSx2 Limemade Kernel Compiled: $(KERNEL_ELF)"
 
-programs: $(PROGRAMS)
+programs: $(PROGRAMS) $(NUKLEAR_PROGS)
+
+nk_demo.bin: programs/nuklear/nk_demo.c programs/nuklear/nk_sovereign.h programs/nuklear/rsl_libc.h
+	$(CC) $(CFLAGS) -DRSL_BINARY_MODE $(PROG_LDFLAGS) -Iprograms/nuklear $< -o $@
 
 %.bin: programs/%.c
 	$(CC) $(CFLAGS) -DRSL_BINARY_MODE $(PROG_LDFLAGS) $< -o $@
@@ -93,7 +97,7 @@ iso: limine-setup kernel programs
 	@mkdir -p iso_root/bin
 	@mkdir -p iso_root/sys
 	@cp $(KERNEL_ELF) iso_root/boot/
-	@cp $(PROGRAMS) iso_root/bin/
+	@cp $(PROGRAMS) $(NUKLEAR_PROGS) iso_root/bin/
 	@echo "format 0" > iso_root/sys/install.rsl
 	@echo "mount 0" >> iso_root/sys/install.rsl
 	@echo "write BOOT:/sys/boot.rsl \"echo Sovereign Boot sequence initiated.\"" >> iso_root/sys/install.rsl
