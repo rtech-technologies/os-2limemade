@@ -7,9 +7,7 @@
 #include <kernel/libs/core/pci.h>
 #include <include/ahci_hw.h>
 #include <include/panic.h>
-
-void* malloc(size_t size);
-void free(void* ptr);
+#include <include/stdlib.h>
 
 void serial_write_str(const char* s);
 

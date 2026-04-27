@@ -1,4 +1,5 @@
 #include <include/rsl.h>
+#include <programs/libc/libc.h>
 
 int main(int argc, char** argv) {
     if (argc < 2) {

@@ -1,5 +1,7 @@
+#include <include/stdlib.h>
+#include <include/string.h>
+#include <include/math.h>
 #include <stdint.h>
-#include <stddef.h>
 
 #ifdef RSL_BINARY_MODE
 /* Userland Syscall Wrapper */

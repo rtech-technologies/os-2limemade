@@ -1,4 +1,5 @@
 #include "nk_sovereign.h"
+#include <programs/libc/libc.h>
 
 int main(void) {
     nk_sovereign_t* dev = nk_sovereign_init();
