@@ -1,5 +1,4 @@
 #include <include/rsl.h>
-#include <programs/libc/libc.h>
 
 int main(void) {
     print("[OSx2] Text Editor starting...\n");

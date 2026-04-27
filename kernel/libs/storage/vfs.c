@@ -1,8 +1,9 @@
 #include <include/vfs.h>
 #include <include/rsl.h>
+#include <include/stdlib.h>
+#include <include/string.h>
 #include <kernel/libs/storage/fatfs/ff.h>
 #include <kernel/libs/storage/vdisk.h>
-#include <stddef.h>
 
 #define MAX_VFS_NODES 16
 static vfs_node_t vfs_registry[MAX_VFS_NODES];
@@ -243,11 +244,10 @@ bool vfs_exists(void* path) {
     return false;
 }
 
-void* bump_alloc(size_t size);
 void vga_print(const char* fmt, ...);
 
 int vfs_mount_auto(int drive_id, const char* mount_point) {
-    uint8_t* sector = bump_alloc(2048);
+    uint8_t* sector = malloc(2048);
     if (!sector) return -1;
 
     /* Check A: ISO 9660 (via xorriso) */
@@ -337,7 +337,7 @@ vfs_handle_t* vfs_open(void* path, const char* mode) {
     FIL fil;
     BYTE m = (mode[0] == 'w') ? (FA_WRITE | FA_CREATE_ALWAYS) : FA_READ;
     if (f_open(fs, &fil, subpath_cstr, m) == FR_OK) {
-        vfs_handle_t* h = bump_alloc(sizeof(vfs_handle_t));
+        vfs_handle_t* h = malloc(sizeof(vfs_handle_t));
         if (!h) return NULL;
         h->obj = fs;
         h->sclust = fil.sclust;

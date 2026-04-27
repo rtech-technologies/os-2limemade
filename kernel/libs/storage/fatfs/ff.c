@@ -1,8 +1,9 @@
 #include "ff.h"
 #include <include/rsl.h>
+#include <include/stdlib.h>
+#include <include/string.h>
 #include <kernel/libs/storage/vdisk.h>
 #include <stdint.h>
-#include <stddef.h>
 
 void vga_print(const char* fmt, ...);
 void serial_write_str(const char* s);
@@ -100,7 +101,6 @@ FRESULT f_mount(FATFS* fs, int drive) {
     return FR_OK;
 }
 
-void* bump_alloc(size_t size);
 static uint32_t get_next_cluster(FATFS* fs, uint32_t cluster) {
     uint32_t ss = fs->sector_size ? fs->sector_size : 512;
     uint64_t fat_sector = fs->partition_lba + (uint64_t)fs->reserved_sectors + ((uint64_t)cluster * 4 / ss);

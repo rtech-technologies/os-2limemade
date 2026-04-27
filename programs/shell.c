@@ -1,4 +1,5 @@
 #include <include/rsl.h>
+#include <programs/libc/libc.h>
 
 void shell_main(void) {
     set_color(GREEN, BLACK);

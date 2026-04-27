@@ -1,9 +1,6 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <kernel/libs/core/services.h>
-#include <include/rsl.h>
-
-void serial_write_str(const char* s);
 
 /* Minimal CherryUSB Host Core Mockup/Bridge */
 

@@ -75,10 +75,10 @@ int get_hw_disk_id_by_name(const char* name) {
     return -1;
 }
 
-#include <include/stdlib.h>
-
 int is_sovereign_disk(int disk_id) {
     if (disk_id < 0 || disk_id >= hw_count) return 0;
+    void* malloc(size_t size);
+    void free(void* ptr);
     uint8_t* buf = malloc(512);
     if (!buf) return 0;
 
@@ -137,8 +137,6 @@ bool vdisk_is_atapi(int hw_id) {
     return hw_registry[hw_id].is_atapi;
 }
 
-#include <include/string.h>
-
 static int ramdisk_read(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     (void)priv;
     struct limine_module_response* resp = get_modules();
@@ -149,6 +147,7 @@ static int ramdisk_read(void* priv, uint64_t lba, uint32_t count, void* buffer) 
     size_t size = count * 512;
     if (offset + size > ramdisk->size) return -1;
     uint8_t* src = base + offset;
+    void* memcpy(void* dest, const void* src, size_t n);
     memcpy(buffer, src, size);
     return 0;
 }

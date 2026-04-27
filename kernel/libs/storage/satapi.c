@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <kernel/libs/storage/vdisk.h>
 #include <include/ahci_hw.h>
+#include <include/string.h>
 
 /* External Symbols */
 void vga_print(const char* fmt, ...);
@@ -33,7 +34,6 @@ int satapi_send_packet(int p, uint8_t* scsi_packet, void* buffer, uint32_t len, 
     cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)get_port_ctba(p);
-    void* memset(void* s, int c, size_t n);
     memset(cmdtbl, 0, sizeof(hba_cmd_tbl_t));
 
     if (buffer) {
@@ -85,7 +85,6 @@ int satapi_identify(void* priv) {
     cmdhdr->prdbc = 0;
 
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)get_port_ctba(p);
-    void* memset(void* s, int c, size_t n);
     memset(cmdtbl, 0, sizeof(hba_cmd_tbl_t));
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
     cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);

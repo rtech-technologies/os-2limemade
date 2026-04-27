@@ -2,7 +2,6 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <include/panic.h>
-#include <include/stdlib.h>
 
 uint64_t get_hhdm_offset(void);
 
@@ -86,6 +85,9 @@ void* slab_alloc_aligned(int id, size_t size, size_t align) {
 void* slab_alloc(int id, size_t size) {
     return slab_alloc_aligned(id, size, 16);
 }
+
+void* malloc(size_t size);
+void free(void* ptr);
 
 /* Permanent Buffers: Used by core kernel subsystems (like FatFS) to avoid recycling */
 /* Sovereign Shield: Support up to 4 nested levels for filesystem walk/write operations */

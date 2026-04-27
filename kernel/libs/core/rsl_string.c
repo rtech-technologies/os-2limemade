@@ -1,4 +1,5 @@
 #include <include/rsl.h>
+#include <include/string.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -20,7 +21,6 @@ void* str_create(const char* cstr) {
     if (!r_str) return NULL;
 
     r_str->length = len;
-    void* memcpy(void* dest, const void* src, size_t n);
     memcpy(r_str->data, cstr, len);
     r_str->data[len] = '\0';
 
@@ -87,7 +87,6 @@ void* str_concat(void* s1, void* s2) {
     const char* c1 = str_to_cstr(s1);
     const char* c2 = str_to_cstr(s2);
 
-    void* memcpy(void* dest, const void* src, size_t n);
     memcpy(r_str->data, c1, len1);
     memcpy(r_str->data + len1, c2, len2);
     r_str->data[len1 + len2] = '\0';

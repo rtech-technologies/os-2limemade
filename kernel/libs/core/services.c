@@ -2,7 +2,8 @@
 #include <kernel/unice64/task.h>
 #include <include/rsl.h>
 #include <include/vfs.h>
-#include <stddef.h>
+#include <include/stdlib.h>
+#include <include/string.h>
 
 void vga_print(const char* fmt, ...);
 

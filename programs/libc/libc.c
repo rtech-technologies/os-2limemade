@@ -1,7 +1,5 @@
-#include <include/stdlib.h>
-#include <include/string.h>
-#include <include/math.h>
 #include <stdint.h>
+#include <stddef.h>
 
 #ifdef RSL_BINARY_MODE
 /* Userland Syscall Wrapper */
@@ -16,6 +14,10 @@ static uint8_t* heap_base = NULL;
 static size_t heap_offset = 0;
 #define HEAP_SIZE (4 * 1024 * 1024)
 
+typedef struct {
+    size_t size;
+} alloc_header_t;
+
 void* malloc(size_t size) {
     if (!heap_base) {
         heap_base = (uint8_t*)rsl_syscall(201, 0, 0, 0); /* Get Slab Base */
@@ -23,11 +25,14 @@ void* malloc(size_t size) {
         heap_offset = 1024; /* Reserved for metadata if needed */
     }
 
-    size = (size + 15) & ~15;
-    if (heap_offset + size > HEAP_SIZE) return NULL;
+    size_t total = size + sizeof(alloc_header_t);
+    total = (total + 15) & ~15;
+    if (heap_offset + total > HEAP_SIZE) return NULL;
 
-    void* ptr = heap_base + heap_offset;
-    heap_offset += size;
+    alloc_header_t* hdr = (alloc_header_t*)(heap_base + heap_offset);
+    hdr->size = size;
+    void* ptr = (void*)(hdr + 1);
+    heap_offset += total;
     return ptr;
 }
 
@@ -43,12 +48,12 @@ void* calloc(size_t nmemb, size_t size) {
 
 void* realloc(void* ptr, size_t size) {
     if (!ptr) return malloc(size);
+    alloc_header_t* hdr = (alloc_header_t*)ptr - 1;
+    size_t old_size = hdr->size;
     void* new_ptr = malloc(size);
     if (!new_ptr) return NULL;
-    /* Warning: This simple realloc doesn't know the old size,
-       so it might copy too much or too little if not used carefully
-       In Nuklear it's mostly used for buffer growth. */
-    for (size_t i = 0; i < size; i++) ((uint8_t*)new_ptr)[i] = ((uint8_t*)ptr)[i];
+    size_t copy_size = (size < old_size) ? size : old_size;
+    for (size_t i = 0; i < copy_size; i++) ((uint8_t*)new_ptr)[i] = ((uint8_t*)ptr)[i];
     return new_ptr;
 }
 

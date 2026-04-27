@@ -195,6 +195,15 @@ void rsl_execute_command(char* line) {
             sovereign_request_submit(&req);
             release(req.path);
         }
+    } else if (cstr_match_local(argv[0], "STDE")) {
+        void sovereign_request_submit(system_request_t* req);
+        system_request_t req = {
+            .type = REQ_APP_SPAWN,
+            .path = str_create("BOOT:/bin/wm.bin"),
+            .done = false
+        };
+        sovereign_request_submit(&req);
+        release(req.path);
     } else {
         print("Unknown Command.\n");
     }
