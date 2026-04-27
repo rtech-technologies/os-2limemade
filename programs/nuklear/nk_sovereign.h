@@ -6,34 +6,34 @@
 #define STBRP_ASSERT(x)
 #define STBTT_assert(x)
 
-#include "rsl_libc.h"
+#include <programs/libc/libc.h>
 
-#define NK_MEMCPY rsl_memcpy
-#define NK_MEMSET rsl_memset
+#define NK_MEMCPY memcpy
+#define NK_MEMSET memset
 #define NK_STRTOL(s, e, b) 0
 #define NK_DTOA(s, n)
-#define NK_STRLEN rsl_strlen
-#define STBRP_SORT rsl_qsort
+#define NK_STRLEN strlen
+#define STBRP_SORT qsort
 
-#define NK_SIN(x) rsl_sin(x)
-#define NK_COS(x) rsl_cos(x)
+#define NK_SIN(x) sin(x)
+#define NK_COS(x) cos(x)
 #define NK_ATAN2(y, x) 0
 #define NK_STRTOD(s, e) 0
-#define NK_INV_SQRT(x) (1.0/rsl_sqrt(x))
+#define NK_INV_SQRT(x) (1.0/sqrt(x))
 
-#define STBTT_malloc(x, u) 0
-#define STBTT_free(x, u)
-#define STBTT_strlen rsl_strlen
-#define STBTT_memcpy rsl_memcpy
-#define STBTT_memset rsl_memset
-#define STBTT_pow rsl_pow
-#define STBTT_sqrt rsl_sqrt
-#define STBTT_fmod rsl_fmod
-#define STBTT_cos rsl_cos
-#define STBTT_acos rsl_acos
-#define STBTT_fabs rsl_fabs
-#define STBTT_ifloor rsl_floor
-#define STBTT_iceil rsl_ceil
+#define STBTT_malloc(x, u) malloc(x)
+#define STBTT_free(x, u) free(x)
+#define STBTT_strlen strlen
+#define STBTT_memcpy memcpy
+#define STBTT_memset memset
+#define STBTT_pow pow
+#define STBTT_sqrt sqrt
+#define STBTT_fmod(x, y) ((x) - (int)((x) / (y)) * (y))
+#define STBTT_cos cos
+#define STBTT_acos(x) (1.570796 - (x))
+#define STBTT_fabs fabs
+#define STBTT_ifloor floor
+#define STBTT_iceil ceil
 
 #define NK_IMPLEMENTATION
 #include <include/nuklear.h>

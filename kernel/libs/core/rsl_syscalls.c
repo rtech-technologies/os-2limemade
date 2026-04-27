@@ -75,8 +75,10 @@ uint64_t rsl_syscall_handler(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3)
             rtc64_draw_all();
             return 0;
         }
-        case 201: { /* RTC64 Get Surface - Placeholder */
-            return 0;
+        case 201: { /* Get New Transient Slab */
+            int id = slab_grab_transient();
+            if (id == -1) return 0;
+            return (uint64_t)slab_get_base(id);
         }
         case 202: { /* Get Framebuffer Info */
             struct limine_framebuffer_response* get_framebuffer(void);

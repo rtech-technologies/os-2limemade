@@ -1,8 +1,9 @@
 *.o
 *.a
 *.elf
+*.bin
+*.iso
+*.img
 limine/
-sata_disk.img
-ramdisk.img
 iso_root/
-os.iso
+__pycache__/
