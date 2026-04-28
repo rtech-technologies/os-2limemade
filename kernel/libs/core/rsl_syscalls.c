@@ -3,6 +3,8 @@
 #include <include/rsl.h>
 #include <include/cmdlets.h>
 #include <limine.h>
+#include <include/string.h>
+#include <include/stdlib.h>
 
 void rsl_execute_command(char* line);
 void* input(const char* prompt);

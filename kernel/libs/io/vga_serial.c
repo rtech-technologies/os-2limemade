@@ -5,6 +5,9 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include <include/string.h>
+#include <include/stdlib.h>
+#include <include/timer.h>
 
 /* I/O Port Helper */
 static inline void outb(uint16_t port, uint8_t val) {
@@ -33,8 +36,6 @@ void serial_init(void) {
 static int is_transmit_empty(void) {
     return inb(SERIAL_PORT + 5) & 0x20;
 }
-
-void pit_wait_ms(uint32_t ms);
 
 void serial_write_char(char c) {
     /* 🎯 Sentry Fix: Bounded polling for serial write */
@@ -558,7 +559,6 @@ void vga_print_logo(void) {
 void vga_pulse_cursor(void) {
     if (!global_fb) return;
     static uint64_t last_pulse = 0;
-    extern uint64_t get_system_ticks(void);
     uint64_t now = get_system_ticks();
 
     if (now - last_pulse > 500) {

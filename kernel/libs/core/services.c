@@ -4,6 +4,8 @@
 #include <include/vfs.h>
 #include <include/stdlib.h>
 #include <include/string.h>
+#include <include/stdlib.h>
+#include <include/string.h>
 
 void vga_print(const char* fmt, ...);
 

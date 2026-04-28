@@ -7,6 +7,9 @@
 #include <kernel/libs/core/pci.h>
 #include <include/ahci_hw.h>
 #include <include/panic.h>
+#include <include/string.h>
+#include <include/stdlib.h>
+#include <include/timer.h>
 
 void* malloc(size_t size);
 void free(void* ptr);
@@ -30,12 +33,12 @@ uint64_t vmm_get_phys(void* virt);
 void serial_print(const char* fmt, ...);
 void forensic_panic(const char* message, void* state);
 
+void ahci_force_port_reset(int port_no);
 #define panic(msg) forensic_panic(msg, NULL)
 #define virtual_to_physical(virt) vmm_get_phys(virt)
 
 void register_hardware_disk_from_port(int p);
 void serial_print_hex32(const char* label, uint32_t val);
-void pit_wait_ms(uint32_t ms);
 
 int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_t timeout_loops) {
     for (uint32_t i = 0; i < timeout_loops; i++) {
@@ -169,7 +172,6 @@ void ahci_hardware_audit(int p) {
 
     /* Cooldown: Don't hammer the hardware (5 second interval) */
     static uint64_t last_audit_ticks[32] = {0};
-    extern uint64_t get_system_ticks(void);
     uint64_t now = get_system_ticks();
     if (now - last_audit_ticks[p] < 5000) return;
     last_audit_ticks[p] = now;

@@ -12,12 +12,14 @@
 #include <include/config.h>
 #include <include/usb_queues.h>
 
+#include <include/string.h>
+#include <include/stdlib.h>
+#include <include/timer.h>
 void serial_write_str(const char* s);
 void serial_print(const char* fmt, ...);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
 uint64_t get_hhdm_offset(void);
 uint64_t vmm_get_phys(void* virt);
-void pit_wait_ms(uint32_t ms);
 
 static void* xhci_base = NULL;
 static uint32_t xhci_cap_len = 0;
@@ -109,7 +111,6 @@ uint64_t g_kbd_initial_delay = 500;
 uint64_t g_kbd_repeat_rate = 50;
 
 int xhci_transfer(int slot, int dci, xhci_trb_t* trb);
-uint64_t get_system_ticks(void);
 
 void xhci_handle_repeat(void) {
     if (repeat_key == 0) return;
@@ -249,7 +250,6 @@ int xhci_send_command(xhci_trb_t* trb) {
     while(timeout--) {
         xhci_handle_events();
         if (last_cmd_status != -1) return (last_cmd_status == XHCI_COMP_SUCCESS) ? 0 : (int)last_cmd_status;
-        void pit_wait_ms(uint32_t ms);
         pit_wait_ms(1);
     }
     return -1;
@@ -772,7 +772,6 @@ void usb_main_task(void) {
                     /* Wait for Port Reset Change (PRC) or PED bit */
                     int timeout = 50;
                     while (timeout--) {
-                        void pit_wait_ms(uint32_t ms);
                         pit_wait_ms(10);
                         portsc = xhci_op_read(port_reg);
                         if (portsc & (1 << 21)) break; /* PRC */

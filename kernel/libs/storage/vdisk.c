@@ -1,6 +1,8 @@
 #include <kernel/libs/core/services.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <include/string.h>
+#include <include/stdlib.h>
 #include <stdbool.h>
 #include <limine.h>
 #include <include/ahci_hw.h>
