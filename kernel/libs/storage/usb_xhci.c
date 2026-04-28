@@ -982,10 +982,20 @@ void usb_xhci_service(kernel_event_t event) {
                             xhci_op_write(XHCI_OP_USBCMD, xhci_op_read(XHCI_OP_USBCMD) & ~0x01);
                             int timeout = 1000;
                             while(!(xhci_op_read(XHCI_OP_USBSTS) & 0x01) && timeout--) pit_wait_ms(1);
+                            if (timeout <= 0) {
+                                serial_write_str("[XHCI] Error: Stop Timeout. Aborting.\n");
+                                xhci_base = NULL;
+                                continue;
+                            }
 
                             xhci_op_write(XHCI_OP_USBCMD, 0x02);
                             timeout = 1000;
                             while((xhci_op_read(XHCI_OP_USBCMD) & 0x02) && timeout--) pit_wait_ms(1);
+                            if (timeout <= 0) {
+                                serial_write_str("[XHCI] Error: Reset Timeout. Aborting.\n");
+                                xhci_base = NULL;
+                                continue;
+                            }
 
                             void* slab_alloc_aligned(int id, size_t size, size_t align);
                             cmd_ring = slab_alloc_aligned(0, 4096, 64);
@@ -1023,6 +1033,11 @@ void usb_xhci_service(kernel_event_t event) {
                             xhci_op_write(XHCI_OP_USBCMD, xhci_op_read(XHCI_OP_USBCMD) | 0x01);
                             timeout = 1000;
                             while((xhci_op_read(XHCI_OP_USBSTS) & 0x01) && timeout--) pit_wait_ms(1);
+                            if (timeout <= 0) {
+                                serial_write_str("[XHCI] Error: Start Timeout. Aborting.\n");
+                                xhci_base = NULL;
+                                continue;
+                            }
                             serial_write_str("[XHCI] Online.\n");
                             return;
                         }

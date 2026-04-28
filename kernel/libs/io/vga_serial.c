@@ -37,10 +37,12 @@ static int is_transmit_empty(void) {
 void pit_wait_ms(uint32_t ms);
 
 void serial_write_char(char c) {
-    while (is_transmit_empty() == 0) {
+    /* 🎯 Sentry Fix: Bounded polling for serial write */
+    uint32_t timeout = 1000000;
+    while (is_transmit_empty() == 0 && timeout--) {
         __asm__ volatile ("pause");
     }
-    outb(SERIAL_PORT, c);
+    if (timeout > 0) outb(SERIAL_PORT, c);
 }
 
 int serial_received(void) {
@@ -48,9 +50,12 @@ int serial_received(void) {
 }
 
 char serial_read_char(void) {
-    while (serial_received() == 0) {
+    /* 🎯 Sentry Fix: Bounded polling for serial read */
+    uint32_t timeout = 1000000;
+    while (serial_received() == 0 && timeout--) {
         __asm__ volatile ("pause");
     }
+    if (timeout <= 0) return 0;
     return inb(SERIAL_PORT);
 }
 

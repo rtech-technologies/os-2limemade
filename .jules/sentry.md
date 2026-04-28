@@ -31,3 +31,17 @@ Several kernel components were assuming the presence of standard headers (`strin
 1.  **Standard Headers:** Created `include/string.h` and `include/stdlib.h` to provide the minimal subset of standard functions required by the kernel.
 2.  **Explicit Declarations:** Added missing headers and explicit function declarations to `usbh_core.c` and `rsl_syscalls.c` to ensure build consistency and type safety.
 3.  **Keyword Compliance:** Replaced non-standard `asm` with `__asm__` in `programs/libc/libc.c` to ensure compatibility with strict compiler flags in the standalone build environment.
+
+## Infinite Polling Stalls (Hardware Hangups)
+
+**Date:** 2024-04-28
+**Component:** `ahci.c`, `usb_xhci.c`, `vga_serial.c`
+**Severity:** High (System Stability)
+
+### Root Cause Analysis
+Several drivers utilized unbounded `while` loops to poll hardware status. If the hardware failed to respond (e.g., due to an init-stall or physical failure), the kernel would hang indefinitely or panic, preventing the system from reaching a functional state or a fallback shell.
+
+### The Fix
+1.  **Fail-Soft Polling:** Modified `ahci_wait_status` to return an error code instead of panicking on timeout.
+2.  **Background Recovery:** Implemented a registration mask (`g_registered_ports_mask`) and enhanced `ahci_hardware_audit` to attempt re-initialization of missing disks during background system maintenance (multitasking phase).
+3.  **Bounded I/O:** Added iteration limits to serial and XHCI initialization loops. If hardware does not respond within a reasonable window, the driver now aborts gracefully, allowing the rest of the system to remain responsive.

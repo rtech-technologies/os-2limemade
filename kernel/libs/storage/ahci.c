@@ -17,6 +17,7 @@ static hba_mem_t* hba_base = NULL;
 static void* port_clb_virt[32];
 static void* port_fb_virt[32];
 static void* port_ctba_virt[32];
+static uint32_t g_registered_ports_mask = 0;
 
 void* get_port_clb(int p) { return port_clb_virt[p]; }
 void* get_port_ctba(int p) { return port_ctba_virt[p]; }
@@ -32,6 +33,7 @@ void forensic_panic(const char* message, void* state);
 #define panic(msg) forensic_panic(msg, NULL)
 #define virtual_to_physical(virt) vmm_get_phys(virt)
 
+void register_hardware_disk_from_port(int p);
 void serial_print_hex32(const char* label, uint32_t val);
 void pit_wait_ms(uint32_t ms);
 
@@ -70,8 +72,7 @@ int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_
         }
     }
 
-    /* Constraint Enforcement: Panic on timeout to avoid silent hang */
-    panic("AHCI_POLL_TIMEOUT");
+    /* 🎯 Sentry Fix: Return error instead of panic to allow background recovery */
     return -1;
 }
 
@@ -162,13 +163,30 @@ void ahci_hardware_audit(int p) {
     if (!(hba_base->pi & (1 << p))) return;
     hba_port_t* port = &hba_base->ports[p];
 
+    /* 🎯 Sentry Fix: Implement Background Recovery logic */
+    /* If already registered, we don't need to re-initialize during background audit */
+    if (g_registered_ports_mask & (1 << p)) return;
+
+    /* Cooldown: Don't hammer the hardware (5 second interval) */
+    static uint64_t last_audit_ticks[32] = {0};
+    extern uint64_t get_system_ticks(void);
+    uint64_t now = get_system_ticks();
+    if (now - last_audit_ticks[p] < 5000) return;
+    last_audit_ticks[p] = now;
+
     /* SKIP: If port is "LIVE" (Busy or DRQ set), skip audit to avoid collision */
     if (port->tfd & 0x88) return;
 
     uint32_t ssts = port->ssts;
     if ((ssts & 0x0F) == 0x03) {
+        /* Link is active but port is not registered. Attempt initialization. */
         ahci_port_start(p);
+        /* If initialization succeeded and signature is valid, register the disk */
+        if (port->sig == 0x00000101 || port->sig == 0xEB140101) {
+            register_hardware_disk_from_port(p);
+        }
     } else {
+        /* Link is not active. Try forcing a reset to wake up the device. */
         ahci_force_port_reset(p);
     }
 }
@@ -344,6 +362,7 @@ void ahci_scan_remaining(void) {
 }
 
 void register_hardware_disk_from_port(int p) {
+    if (g_registered_ports_mask & (1 << p)) return;
     uint32_t sig = hba_base->ports[p].sig;
     if (sig == 0x00000101) { /* SATA */
         vdisk_node_t sata_disk = {
@@ -357,6 +376,7 @@ void register_hardware_disk_from_port(int p) {
             .is_atapi = false
         };
         register_hardware_disk(sata_disk);
+        g_registered_ports_mask |= (1 << p);
         serial_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
     } else if (sig == 0xEB140101) { /* ATAPI */
         vdisk_node_t cdrom = {
@@ -388,6 +408,7 @@ void register_hardware_disk_from_port(int p) {
         }
 
         register_hardware_disk(cdrom);
+        g_registered_ports_mask |= (1 << p);
         serial_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
 
         /* ISO Discovery Handshake */
