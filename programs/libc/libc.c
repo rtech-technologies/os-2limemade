@@ -5,7 +5,7 @@
 /* Userland Syscall Wrapper */
 static inline uint64_t rsl_syscall(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3) {
     uint64_t ret;
-    asm volatile ("int $0x03" : "=a"(ret) : "a"(id), "b"(a1), "c"(a2), "d"(a3) : "memory");
+    __asm__ volatile ("int $0x03" : "=a"(ret) : "a"(id), "b"(a1), "c"(a2), "d"(a3) : "memory");
     return ret;
 }
 

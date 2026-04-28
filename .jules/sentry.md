@@ -30,3 +30,4 @@ Several kernel components were assuming the presence of standard headers (`strin
 ### The Fix
 1.  **Standard Headers:** Created `include/string.h` and `include/stdlib.h` to provide the minimal subset of standard functions required by the kernel.
 2.  **Explicit Declarations:** Added missing headers and explicit function declarations to `usbh_core.c` and `rsl_syscalls.c` to ensure build consistency and type safety.
+3.  **Keyword Compliance:** Replaced non-standard `asm` with `__asm__` in `programs/libc/libc.c` to ensure compatibility with strict compiler flags in the standalone build environment.
