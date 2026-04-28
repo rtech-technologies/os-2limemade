@@ -34,7 +34,6 @@ static void* translate_user_ptr(void* ptr) {
     task_t* cur = get_current_task();
 
     if (cur && cur->is_transient) {
-        void* slab_get_base(int id);
         uint8_t* base = (uint8_t*)slab_get_base(cur->slab_id);
         uint64_t base_addr = (uint64_t)base;
 
