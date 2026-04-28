@@ -227,12 +227,12 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis[2] = (lba >> 24) & 0xFFFFFF;          /* LBA High 24 bits */
     fis[3] = count & 0xFFFF;                  /* Sector Count (16-bit) */
 
-    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
+    if (ahci_wait_status(port, 0x88, 0, 100) != 0) return -1;
 
     port->ci = (1 << 0);
 
     /* Real Metal Poll: Wait for SILICON to clear CI bit */
-    if (ahci_wait_status(port, (1 << 0), 0, 1000000) != 0) return -1;
+    if (ahci_wait_status(port, (1 << 0), 0, 100) != 0) return -1;
 
     port->is = 0xFFFFFFFF;
     return 0;
@@ -270,12 +270,12 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis[2] = (lba >> 24) & 0xFFFFFF;          /* LBA High 24 bits */
     fis[3] = count & 0xFFFF;                  /* Sector Count (16-bit) */
 
-    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
+    if (ahci_wait_status(port, 0x88, 0, 100) != 0) return -1;
 
     port->ci = (1 << 0);
 
     /* Real Metal Poll: Wait for SILICON to clear CI bit */
-    if (ahci_wait_status(port, (1 << 0), 0, 1000000) != 0) return -1;
+    if (ahci_wait_status(port, (1 << 0), 0, 100) != 0) return -1;
 
     port->is = 0xFFFFFFFF;
     return 0;
@@ -367,17 +367,50 @@ void register_hardware_disk_from_port(int p) {
     if (g_registered_ports_mask & (1 << p)) return;
     uint32_t sig = hba_base->ports[p].sig;
     if (sig == 0x00000101) { /* SATA */
-        vdisk_node_t sata_disk = {
-            .name = "SATA_HDD",
-            .sector_size = 512,
-            .total_lba = 1024 * 1024 * 10,
-            .partition_offset = 2048, /* GPT Sovereignty Offset */
-            .read_lba = ahci_read_sectors,
-            .write_lba = ahci_write_sectors,
-            .private_data = (void*)(uint64_t)p,
-            .is_atapi = false
-        };
-        register_hardware_disk(sata_disk);
+        /* 🎯 Sentry Fix: Real Partition Discovery */
+        uint8_t* sector = malloc(512);
+        if (ahci_read_sectors((void*)(uint64_t)p, 1, 1, sector) == 0 && *(uint64_t*)sector == 0x5452415020494645ULL) {
+            /* GPT Found. Scan for partitions. */
+            if (ahci_read_sectors((void*)(uint64_t)p, 2, 1, sector) == 0) {
+                for (int i = 0; i < 4; i++) {
+                    uint8_t* entry = &sector[i * 128];
+                    uint64_t start_lba = *(uint64_t*)&entry[32];
+                    uint64_t end_lba = *(uint64_t*)&entry[40];
+                    if (start_lba == 0) continue;
+
+                    vdisk_node_t part = {
+                        .sector_size = 512,
+                        .total_lba = end_lba - start_lba + 1,
+                        .partition_offset = start_lba,
+                        .read_lba = ahci_read_sectors,
+                        .write_lba = ahci_write_sectors,
+                        .private_data = (void*)(uint64_t)p,
+                        .is_atapi = false
+                    };
+                    /* Name: SATAx_Py */
+                    int k = 0;
+                    part.name[k++] = 'S'; part.name[k++] = 'A'; part.name[k++] = 'T'; part.name[k++] = 'A';
+                    part.name[k++] = '0' + p; part.name[k++] = '_'; part.name[k++] = 'P'; part.name[k++] = '0' + i;
+                    part.name[k++] = '\0';
+
+                    register_hardware_disk(part);
+                }
+            }
+        } else {
+            /* Fallback: Register the whole disk or Sovereign default */
+            vdisk_node_t sata_disk = {
+                .name = "SATA_HDD",
+                .sector_size = 512,
+                .total_lba = 1024 * 1024 * 10,
+                .partition_offset = 2048, /* GPT Sovereignty Offset */
+                .read_lba = ahci_read_sectors,
+                .write_lba = ahci_write_sectors,
+                .private_data = (void*)(uint64_t)p,
+                .is_atapi = false
+            };
+            register_hardware_disk(sata_disk);
+        }
+        free(sector);
         g_registered_ports_mask |= (1 << p);
         serial_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
     } else if (sig == 0xEB140101) { /* ATAPI */

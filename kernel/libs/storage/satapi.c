@@ -49,10 +49,10 @@ int satapi_send_packet(int p, uint8_t* scsi_packet, void* buffer, uint32_t len, 
     for(int i=0; i<12; i++) cmdtbl->acmd[i] = scsi_packet[i];
 
     /* Wait for drive to be ready */
-    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
+    if (ahci_wait_status(port, 0x88, 0, 100) != 0) return -1;
 
     port->ci = (1 << 0);
-    if (ahci_wait_status(port, 1 << 0, 0, 1000000) != 0) return -1;
+    if (ahci_wait_status(port, 1 << 0, 0, 100) != 0) return -1;
 
     port->is = 0xFFFFFFFF;
     if (port->tfd & 0x01) return -1; /* Error bit */
@@ -93,9 +93,9 @@ int satapi_identify(void* priv) {
     uint32_t* fis = (uint32_t*)cmdtbl->cfis;
     fis[0] = 0x27 | (1 << 15) | (0xA1 << 16); /* Type, C, Command (IDENTIFY PACKET) */
 
-    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
+    if (ahci_wait_status(port, 0x88, 0, 100) != 0) return -1;
     port->ci = (1 << 0);
-    if (ahci_wait_status(port, 1 << 0, 0, 1000000) != 0) return -1;
+    if (ahci_wait_status(port, 1 << 0, 0, 100) != 0) return -1;
     port->is = 0xFFFFFFFF;
     return 0;
 }

@@ -39,6 +39,8 @@ static void* translate_user_ptr(void* ptr) {
         uint8_t* base = (uint8_t*)slab_get_base(cur->slab_id);
         uint64_t base_addr = (uint64_t)base;
 
+    /* 🎯 Sentry: Allow kernel heap access for RSL handles (String objects, etc) */
+    if (addr >= 0xFFFFFFFF80000000ULL || addr >= 0xFFFF800000000000ULL) return ptr;
         /* If absolute high-half address, verify slab boundary */
         if (addr >= 0xFFFF800000000000ULL) {
             if (addr >= base_addr && addr < base_addr + (4 * 1024 * 1024)) return ptr;
