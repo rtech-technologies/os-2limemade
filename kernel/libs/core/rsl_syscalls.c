@@ -9,6 +9,8 @@ void* input(const char* prompt);
 void set_color(color_t fg, color_t bg);
 void* str_create(const char* cstr);
 void release(void* ptr);
+int slab_grab_transient(void);
+void* slab_get_base(int id);
 bool str_match(void* s, const char* p);
 void* str_concat(void* s1, void* s2);
 const char* str_to_cstr(void* s);

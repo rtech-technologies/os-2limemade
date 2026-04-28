@@ -17,3 +17,16 @@ Furthermore, several syscall handlers (ID 4-8) were passing raw `void*` argument
 
 ### Rule 4 Compliance
 This fix closes a major loophole in the system's "Property Rights" model, ensuring that transient code cannot touch what it does not own (kernel memory or other slabs).
+
+## Freestanding Failures & Implicit Declarations
+
+**Date:** 2024-04-28
+**Component:** `kernel/libs/usb/cherryusb/core/usbh_core.c`, `kernel/libs/storage/`
+**Severity:** Medium (Build Integrity)
+
+### Root Cause Analysis
+Several kernel components were assuming the presence of standard headers (`string.h`, `stdlib.h`) or global declarations (`serial_write_str`, `sys_yield`) without explicit inclusion or declaration. In a freestanding environment, this leads to build regressions and unpredictable behavior.
+
+### The Fix
+1.  **Standard Headers:** Created `include/string.h` and `include/stdlib.h` to provide the minimal subset of standard functions required by the kernel.
+2.  **Explicit Declarations:** Added missing headers and explicit function declarations to `usbh_core.c` and `rsl_syscalls.c` to ensure build consistency and type safety.
