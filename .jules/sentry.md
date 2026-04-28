@@ -1,0 +1,19 @@
+# Forensic Log - Sentry 🎯
+
+## Slab Escape via Permissive Pointer Translation
+
+**Date:** 2024-04-28
+**Component:** `kernel/libs/core/rsl_syscalls.c`
+**Severity:** Critical (Memory Trespassing)
+
+### Root Cause Analysis
+The `translate_user_ptr` function in the RSL syscall gateway allowed absolute high-half addresses (e.g., `0xFFFFFFFF80000000`) to be returned without any boundary checks if the address was already in the high-memory range. This allowed standalone "transient" RSL programs to "escape" their designated 4MB slab by simply passing a kernel address as a pointer argument.
+
+Furthermore, several syscall handlers (ID 4-8) were passing raw `void*` arguments directly from the task's registers to kernel functions without calling `translate_user_ptr`. This bypasses the isolation logic entirely, even for relative offsets.
+
+### The Fix
+1.  **Strict Slab Isolation:** Modified `translate_user_ptr` to enforce that transient tasks can ONLY access memory within their assigned 4MB slab. Absolute addresses are now checked against the slab's physical base address, and relative offsets are checked for size.
+2.  **Universal Translation:** Updated the `rsl_syscall_handler` to ensure ALL pointer-based arguments are passed through the hardened `translate_user_ptr` before being used by the kernel.
+
+### Rule 4 Compliance
+This fix closes a major loophole in the system's "Property Rights" model, ensuring that transient code cannot touch what it does not own (kernel memory or other slabs).

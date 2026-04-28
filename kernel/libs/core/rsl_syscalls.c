@@ -29,17 +29,26 @@ void rsl_eject(void* path);
 static void* translate_user_ptr(void* ptr) {
     if (!ptr) return NULL;
     uint64_t addr = (uint64_t)ptr;
-
-    /* If address is already in high memory (HHDM or Kernel), it's likely already translated or a kernel pointer */
-    if (addr >= 0xFFFFFFFF80000000ULL || addr >= 0xFFFF800000000000ULL) return ptr;
-
-    /* Standalone RSL Binary Support: Translate relative offset to Slab HHDM address */
     task_t* cur = get_current_task();
+
     if (cur && cur->is_transient) {
         void* slab_get_base(int id);
         uint8_t* base = (uint8_t*)slab_get_base(cur->slab_id);
-        return (void*)(base + addr);
+        uint64_t base_addr = (uint64_t)base;
+
+        /* If absolute high-half address, verify slab boundary */
+        if (addr >= 0xFFFF800000000000ULL) {
+            if (addr >= base_addr && addr < base_addr + (4 * 1024 * 1024)) return ptr;
+            return NULL; // 🎯 Sentry Fix: Block Slab Escape
+        }
+
+        /* If relative offset, verify it's within slab */
+        if (addr < (4 * 1024 * 1024)) return (void*)(base + addr);
+        return NULL; // 🎯 Sentry Fix: Block Out-of-Bounds Offset
     }
+
+    /* Fallback for Kernel Tasks: Allow high memory directly */
+    if (addr >= 0xFFFFFFFF80000000ULL || addr >= 0xFFFF800000000000ULL) return ptr;
 
     return ptr;
 }
@@ -51,11 +60,11 @@ uint64_t rsl_syscall_handler(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3)
         case 1: return (uint64_t)input((const char*)translate_user_ptr((void*)a1));
         case 2: set_color((color_t)a1, (color_t)a2); return 0;
         case 3: return (uint64_t)str_create((const char*)translate_user_ptr((void*)a1));
-        case 4: release((void*)a1); return 0;
-        case 5: return (uint64_t)str_match((void*)a1, (const char*)translate_user_ptr((void*)a2));
-        case 6: return (uint64_t)str_concat((void*)a1, (void*)a2);
-        case 7: return (uint64_t)str_to_cstr((void*)a1);
-        case 8: return (uint64_t)str_is_empty((void*)a1);
+        case 4: release(translate_user_ptr((void*)a1)); return 0;
+        case 5: return (uint64_t)str_match(translate_user_ptr((void*)a1), (const char*)translate_user_ptr((void*)a2));
+        case 6: return (uint64_t)str_concat(translate_user_ptr((void*)a1), translate_user_ptr((void*)a2));
+        case 7: return (uint64_t)str_to_cstr(translate_user_ptr((void*)a1));
+        case 8: return (uint64_t)str_is_empty(translate_user_ptr((void*)a1));
         case 10: rsl_ls(translate_user_ptr((void*)a1)); return 0;
         case 11: rsl_cat(translate_user_ptr((void*)a1)); return 0;
         case 12: rsl_write(translate_user_ptr((void*)a1), translate_user_ptr((void*)a2)); return 0;
