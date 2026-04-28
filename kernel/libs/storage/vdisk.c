@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <limine.h>
+#include <include/ahci_hw.h>
 
 #include <kernel/libs/storage/vdisk.h>
 
@@ -67,6 +68,29 @@ int vdisk_write(int disk_id, uint64_t lba, uint32_t count, void* buffer) {
 int get_hw_disk_count(void) { return hw_count; }
 int get_connect_disk_count(void) { return connect_count; }
 
+int get_hw_disk_id_by_name(const char* name) {
+    for (int i = 0; i < hw_count; i++) {
+        if (str_match_local(hw_registry[i].name, name)) return i;
+    }
+    return -1;
+}
+
+#include <include/stdlib.h>
+
+int is_sovereign_disk(int disk_id) {
+    if (disk_id < 0 || disk_id >= hw_count) return 0;
+    uint8_t* buf = malloc(512);
+    if (!buf) return 0;
+
+    int res = 0;
+    if (hw_registry[disk_id].read_lba(hw_registry[disk_id].private_data, 0, 1, buf) == 0) {
+        uint32_t sig = *(uint32_t*)buf;
+        if (sig == 0xEFBEADDE) res = 1;
+    }
+    free(buf);
+    return res;
+}
+
 int vdisk_read_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer) {
     if (hw_id < 0 || hw_id >= hw_count) return -1;
     return hw_registry[hw_id].read_lba(hw_registry[hw_id].private_data, lba, count, buffer);
@@ -84,6 +108,20 @@ int vdisk_eject_hw(int hw_id) {
     return hw_registry[hw_id].eject(hw_registry[hw_id].private_data);
 }
 
+bool vdisk_is_busy(int hw_id) {
+    if (hw_id < 0 || hw_id >= hw_count) return false;
+
+    /* Hardware Status Check: AHCI Port Busy bit (BSY = bit 7 of TFD) */
+    void* get_hba_base(void);
+    hba_mem_t* hba = (hba_mem_t*)get_hba_base();
+    if (hba && !hw_registry[hw_id].is_atapi) {
+        int port = (int)(uint64_t)hw_registry[hw_id].private_data;
+        if (port < 32 && (hba->ports[port].tfd & 0x80)) return true;
+    }
+
+    return false;
+}
+
 uint64_t vdisk_get_offset(int hw_id) {
     if (hw_id < 0 || hw_id >= hw_count) return 0;
     return hw_registry[hw_id].partition_offset;
@@ -99,6 +137,8 @@ bool vdisk_is_atapi(int hw_id) {
     return hw_registry[hw_id].is_atapi;
 }
 
+#include <include/string.h>
+
 static int ramdisk_read(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     (void)priv;
     struct limine_module_response* resp = get_modules();
@@ -109,8 +149,7 @@ static int ramdisk_read(void* priv, uint64_t lba, uint32_t count, void* buffer) 
     size_t size = count * 512;
     if (offset + size > ramdisk->size) return -1;
     uint8_t* src = base + offset;
-    uint8_t* dst = (uint8_t*)buffer;
-    for (size_t i = 0; i < size; i++) dst[i] = src[i];
+    memcpy(buffer, src, size);
     return 0;
 }
 

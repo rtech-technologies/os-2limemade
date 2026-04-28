@@ -1,14 +1,11 @@
 #include <include/rsl.h>
 #include <include/vfs.h>
-#include <kernel/libs/storage/fatfs/ff.h>
 #include <kernel/unice64/task.h>
+#include <kernel/libs/storage/fatfs/ff.h>
+#include <kernel/libs/core/services.h>
+#include <include/cmdlets.h>
 
-int get_hw_disk_count(void);
-int get_connect_disk_count(void);
-
-#define MAX_MOUNTS 16
-static FATFS mount_table[MAX_MOUNTS];
-static int mount_count = 0;
+void vga_print(const char* fmt, ...);
 
 /* Internal FS Bridge for VFS */
 void internal_fs_ls(void* path, void* priv) {
@@ -57,139 +54,163 @@ bool internal_fs_exists(void* path, void* priv) {
     return f_stat(fs, str_to_cstr(path), &fno) == FR_OK;
 }
 
-void rsl_ls(void* path) { vfs_ls(path); sys_yield(); }
-void rsl_cat(void* path) { vfs_cat(path); sys_yield(); }
-void vfs_write_dispatch(void* path, void* content);
-void rsl_write(void* path, void* content) { vfs_write_dispatch(path, content); sys_yield(); }
-void rsl_cd(void* path) { vfs_cd(path); sys_yield(); }
-void rsl_mkdir(void* path) { vfs_mkdir(path); sys_yield(); }
-void rsl_rmdir(void* path) { vfs_rmdir(path); sys_yield(); }
+void rsl_ls(void* path) { vfs_ls(path); }
+void rsl_cat(void* path) { vfs_cat(path); }
+void rsl_write(void* path, void* content) { vfs_write_dispatch(path, content); }
+void rsl_mkdir(void* path) { vfs_mkdir(path); }
+void rsl_rmdir(void* path) { vfs_rmdir(path); }
 bool rsl_exists(void* path) { return vfs_exists(path); }
+void rsl_mount(void* path) { (void)path; print("[RSL] Mount not implemented.\n"); }
+void rsl_format(void* path) { (void)path; print("[RSL] Format not implemented.\n"); }
+void rsl_stamp(void* path) { (void)path; print("[RSL] Stamp not implemented.\n"); }
+void rsl_scan(void) { print("[RSL] Hardware scan...\n"); }
+void rsl_eject(void* path) { (void)path; print("[RSL] Eject not implemented.\n"); }
 
-bool rsl_safe_mode(void) { return vfs_is_safe_mode(); }
+static void* curdir = NULL;
 
-void rsl_mount(void* path) {
-    const char* p = str_to_cstr(path);
-    int drive = p[0] - '0';
-    if (mount_count >= MAX_MOUNTS) return;
+static bool cstr_match_local(const char* s1, const char* s2) {
+    int i = 0;
+    while (s1[i] && s2[i]) {
+        if (s1[i] != s2[i]) return false;
+        i++;
+    }
+    return s1[i] == s2[i];
+}
 
-    /* Verify Hardware Drive Exists */
-    if (drive < 0 || drive >= get_hw_disk_count()) {
-        print("Error: Physical drive does not exist.\n");
+static void* resolve_path_local(void* cd, const char* arg) {
+    if (arg[0] == '/') return str_create(arg);
+    if (cstr_match_local(str_to_cstr(cd), "/")) return str_concat(cd, str_create(arg));
+    void* s1 = str_concat(cd, str_create("/"));
+    void* s2 = str_concat(s1, str_create(arg));
+    release(s1); return s2;
+}
+
+void rsl_execute_command(char* line) {
+    if (!curdir) curdir = str_create("/");
+    if (!line || line[0] == '\0') return;
+
+    /* CMD-LETS Bridge */
+    static bool in_cmdlets = false;
+    if (!in_cmdlets) {
+        in_cmdlets = true;
+        cmdlets_execute_line(line);
+        in_cmdlets = false;
         return;
     }
 
-    if (f_mount(&mount_table[mount_count], drive) == FR_OK) {
-        vfs_node_t node = { .private_data = &mount_table[mount_count], .ls = internal_fs_ls, .cat = internal_fs_cat, .write = internal_fs_write, .mkdir = internal_fs_mkdir, .rmdir = internal_fs_rmdir, .exists = internal_fs_exists };
-        int k = 0; if (drive >= 10) node.name[k++] = '0' + (drive / 10); node.name[k++] = '0' + (drive % 10); node.name[k] = '\0';
-        vfs_register_node(node);
-        mount_count++;
-        print("Mount successful.\n");
-    } else {
-        print("Error: Mount failed.\n");
+    char* argv[16];
+    int argc = 0;
+    char* p = line;
+
+    while (*p && argc < 16) {
+        while (*p == ' ' || *p == '\r' || *p == '\t' || *p == '\n') *p++ = '\0';
+        if (*p == '\0') break;
+        argv[argc++] = p;
+        while (*p && *p != ' ' && *p != '\r' && *p != '\t' && *p != '\n') p++;
     }
-    sys_yield();
-}
 
-void vga_print(const char* fmt, ...);
-size_t slab_get_usage(int id);
+    if (argc == 0) return;
 
-void rsl_settings(void) {
-    print("\n--- OSx2 Sovereign Settings ---\n");
-    print("1. UI Theme (Change FG/BG)\n");
-    print("2. Memory Telemetry (Slab Usage)\n");
-    print("3. Task Telemetry (Task List)\n");
-    print("4. System Identity\n");
-    print("5. Back to Shell\n");
-
-    void* choice = input("\nSelect Category (1-5): ");
-    if (!choice) return;
-
-    if (str_match(choice, "1")) {
-        void* fg = input("Enter FG Color Name: ");
-        void* bg = input("Enter BG Color Name: ");
-        /* Implementation in Shell dispatcher for now or simplified here */
-        print("Theme applied.\n");
-        release(fg); release(bg);
-    } else if (str_match(choice, "2")) {
-        for (int i = 0; i < 4; i++) {
-            vga_print("Slab %d: %d / 4194304 bytes used.\n", i, slab_get_usage(i));
+    if (cstr_match_local(argv[0], "ls")) {
+        void* path = (argc > 1) ? resolve_path_local(curdir, argv[1]) : curdir;
+        rsl_ls(path); if (argc > 1) release(path);
+    } else if (cstr_match_local(argv[0], "cd")) {
+        if (argc > 1) {
+            void* new_path = resolve_path_local(curdir, argv[1]);
+            if (rsl_exists(new_path)) {
+                const char* nps = str_to_cstr(new_path);
+                int len = 0; while(nps[len]) len++;
+                if (len > 0 && nps[len-1] != '/') {
+                    void* slash = str_create("/");
+                    void* fixed = str_concat(new_path, slash);
+                    release(slash); release(new_path);
+                    new_path = fixed;
+                }
+                release(curdir); curdir = new_path;
+            } else {
+                print("Error: Path not found.\n"); release(new_path);
+            }
         }
-    } else if (str_match(choice, "3")) {
-        print("Tasks:\nID  STATE   SLAB\n");
-        /* This would require a scheduler walk, let's provide a stub */
-        print("0   READY   0 (Idle)\n");
-        print("1   RUNNING 1 (Shell)\n");
-        print("2   READY   2 (System)\n");
-    } else if (str_match(choice, "4")) {
-        print("OS Identity: OSx2 Sovereign (Limemade Build)\n");
-        print("Foundation: Active-Relay Round Robin\n");
-        print("Storage: Mechanical Truth AHCI/ATAPI Bridge\n");
-    }
-
-    release(choice);
-    sys_yield();
-}
-
-void rsl_debug_dump(void) {
-    print("\n[RTECH BOOT DIAGNOSTICS]\n");
-    uint64_t cr3; __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
-    vga_print("CR3 (Page Table): 0x%x\n", cr3);
-    for (int i = 0; i < 4; i++) {
-        vga_print("Slab %d Usage: %d bytes\n", i, slab_get_usage(i));
-    }
-
-    void* tcb = get_current_task();
-    vga_print("Current TCB: 0x%x\n", (uint64_t)tcb);
-
-    sys_yield();
-}
-
-void rsl_format(void* path) {
-    const char* p = str_to_cstr(path);
-    int drive = p[0] - '0';
-    if (f_mkfs(drive) == FR_OK) print("Format successful.\n");
-    sys_yield();
-}
-
-void rsl_stamp(void* path) {
-    const char* p = str_to_cstr(path);
-    int drive = p[0] - '0';
-    uint8_t sector[512] = {0};
-    /* Deprecated: Signature logic removed. We now use GPT/HBA status for Sovereign validation. */
-    if (disk_write(drive, sector, 0, 1) == RES_OK) print("Mechanical sync performed.\n");
-}
-
-void draw_pixel(int x, int y, uint32_t color);
-void rsl_draw_rrif(void* path, int x, int y) {
-    vfs_handle_t* h = vfs_open(path, "r");
-    if (!h) return;
-    uint8_t header[8];
-    if (vfs_read(h, header, 8) < 8) { vfs_close(h); return; }
-    uint16_t w = *(uint16_t*)&header[4]; uint16_t h_img = *(uint16_t*)&header[6];
-    uint32_t pixel;
-    for (int j = 0; j < h_img; j++) {
-        for (int i = 0; i < w; i++) {
-            if (vfs_read(h, &pixel, 4) == 4) draw_pixel(x + i, y + j, pixel);
+    } else if (cstr_match_local(argv[0], "cat")) {
+        if (argc > 1) {
+            void* p = resolve_path_local(curdir, argv[1]);
+            rsl_cat(p); release(p);
+            print("\n");
         }
-    }
-    vfs_close(h);
-}
-
-void ahci_scan_remaining(void);
-void rsl_scan(void) {
-    ahci_scan_remaining();
-    sys_yield();
-}
-
-int vdisk_eject_hw(int hw_id);
-void rsl_eject(void* path) {
-    const char* p = str_to_cstr(path);
-    int drive = p[0] - '0';
-    if (vdisk_eject_hw(drive) == 0) {
-        print("Eject successful.\n");
+    } else if (cstr_match_local(argv[0], "write")) {
+        if (argc > 1) {
+            void* p = resolve_path_local(curdir, argv[1]);
+            void* content = (argc > 2) ? str_create(argv[2]) : input("Enter Content: ");
+            if (content) {
+                rsl_write(p, content);
+                release(content);
+            }
+            release(p);
+        }
+    } else if (cstr_match_local(argv[0], "mkdir")) {
+        if (argc > 1) {
+            void* p = resolve_path_local(curdir, argv[1]);
+            rsl_mkdir(p); release(p);
+        }
+    } else if (cstr_match_local(argv[0], "rmdir")) {
+        if (argc > 1) {
+            void* p = resolve_path_local(curdir, argv[1]);
+            rsl_rmdir(p); release(p);
+        }
+    } else if (cstr_match_local(argv[0], "echo")) {
+        for (int i = 1; i < argc; i++) {
+            print(argv[i]); if (i < argc - 1) print(" ");
+        }
+        print("\n");
+    } else if (cstr_match_local(argv[0], "shutdown")) {
+        void rsl_shutdown(void);
+        rsl_shutdown();
+    } else if (cstr_match_local(argv[0], "exit")) {
+        task_t* current = get_current_task();
+        if (current) current->state = TASK_ZOMBIE;
+        sys_yield();
+    } else if (cstr_match_local(argv[0], "run")) {
+        if (argc > 1) {
+            int rsl_execute_stream(const char* path);
+            rsl_execute_stream(argv[1]);
+        }
+    } else if (argv[0][0] == '.' && argv[0][1] == '/') {
+        /* Direct Execution: ./program */
+        void sovereign_request_submit(system_request_t* req);
+        system_request_t req = {
+            .type = REQ_APP_SPAWN,
+            .path = resolve_path_local(curdir, &argv[0][2]),
+            .done = false
+        };
+        sovereign_request_submit(&req);
+        release(req.path);
+    } else if (cstr_match_local(argv[0], "exec")) {
+        if (argc > 1) {
+            void sovereign_request_submit(system_request_t* req);
+            system_request_t req = {
+                .type = REQ_APP_SPAWN,
+                .path = resolve_path_local(curdir, argv[1]),
+                .done = false
+            };
+            sovereign_request_submit(&req);
+            release(req.path);
+        }
+    } else if (cstr_match_local(argv[0], "STDE")) {
+        void sovereign_request_submit(system_request_t* req);
+        system_request_t req = {
+            .type = REQ_APP_SPAWN,
+            .path = str_create("BOOT:/bin/wm.bin"),
+            .done = false
+        };
+        sovereign_request_submit(&req);
+        release(req.path);
     } else {
-        print("Error: Eject failed or not supported.\n");
+        print("Unknown Command.\n");
     }
-    sys_yield();
+}
+
+void* rsl_get_curdir(void) {
+    if (!curdir) curdir = str_create("/");
+    retain(curdir);
+    return curdir;
 }

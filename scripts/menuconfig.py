@@ -8,6 +8,19 @@ def main():
     heap_size = input("Enter Heap Size in MB (default 16): ") or "16"
     terminal_rows = input("Enter Terminal Line Limit (default 20): ") or "20"
 
+    print("\nAvailable Hardware Interfaces:")
+    print("1. All (USB + PS/2)")
+    print("2. USB Only")
+    print("3. PS/2 Only")
+    interface_choice = input("Select Interface (1-3, default 1): ") or "1"
+
+    interface_map = {
+        "1": "ALL",
+        "2": "USB",
+        "3": "PS2"
+    }
+    interface_type = interface_map.get(interface_choice, "ALL")
+
     print("\nAvailable Classic Screen Resolutions:")
     print("1. 320x200 (Mode 13h Classic)")
     print("2. 640x400 (Text Mode Classic)")
@@ -30,6 +43,7 @@ def main():
         f.write(f"SERIAL_PORT={serial_port}\n")
         f.write(f"HEAP_SIZE={heap_size}\n")
         f.write(f"TERMINAL_ROWS={terminal_rows}\n")
+        f.write(f"INTERFACE_TYPE={interface_type}\n")
         f.write(f"SCREEN_WIDTH={width}\n")
         f.write(f"SCREEN_HEIGHT={height}\n")
 
@@ -38,6 +52,7 @@ def main():
         f.write(f"#define CONFIG_SERIAL_PORT {serial_port}\n")
         f.write(f"#define CONFIG_HEAP_SIZE (1024 * 1024 * {heap_size})\n")
         f.write(f"#define CONFIG_TERMINAL_ROWS {terminal_rows}\n")
+        f.write(f"#define CONFIG_INTERFACE_{interface_type}\n")
         f.write(f"#define CONFIG_SCREEN_WIDTH {width}\n")
         f.write(f"#define CONFIG_SCREEN_HEIGHT {height}\n\n")
         f.write("#endif\n")

@@ -1,8 +1,9 @@
 #include <include/vfs.h>
 #include <include/rsl.h>
+#include <include/stdlib.h>
+#include <include/string.h>
 #include <kernel/libs/storage/fatfs/ff.h>
 #include <kernel/libs/storage/vdisk.h>
-#include <stddef.h>
 
 #define MAX_VFS_NODES 16
 static vfs_node_t vfs_registry[MAX_VFS_NODES];
@@ -44,6 +45,41 @@ static const char* strip_prefix(void* path, const char* prefix) {
     return &p[i];
 }
 
+static int get_boot_drive_id(void) {
+    /* Sovereign primary drive logic: SATA_HDD is 0 if registered */
+    return 0;
+}
+
+static bool str_match_prefix(const char* s1, const char* prefix) {
+    int i = 0;
+    while (prefix[i]) {
+        if (s1[i] != prefix[i]) return false;
+        i++;
+    }
+    return true;
+}
+
+static int get_drive_id_from_path(const char* p) {
+    if (*p == '/') p++;
+    if (str_match_prefix(p, "BOOT:/")) return get_boot_drive_id();
+    if (str_match_prefix(p, "DISK")) {
+        if (p[4] >= '0' && p[4] <= '9' && p[5] == ':' && p[6] == '/') return p[4] - '0';
+    }
+    if (p[0] >= '0' && p[0] <= '9' && p[1] == ':' && p[2] == '/') return p[0] - '0';
+    return -1;
+}
+
+static const char* get_subpath_from_path(const char* p) {
+    const char* start = p;
+    if (*p == '/') p++;
+    if (str_match_prefix(p, "BOOT:/")) return &p[6];
+    if (str_match_prefix(p, "DISK")) {
+        if (p[4] >= '0' && p[4] <= '9' && p[5] == ':' && p[6] == '/') return &p[7];
+    }
+    if (p[0] >= '0' && p[0] <= '9' && p[1] == ':' && p[2] == '/') return &p[3];
+    return start;
+}
+
 void vfs_ls(void* path) {
     const char* p = str_to_cstr(path);
     if (p[0] == '/' && p[1] == '\0') {
@@ -52,6 +88,23 @@ void vfs_ls(void* path) {
             print(":/ (Mounted Node)\n");
         }
         return;
+    }
+
+    /* Sovereign Alias Router for LS */
+    int drive = get_drive_id_from_path(p);
+    if (drive != -1) {
+        static FATFS hardware_fs[16];
+        if (drive < 16) {
+            FATFS* fs = &hardware_fs[drive];
+            if (!fs->active) f_mount(fs, drive);
+            if (fs->active) {
+                void internal_fs_ls(void* path, void* priv);
+                void* subpath = str_create(get_subpath_from_path(p));
+                internal_fs_ls(subpath, fs);
+                release(subpath);
+                return;
+            }
+        }
     }
 
     for (int i = 0; i < vfs_node_count; i++) {
@@ -67,6 +120,23 @@ void vfs_ls(void* path) {
 }
 
 void vfs_cat(void* path) {
+    const char* p = str_to_cstr(path);
+    int drive = get_drive_id_from_path(p);
+    if (drive != -1) {
+        static FATFS hardware_fs[16];
+        if (drive < 16) {
+            FATFS* fs = &hardware_fs[drive];
+            if (!fs->active) f_mount(fs, drive);
+            if (fs->active) {
+                void internal_fs_cat(void* path, void* priv);
+                void* subpath = str_create(get_subpath_from_path(p));
+                internal_fs_cat(subpath, fs);
+                release(subpath);
+                return;
+            }
+        }
+    }
+
     for (int i = 0; i < vfs_node_count; i++) {
         if (path_starts_with(path, vfs_registry[i].name)) {
             if (vfs_registry[i].cat) {
@@ -80,6 +150,23 @@ void vfs_cat(void* path) {
 }
 
 void vfs_write_dispatch(void* path, void* content) {
+    const char* p = str_to_cstr(path);
+    int drive = get_drive_id_from_path(p);
+    if (drive != -1) {
+        static FATFS hardware_fs[16];
+        if (drive < 16) {
+            FATFS* fs = &hardware_fs[drive];
+            if (!fs->active) f_mount(fs, drive);
+            if (fs->active) {
+                void internal_fs_write(void* path, void* content, void* priv);
+                void* subpath = str_create(get_subpath_from_path(p));
+                internal_fs_write(subpath, content, fs);
+                release(subpath);
+                return;
+            }
+        }
+    }
+
     for (int i = 0; i < vfs_node_count; i++) {
         if (path_starts_with(path, vfs_registry[i].name)) {
             if (vfs_registry[i].write) {
@@ -127,6 +214,23 @@ void vfs_rmdir(void* path) {
 }
 
 bool vfs_exists(void* path) {
+    const char* p = str_to_cstr(path);
+    int drive = get_drive_id_from_path(p);
+    if (drive != -1) {
+        static FATFS hardware_fs[16];
+        if (drive < 16) {
+            FATFS* fs = &hardware_fs[drive];
+            if (!fs->active) f_mount(fs, drive);
+            if (fs->active) {
+                bool internal_fs_exists(void* path, void* priv);
+                void* subpath = str_create(get_subpath_from_path(p));
+                bool res = internal_fs_exists(subpath, fs);
+                release(subpath);
+                return res;
+            }
+        }
+    }
+
     for (int i = 0; i < vfs_node_count; i++) {
         if (path_starts_with(path, vfs_registry[i].name)) {
             if (vfs_registry[i].exists) {
@@ -140,11 +244,10 @@ bool vfs_exists(void* path) {
     return false;
 }
 
-void* bump_alloc(size_t size);
 void vga_print(const char* fmt, ...);
 
 int vfs_mount_auto(int drive_id, const char* mount_point) {
-    uint8_t* sector = bump_alloc(2048);
+    uint8_t* sector = malloc(2048);
     if (!sector) return -1;
 
     /* Check A: ISO 9660 (via xorriso) */
@@ -188,10 +291,22 @@ vfs_handle_t* vfs_open(void* path, const char* mode) {
     int drive = -1;
     const char* subpath_cstr = p;
 
-    /* Sovereign Prefix Router: BOOT:/ or 0:/ mapping */
-    if (p[0] >= '0' && p[0] <= '9' && p[1] == ':') {
-        drive = p[0] - '0';
-        subpath_cstr = &p[3];
+    /* Sovereign Alias Router: Handle BOOT:/, DISKx:/, and x:/ */
+    const char* router_p = p;
+    if (*router_p == '/') router_p++;
+
+    if (str_match_prefix(router_p, "BOOT:/")) {
+        drive = get_boot_drive_id();
+        subpath_cstr = &router_p[6];
+    } else if (str_match_prefix(router_p, "DISK")) {
+        /* DISKx:/ check */
+        if (router_p[4] >= '0' && router_p[4] <= '9' && router_p[5] == ':' && router_p[6] == '/') {
+            drive = router_p[4] - '0';
+            subpath_cstr = &router_p[7];
+        }
+    } else if (router_p[0] >= '0' && router_p[0] <= '9' && router_p[1] == ':' && router_p[2] == '/') {
+        drive = router_p[0] - '0';
+        subpath_cstr = &router_p[3];
     }
 
     FATFS* fs = NULL;
@@ -222,7 +337,7 @@ vfs_handle_t* vfs_open(void* path, const char* mode) {
     FIL fil;
     BYTE m = (mode[0] == 'w') ? (FA_WRITE | FA_CREATE_ALWAYS) : FA_READ;
     if (f_open(fs, &fil, subpath_cstr, m) == FR_OK) {
-        vfs_handle_t* h = bump_alloc(sizeof(vfs_handle_t));
+        vfs_handle_t* h = malloc(sizeof(vfs_handle_t));
         if (!h) return NULL;
         h->obj = fs;
         h->sclust = fil.sclust;

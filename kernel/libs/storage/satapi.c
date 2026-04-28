@@ -2,102 +2,12 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <kernel/libs/storage/vdisk.h>
-
-/* AHCI / ATAPI Structures (Internal Mirror from ahci.c) */
-typedef struct {
-    uint8_t  fis_type;
-    uint8_t  pmport:4;
-    uint8_t  rsv0:3;
-    uint8_t  c:1;
-    uint8_t  command;
-    uint8_t  featurel;
-    uint8_t  lba0;
-    uint8_t  lba1;
-    uint8_t  lba2;
-    uint8_t  device;
-    uint8_t  lba3;
-    uint8_t  lba4;
-    uint8_t  lba5;
-    uint8_t  featureh;
-    uint8_t  countl;
-    uint8_t  counth;
-    uint8_t  icc;
-    uint8_t  control;
-    uint8_t  rsv1[4];
-} fis_reg_h2d_t;
-
-typedef struct {
-    uint32_t dba;
-    uint32_t dbau;
-    uint32_t rsv0;
-    uint32_t dbc:22;
-    uint32_t rsv1:9;
-    uint32_t i:1;
-} hba_prdt_entry_t;
-
-typedef struct {
-    uint8_t  cfis[64];
-    uint8_t  acmd[16];
-    uint8_t  rsv[48];
-    hba_prdt_entry_t prdt_entry[1];
-} hba_cmd_tbl_t;
-
-typedef struct {
-    uint8_t  cfl:5;
-    uint8_t  a:1;
-    uint8_t  w:1;
-    uint8_t  p:1;
-    uint8_t  r:1;
-    uint8_t  b:1;
-    uint8_t  c:1;
-    uint8_t  rsv0:1;
-    uint8_t  pmp:4;
-    uint16_t prdtl;
-    volatile uint32_t prdbc;
-    uint32_t ctba;
-    uint32_t ctbau;
-    uint32_t rsv1[4];
-} hba_cmd_header_t;
-
-typedef struct {
-    uint32_t clb;
-    uint32_t clbu;
-    uint32_t fb;
-    uint32_t fbu;
-    uint32_t is;
-    uint32_t ie;
-    uint32_t cmd;
-    uint32_t rsv0;
-    uint32_t tfd;
-    uint32_t sig;
-    uint32_t ssts;
-    uint32_t sctl;
-    uint32_t serr;
-    uint32_t sact;
-    uint32_t ci;
-    uint32_t sntf;
-    uint32_t fbs;
-    uint32_t devslp;
-    uint32_t rsv1[11];
-    uint32_t rsv2[3];
-} hba_port_t;
-
-typedef struct {
-    uint32_t cap;
-    uint32_t ghc;
-    uint32_t is;
-    uint32_t pi;
-    uint32_t vs;
-    uint32_t bccc;
-    uint32_t bccd;
-    uint32_t cap2;
-    uint32_t bohc;
-    uint8_t  rsv[0x100 - 0x24];
-    hba_port_t ports[32];
-} hba_mem_t;
+#include <include/ahci_hw.h>
+#include <include/string.h>
 
 /* External Symbols */
 void vga_print(const char* fmt, ...);
+int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_t timeout_loops);
 uint64_t vmm_get_phys(void* virt);
 void* get_port_clb(int p);
 void* get_port_ctba(int p);
@@ -115,47 +25,37 @@ int satapi_send_packet(int p, uint8_t* scsi_packet, void* buffer, uint32_t len, 
     hba_port_t* port = &hba_base->ports[p];
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)get_port_clb(p);
-    cmdhdr->cfl = 5;
-    cmdhdr->w = is_write ? 1 : 0;
-    cmdhdr->a = 1;
-    cmdhdr->p = 1;
-    cmdhdr->prdtl = buffer ? 1 : 0;
+    /* CFL=5, A=1, W, P=1, PRDTL=1 */
+    cmdhdr->dw0 = 5 | (1 << 5) | (is_write ? (1 << 6) : 0) | (1 << 7) | (buffer ? (1 << 16) : 0);
+    cmdhdr->prdbc = 0;
 
     uint64_t ctba_phys = vmm_get_phys(get_port_ctba(p));
     cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
     cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)get_port_ctba(p);
+    memset(cmdtbl, 0, sizeof(hba_cmd_tbl_t));
+
     if (buffer) {
         uint64_t phys_buffer = vmm_get_phys(buffer);
         cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
         cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
-        cmdtbl->prdt_entry[0].dbc = len - 1;
-        cmdtbl->prdt_entry[0].i = 1;
+        cmdtbl->prdt_entry[0].dw3 = ((len - 1) & 0x3FFFFF) | (1U << 31);
     }
 
-    fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
-    for(int i=0; i<64; i++) cmdtbl->cfis[i] = 0;
-    fis->fis_type = 0x27;
-    fis->c = 1;
-    fis->command = 0xA0; /* ATA_CMD_PACKET */
-    fis->featurel = buffer ? 1 : 0; /* DMA bit */
+    uint32_t* fis = (uint32_t*)cmdtbl->cfis;
+    fis[0] = 0x27 | (1 << 15) | (0xA0 << 16) | ((buffer ? 1 : 0) << 24); /* Type, C, Command, FeatureL */
 
-    for(int i=0; i<16; i++) cmdtbl->acmd[i] = 0;
     for(int i=0; i<12; i++) cmdtbl->acmd[i] = scsi_packet[i];
 
-    int timeout = 1000000;
-    while ((port->tfd & (0x80 | 0x08)) && timeout--) {
-        __asm__ volatile ("pause");
-    }
+    /* Wait for drive to be ready */
+    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
 
     port->ci = (1 << 0);
-    timeout = 1000000;
-    while ((port->ci & (1 << 0)) && timeout--) {
-        if (port->tfd & (1 << 0)) return -1;
-        __asm__ volatile ("pause");
-    }
-    if (timeout <= 0) return -1;
+    if (ahci_wait_status(port, 1 << 0, 0, 1000000) != 0) return -1;
+
+    port->is = 0xFFFFFFFF;
+    if (port->tfd & 0x01) return -1; /* Error bit */
     return 0;
 }
 
@@ -181,36 +81,22 @@ int satapi_identify(void* priv) {
     uint64_t phys_buffer = vmm_get_phys(data);
 
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)get_port_clb(p);
-    cmdhdr->cfl = 5;
-    cmdhdr->w = 0;
-    cmdhdr->a = 0; /* ATAPI bit is 0 for IDENTIFY PACKET command itself */
-    cmdhdr->prdtl = 1;
+    cmdhdr->dw0 = 5 | (1 << 16);
+    cmdhdr->prdbc = 0;
 
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)get_port_ctba(p);
+    memset(cmdtbl, 0, sizeof(hba_cmd_tbl_t));
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
     cmdtbl->prdt_entry[0].dbau = (uint32_t)(phys_buffer >> 32);
-    cmdtbl->prdt_entry[0].dbc = 512 - 1;
-    cmdtbl->prdt_entry[0].i = 1;
+    cmdtbl->prdt_entry[0].dw3 = (511 & 0x3FFFFF) | (1U << 31);
 
-    fis_reg_h2d_t* fis = (fis_reg_h2d_t*)cmdtbl->cfis;
-    for(int i=0; i<64; i++) cmdtbl->cfis[i] = 0;
-    fis->fis_type = 0x27;
-    fis->c = 1;
-    fis->command = 0xA1; /* IDENTIFY PACKET DEVICE */
+    uint32_t* fis = (uint32_t*)cmdtbl->cfis;
+    fis[0] = 0x27 | (1 << 15) | (0xA1 << 16); /* Type, C, Command (IDENTIFY PACKET) */
 
-    int timeout = 1000000;
-    while ((port->tfd & (0x80 | 0x08)) && timeout--) {
-        __asm__ volatile ("pause");
-    }
-
+    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
     port->ci = (1 << 0);
-    timeout = 1000000;
-    while ((port->ci & (1 << 0)) && timeout--) {
-        if (port->tfd & (1 << 0)) return -1;
-        __asm__ volatile ("pause");
-    }
-
-    if (timeout <= 0) return -1;
+    if (ahci_wait_status(port, 1 << 0, 0, 1000000) != 0) return -1;
+    port->is = 0xFFFFFFFF;
     return 0;
 }
 
@@ -230,7 +116,5 @@ int satapi_read_capacity(void* priv, uint32_t* out_lba, uint32_t* out_ss) {
 int satapi_eject(void* priv) {
     uint8_t packet[12];
     atapi_build_eject_packet(packet);
-    int res = satapi_send_packet((int)(uint64_t)priv, packet, NULL, 0, false);
-    if (res == 0) vga_print("[SATAPI] Port %d: Eject Signal Sent.\n", (int)(uint64_t)priv);
-    return res;
+    return satapi_send_packet((int)(uint64_t)priv, packet, NULL, 0, false);
 }

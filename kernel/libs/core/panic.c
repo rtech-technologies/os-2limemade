@@ -1,50 +1,49 @@
 #include <include/rsl.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <kernel/unice64/task.h>
 
-void serial_write_str(const char* s);
-
-typedef struct {
-    uint64_t r15, r14, r13, r12, r11, r10, r9, r8;
-    uint64_t rbp, rdi, rsi, rdx, rcx, rbx, rax;
-    uint64_t rip, cs, rflags, rsp, ss;
-} cpu_state_t;
-
-void* get_xhci_base(void);
+void tasking_set_scanning(bool scanning);
+uint64_t get_system_ticks(void);
 uint64_t get_hhdm_offset(void);
-void serial_print_hex(const char* label, uint16_t val);
+void vga_write_char(char c, uint8_t color_attr);
 
-void forensic_panic(const char* message, cpu_state_t* state) {
-    /* Critical Alert: Red on Black */
-    set_color(LIGHT_RED, BLACK);
+static void append_str(char* buf, int* idx, const char* s) {
+    while (*s) buf[(*idx)++] = *s++;
+}
 
-    print("\n!!! SOVEREIGN KERNEL PANIC !!!\n");
-    print("Autopsy Status: [ TERMINATED ]\n");
-    print("Failure Vector: ");
-    print(message);
-    print("\n\n");
+static void append_hex64(char* buf, int* idx, uint64_t val) {
+    const char* hex = "0123456789ABCDEF";
+    append_str(buf, idx, "0x");
+    for (int b = 15; b >= 0; b--) {
+        buf[(*idx)++] = hex[(val >> (b * 4)) & 0xF];
+    }
+}
 
-    serial_write_str("\n[PANIC] !!! SOVEREIGN KERNEL EXCEPTION !!!\n");
-    serial_write_str("[PANIC] Error Signature: ");
-    serial_write_str(message);
-    serial_write_str("\n");
+void forensic_panic(const char* message, cpu_context_t* state) {
+    tasking_set_scanning(true);
+    __asm__ volatile ("cli");
+
+    static char panic_buf[2048];
+    int idx = 0;
+
+    append_str(panic_buf, &idx, "\n!!! SOVEREIGN KERNEL PANIC !!!\n");
+    append_str(panic_buf, &idx, "Failure Vector: ");
+    append_str(panic_buf, &idx, message);
+    append_str(panic_buf, &idx, "\n\n");
 
     if (state) {
-        serial_write_str("[AUTOPSY] CPU Register state capture successful.\n");
+        append_str(panic_buf, &idx, "RIP: "); append_hex64(panic_buf, &idx, state->rip);
+        append_str(panic_buf, &idx, " RSP: "); append_hex64(panic_buf, &idx, state->rsp);
+        append_str(panic_buf, &idx, "\nRAX: "); append_hex64(panic_buf, &idx, state->rax);
+        append_str(panic_buf, &idx, " RBX: "); append_hex64(panic_buf, &idx, state->rbx);
     }
 
-    /* Mandatory Capture: USB controller registers */
-    serial_write_str("[AUTOPSY] Scanning USB registers for mount failure state...\n");
-    void* xhci_ptr = get_xhci_base();
-    if (xhci_ptr) {
-        uint64_t hhdm = get_hhdm_offset();
-        volatile uint32_t* op_regs = (uint32_t*)(hhdm + (uint64_t)xhci_ptr + 0x20); // USBCMD is at +0x20 in Operational Regs
-        serial_print_hex("XHCI_USBCMD: ", (uint16_t)(op_regs[0] >> 16));
-        serial_print_hex("", (uint16_t)(op_regs[0] & 0xFFFF));
-        serial_print_hex("XHCI_USBSTS: ", (uint16_t)(op_regs[1] >> 16));
-        serial_print_hex("", (uint16_t)(op_regs[1] & 0xFFFF));
-    } else {
-        serial_write_str("XHCI Controller Not Found.\n");
+    panic_buf[idx] = '\0';
+
+    /* delivering report to hardware using 1 print function loop as requested */
+    for (int k = 0; panic_buf[k]; k++) {
+        vga_write_char(panic_buf[k], 0x4F); /* Red Background */
     }
 
     for (;;) {
