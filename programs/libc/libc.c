@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stdbool.h>
 #include <stddef.h>
 
 #ifdef RSL_BINARY_MODE
@@ -167,4 +168,35 @@ void itoa(int n, char s[], int base) {
     if (sign < 0) s[i++] = '-';
     s[i] = '\0';
     reverse(s);
+}
+
+char* strstr(const char* haystack, const char* needle) {
+    if (!*needle) return (char*)haystack;
+    for (; *haystack; haystack++) {
+        if (*haystack == *needle) {
+            const char *h, *n;
+            for (h = haystack, n = needle; *h && *n && *h == *n; h++, n++);
+            if (!*n) return (char*)haystack;
+        }
+    }
+    return NULL;
+}
+
+long strtol(const char* nptr, char** endptr, int base) {
+    long res = 0;
+    while (*nptr == ' ' || *nptr == '\t') nptr++;
+    bool neg = (*nptr == '-');
+    if (neg || *nptr == '+') nptr++;
+    while (*nptr) {
+        int v = 0;
+        if (*nptr >= '0' && *nptr <= '9') v = *nptr - '0';
+        else if (*nptr >= 'a' && *nptr <= 'z') v = *nptr - 'a' + 10;
+        else if (*nptr >= 'A' && *nptr <= 'Z') v = *nptr - 'A' + 10;
+        else break;
+        if (v >= base) break;
+        res = res * base + v;
+        nptr++;
+    }
+    if (endptr) *endptr = (char*)nptr;
+    return neg ? -res : res;
 }

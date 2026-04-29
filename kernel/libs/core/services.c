@@ -17,6 +17,7 @@ static int service_count = 0;
 void register_service(service_func_t init_func) {
     if (service_count < MAX_SERVICES) {
         services[service_count++] = init_func;
+        vga_print("[SERVICE] Registered Service Handler at 0x%x\n", (uint64_t)init_func);
     }
 }
 
@@ -149,6 +150,7 @@ void mouse_service(kernel_event_t event) {
 }
 
 void dispatch_event(kernel_event_t event) {
+    vga_print("[EVENT] Dispatching Event ID %d to %d services...\n", (int)event, service_count);
     if (event == EVENT_INIT) {
         register_service(vga_serial_service);
         register_service(arc_mem_service);

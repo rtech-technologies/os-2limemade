@@ -1,6 +1,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
+void vga_print(const char* fmt, ...);
+
 typedef struct {
     uint16_t isr_low;
     uint16_t kernel_cs;
@@ -40,18 +42,23 @@ void idt_init(void) {
     idt_ptr.limit = (sizeof(idt_entry_t) * 256) - 1;
     idt_ptr.base  = (uint64_t)&idt;
 
+    vga_print("[IDT] Initializing Interrupt Descriptor Table at 0x%x\n", idt_ptr.base);
     /* Fill IDT with exception stubs */
     for (int i = 0; i < 32; i++) {
         idt_set_descriptor(i, exception_handler_stub, 0x8E);
     }
+    vga_print("[IDT] Registered 32 CPU Exception Stubs.\n");
 
     /* Register IRQ 32 (APIC Timer) */
+    vga_print("[IDT] Vector 32: APIC Timer Handler.\n");
     idt_set_descriptor(32, irq_timer_handler, 0x8E);
 
     /* Register software interrupt for sys_yield (0x81) */
+    vga_print("[IDT] Vector 0x81: Unice64 Context Switch Gate.\n");
     idt_set_descriptor(0x81, unice64_context_switch, 0xEE); /* Allow USermode access if needed */
 
     /* Register RSL Service Gate (0x03) */
+    vga_print("[IDT] Vector 0x03: RSL System Call Gate.\n");
     idt_set_descriptor(0x03, rsl_syscall_stub, 0x8E);
 
     idt_load(&idt_ptr);

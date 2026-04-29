@@ -603,12 +603,30 @@ void vga_serial_service(kernel_event_t event) {
         struct limine_framebuffer_response* fb_resp = get_framebuffer();
         if (fb_resp && fb_resp->framebuffer_count > 0) {
             global_fb = fb_resp->framebuffers[0];
-            serial_write_str("[INIT] GOP Framebuffer initialized.\n");
+            vga_print("[INIT] GOP Framebuffer initialized.\n");
         } else {
-            serial_write_str("[WARN] GOP Framebuffer not found, console output disabled.\n");
+            vga_print("[WARN] GOP Framebuffer not found, console output disabled.\n");
         }
 
-        serial_write_str("[INIT] Serial and VGA Mirroring active.\n");
+        vga_print("[INIT] Serial and VGA Mirroring active.\n");
         vga_clear();
+    }
+}
+
+void vga_sync_logs(void) {
+    #include <include/vfs.h>
+    extern char terminal_buffer[40][80];
+    for (int r = 0; r < 40; r++) {
+        char line[81];
+        int last_char = -1;
+        for (int c = 0; c < 80; c++) {
+            line[c] = terminal_buffer[r][c];
+            if (line[c] != ' ') last_char = c;
+        }
+        if (last_char != -1) {
+            line[last_char + 1] = '\n';
+            line[last_char + 2] = '\0';
+            vfs_sync_boot_log(line);
+        }
     }
 }

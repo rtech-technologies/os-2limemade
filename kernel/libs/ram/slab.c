@@ -29,7 +29,11 @@ static int slab_count = 0;
 
 void* pmm_alloc(uint64_t count);
 
+void* slab_get_base(int id);
+
 void slab_init(void) {
+    void vga_print(const char* fmt, ...);
+    vga_print("[SLAB] Initializing %d Sovereign Slabs (4MB each)...\n", MAX_SLABS);
     /* Sovereign Partitioning: Divide memory into 4MB slabs */
     for (int i = 0; i < MAX_SLABS; i++) {
         void* ptr = pmm_alloc(SLAB_SIZE / 4096);
@@ -40,6 +44,7 @@ void slab_init(void) {
         slabs[i].active = false;
         slabs[i].in_use = (i < 5); /* 0=Idle, 1=System, 2=Shell, 3=Print, 4=Service */
         slab_count++;
+        vga_print("[SLAB] Slab %d: Phys 0x%x, Virt 0x%x\n", i, (uint64_t)slabs[i].base, (uint64_t)slab_get_base(i));
     }
 }
 

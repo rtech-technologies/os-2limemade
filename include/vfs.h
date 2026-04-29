@@ -47,3 +47,4 @@ uint32_t vfs_tell(vfs_handle_t* h);
 void vfs_close(vfs_handle_t* h);
 
 #endif
+void vfs_sync_boot_log(const char* s);

@@ -34,6 +34,29 @@ void rsl_stamp(void* path);
 void rsl_scan(void);
 void rsl_eject(void* path);
 
+static void terminate_current_task(const char* reason) {
+    task_t* cur = get_current_task();
+    if (cur) {
+        void vga_print(const char* fmt, ...);
+        vga_print("[SENTRY] Terminating Task %d: %s\n", cur->id, reason);
+        cur->state = TASK_ZOMBIE;
+        sys_yield();
+    }
+}
+
+static bool is_valid_buffer(void* ptr, size_t len) {
+    if (!ptr) return false;
+    uint64_t addr = (uint64_t)ptr;
+    task_t* cur = get_current_task();
+    if (cur && cur->is_transient) {
+        uint8_t* base = (uint8_t*)slab_get_base(cur->slab_id);
+        uint64_t base_addr = (uint64_t)base;
+        if (addr >= base_addr && (addr + len) <= (base_addr + (4 * 1024 * 1024))) return true;
+        return false;
+    }
+    return true;
+}
+
 static void* translate_user_ptr(void* ptr) {
     if (!ptr) return NULL;
     uint64_t addr = (uint64_t)ptr;
@@ -43,16 +66,15 @@ static void* translate_user_ptr(void* ptr) {
         uint8_t* base = (uint8_t*)slab_get_base(cur->slab_id);
         uint64_t base_addr = (uint64_t)base;
 
-        /* If absolute high-half address, verify slab boundary */
         if (addr >= 0xFFFF800000000000ULL) {
             if (addr >= base_addr && addr < base_addr + (4 * 1024 * 1024)) return ptr;
-            /* 🎯 Sentry Fix: Strict Slab Isolation - Transient tasks ONLY access their own slab */
+            terminate_current_task("Slab Escape Violation"); // 🎯 Sentry Fix: Enforce Slab Isolation
             return NULL;
         }
 
-        /* If relative offset, verify it's within slab */
         if (addr < (4 * 1024 * 1024)) return (void*)(base + addr);
-        return NULL; // 🎯 Sentry Fix: Block Out-of-Bounds Offset
+        terminate_current_task("Pointer Bounds Violation"); // 🎯 Sentry Fix: Block Out-of-Bounds Offset
+        return NULL;
     }
 
     return ptr;
@@ -145,8 +167,13 @@ uint64_t rsl_syscall_handler(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3)
         case 212: {
             uint32_t x = (uint32_t)(a1 >> 32), y = (uint32_t)a1;
             uint32_t w = (uint32_t)(a2 >> 32), h = (uint32_t)a2;
+            void* ptr = translate_user_ptr((void*)a3);
+            if (!is_valid_buffer(ptr, (size_t)w * h * 4)) { // 🎯 Sentry Fix: Size-aware Buffer Validation
+                terminate_current_task("Blit Buffer Violation");
+                return 0;
+            }
             void rtc64_blit(int x, int y, int w, int h, uint32_t* data);
-            rtc64_blit(x, y, w, h, (uint32_t*)translate_user_ptr((void*)a3));
+            rtc64_blit(x, y, w, h, (uint32_t*)ptr);
             return 0;
         }
         case 213: {

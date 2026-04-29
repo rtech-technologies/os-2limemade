@@ -129,16 +129,20 @@ void tasking_create_kernel_thread(void (*entry)(void), const char* name) {
 }
 
 void tasking_init(void) {
+    vga_print("[UNICE64] Initializing Unice64 Tasking System...\n");
     /* ENFORCE: Initialize scheduler state BEFORE registering tasks */
     unice64_scheduler_init();
 
     /* Register Idle Task in Slab 0 */
+    vga_print("[UNICE64] Registering IDLE Task (Slab 0)...\n");
     register_task(idle_task, 0);
 
     /* Register System Maintenance Task in Slab 1 */
+    vga_print("[UNICE64] Registering SYSTEM Task (Slab 1)...\n");
     register_task(system_task, 1);
 
     /* Register Shell Task in Slab 2 */
+    vga_print("[UNICE64] Registering %d Pending Kernel Threads...\n", pending_thread_count);
     for (int i = 0; i < pending_thread_count; i++) {
         register_task(pending_threads[i], 2 + i);
     }
@@ -147,7 +151,7 @@ void tasking_init(void) {
     extern int get_task_count(void);
     PANIC_ON(get_task_count() < 3, "MULTITASKING_INIT: INSUFFICIENT SYSTEM TASKS");
 
-    vga_print("[UNICE64] Multitasking initialized.\n");
+    vga_print("[UNICE64] Multitasking initialized with %d tasks.\n", get_task_count());
 }
 
 void task_cargo(void) {

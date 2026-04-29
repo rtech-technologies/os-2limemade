@@ -4,6 +4,7 @@
 
 struct limine_memmap_response* get_memmap(void);
 uint64_t get_hhdm_offset(void);
+void vga_print(const char* fmt, ...);
 
 #define PAGE_SIZE 4096
 
@@ -17,8 +18,23 @@ void pmm_init(void) {
     uint64_t hhdm = get_hhdm_offset();
     uint64_t highest_addr = 0;
 
+    vga_print("[PMM] System Memory Map:\n");
     for (uint64_t i = 0; i < memmap->entry_count; i++) {
         struct limine_memmap_entry* entry = memmap->entries[i];
+        const char* type_str = "UNKNOWN";
+        switch (entry->type) {
+            case LIMINE_MEMMAP_USABLE: type_str = "USABLE"; break;
+            case LIMINE_MEMMAP_RESERVED: type_str = "RESERVED"; break;
+            case LIMINE_MEMMAP_ACPI_RECLAIMABLE: type_str = "ACPI RECLAIM"; break;
+            case LIMINE_MEMMAP_ACPI_NVS: type_str = "ACPI NVS"; break;
+            case LIMINE_MEMMAP_BAD_MEMORY: type_str = "BAD"; break;
+            case LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE: type_str = "BOOT RECLAIM"; break;
+            case LIMINE_MEMMAP_KERNEL_AND_MODULES: type_str = "KERNEL/MODS"; break;
+            case LIMINE_MEMMAP_FRAMEBUFFER: type_str = "FRAMEBUFFER"; break;
+        }
+        vga_print("  [0x%x - 0x%x] %s (%d KB)\n",
+                  entry->base, entry->base + entry->length, type_str, entry->length / 1024);
+
         if (entry->base + entry->length > highest_addr) {
             highest_addr = entry->base + entry->length;
         }
@@ -70,6 +86,11 @@ void pmm_init(void) {
             }
         }
     }
+
+    vga_print("[PMM] Physical Memory Manager initialized.\n");
+    vga_print("[PMM] Total Pages: %d (%d MB)\n", total_pages, (total_pages * PAGE_SIZE) / 1024 / 1024);
+    vga_print("[PMM] Usable Pages: %d (%d MB)\n", usable_pages, (usable_pages * PAGE_SIZE) / 1024 / 1024);
+    vga_print("[PMM] Bitmap location: 0x%x, size: %d bytes\n", (uint64_t)bitmap, bitmap_size);
 }
 
 void* pmm_alloc(uint64_t count) {

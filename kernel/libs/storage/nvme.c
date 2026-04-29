@@ -46,7 +46,8 @@ void nvme_service(kernel_event_t event) {
                         uint64_t phys_base = ((uint64_t)bar1 << 32) | (bar0 & 0xFFFFFFF0);
 
                         nvme_base = (nvme_regs_t*)(get_hhdm_offset() + phys_base);
-                        vga_print("[NVME] Base Address: 0x%x\n", (uint64_t)nvme_base);
+                        vga_print("[NVME] Base Address: 0x%x, Version: 0x%x\n", (uint64_t)nvme_base, nvme_base->vs);
+                        vga_print("[NVME] Capabilities: 0x%x\n", nvme_base->cap);
 
                         /* In a Sovereign OS, we would now map Admin Queues here */
                         return;

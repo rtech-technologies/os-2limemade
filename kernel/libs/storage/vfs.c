@@ -23,6 +23,7 @@ void vfs_set_safe_mode(bool active) { safe_mode_active = active; }
 void vfs_register_node(vfs_node_t node) {
     if (vfs_node_count < MAX_VFS_NODES) {
         vfs_registry[vfs_node_count++] = node;
+        vga_print("[VFS] Registered Node %s:/ (Private Data: 0x%x)\n", node.name, (uint64_t)node.private_data);
     }
 }
 
@@ -338,8 +339,12 @@ vfs_handle_t* vfs_open(void* path, const char* mode) {
 
     if (!fs) return NULL;
     FIL fil;
-    BYTE m = (mode[0] == 'w') ? (FA_WRITE | FA_CREATE_ALWAYS) : FA_READ;
+    BYTE m = FA_READ;
+    if (mode[0] == 'w') m = (FA_WRITE | FA_CREATE_ALWAYS);
+    else if (mode[0] == 'a') m = (FA_WRITE | FA_OPEN_ALWAYS);
+
     if (f_open(fs, &fil, subpath_cstr, m) == FR_OK) {
+        if (mode[0] == 'a') fil.fptr = fil.fsize; /* Seek to end for append */
         vfs_handle_t* h = malloc(sizeof(vfs_handle_t));
         if (!h) return NULL;
         h->obj = fs;
@@ -429,4 +434,16 @@ void vfs_close(vfs_handle_t* h) {
     fil.entry_idx = h->entry_idx;
     f_close(&fil);
     /* release(h); // Handled by ARC if caller calls release */
+}
+
+void vfs_sync_boot_log(const char* s) {
+    if (!s) return;
+    void* path = str_create("BOOT:/sys/boot.log");
+    vfs_handle_t* h = vfs_open(path, "a"); /* Open for append */
+    if (h) {
+        int len = 0; while (s[len]) len++;
+        vfs_write(h, s, len);
+        vfs_close(h);
+    }
+    release(path);
 }

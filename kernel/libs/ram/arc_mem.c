@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
+void vga_print(const char* fmt, ...);
+
 /* ARC Header: 8 bytes */
 typedef struct {
     uint64_t ref_count;
@@ -13,7 +15,7 @@ void serial_write_str(const char* s);
 
 void arc_mem_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
-        serial_write_str("[INIT] ARC Memory Management active.\n");
+        vga_print("[INIT] ARC Memory Management active.\n");
     }
 }
 

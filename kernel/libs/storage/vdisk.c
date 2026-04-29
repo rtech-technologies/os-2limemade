@@ -197,7 +197,7 @@ void vdisk_ls_root(void* path, void* priv) {
 
 void vdisk_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
-        serial_write_str("[INIT] VDISK Registry initialized.\n");
+        vga_print("[INIT] VDISK Registry initialized.\n");
         vfs_init();
 
         /* Register INITRD if module present */
@@ -213,7 +213,7 @@ void vdisk_service(kernel_event_t event) {
                 .is_atapi = false /* RAMDISK is virtual, not ATAPI */
             };
             register_hardware_disk(initrd);
-            serial_write_str("[INIT] Ramdisk registered as Physical Volume.\n");
+            vga_print("[INIT] Ramdisk registered as Physical Volume.\n");
         }
 
         vfs_node_t root_node = {

@@ -11,6 +11,7 @@
 #include <include/stdlib.h>
 #include <include/timer.h>
 
+void vga_print(const char* fmt, ...);
 void* malloc(size_t size);
 void free(void* ptr);
 
@@ -149,7 +150,7 @@ void ahci_force_port_reset(int port_no) {
     port->sctl = (port->sctl & ~0x0F) | 0x01; /* DET=1 */
     pit_wait_ms(10);
     port->sctl = (port->sctl & ~0x0F) | 0x00; /* DET=0 */
-    pit_wait_ms(100);
+    pit_wait_ms(1000000);
 
     /* Wait for the link to transition out of "Partial" (0x1) to "Active" (0x3) */
     int timeout = 500;
@@ -227,12 +228,12 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis[2] = (lba >> 24) & 0xFFFFFF;          /* LBA High 24 bits */
     fis[3] = count & 0xFFFF;                  /* Sector Count (16-bit) */
 
-    if (ahci_wait_status(port, 0x88, 0, 100) != 0) return -1;
+    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
 
     port->ci = (1 << 0);
 
     /* Real Metal Poll: Wait for SILICON to clear CI bit */
-    if (ahci_wait_status(port, (1 << 0), 0, 100) != 0) return -1;
+    if (ahci_wait_status(port, (1 << 0), 0, 1000000) != 0) return -1;
 
     port->is = 0xFFFFFFFF;
     return 0;
@@ -270,12 +271,12 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     fis[2] = (lba >> 24) & 0xFFFFFF;          /* LBA High 24 bits */
     fis[3] = count & 0xFFFF;                  /* Sector Count (16-bit) */
 
-    if (ahci_wait_status(port, 0x88, 0, 100) != 0) return -1;
+    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
 
     port->ci = (1 << 0);
 
     /* Real Metal Poll: Wait for SILICON to clear CI bit */
-    if (ahci_wait_status(port, (1 << 0), 0, 100) != 0) return -1;
+    if (ahci_wait_status(port, (1 << 0), 0, 1000000) != 0) return -1;
 
     port->is = 0xFFFFFFFF;
     return 0;
@@ -310,9 +311,9 @@ int ahci_mechanical_sync(int p) {
     fis[2] = 0;
     fis[3] = 1; /* 1 Sector */
 
-    if (ahci_wait_status(port, 0x88, 0, 100) != 0) return -1;
+    if (ahci_wait_status(port, 0x88, 0, 1000000) != 0) return -1;
     port->ci = (1 << 0);
-    if (ahci_wait_status(port, (1 << 0), 0, 100) != 0) return -1;
+    if (ahci_wait_status(port, (1 << 0), 0, 1000000) != 0) return -1;
 
     serial_print("[AHCI] Port %d: Mechanical Sync Success.\n", p);
     return 0;
@@ -470,10 +471,12 @@ void ahci_service(kernel_event_t event) {
                 uint8_t sub_class = (class_info >> 16) & 0xFF;
 
                 if (base_class == 0x01 && sub_class == 0x06) {
+                    vga_print("[AHCI] Found AHCI Controller at %d:%d:%d\n", bus, slot, func);
                     pci_enable_master(bus, slot, func);
                     uint32_t bar5 = pci_config_read(bus, slot, func, 0x24);
                     uint64_t hhdm = get_hhdm_offset();
                     hba_base = (hba_mem_t*)(hhdm + (uint64_t)(bar5 & 0xFFFFFFF0));
+                    vga_print("[AHCI] Base Address: 0x%x, HBA Cap: 0x%x\n", (uint64_t)hba_base, hba_base->cap);
 
                     hba_base->ghc |= (1 << 31); /* AE */
                     hba_base->ghc |= (1 << 0);  /* HR */

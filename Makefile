@@ -84,6 +84,9 @@ kernel: limine-setup $(KERNEL_OBJ)
 
 programs: $(PROGRAMS) $(NUKLEAR_PROGS)
 
+cargo.bin: programs/cargo.c programs/nuklear/nk_sovereign.h programs/libc/libc.c
+	$(CC) $(CFLAGS) -DRSL_BINARY_MODE $(PROG_LDFLAGS) -Iprograms/nuklear -I. $< programs/libc/libc.c -o $@
+
 nk_demo.bin: programs/nuklear/nk_demo.c programs/nuklear/nk_sovereign.h programs/libc/libc.c
 	$(CC) $(CFLAGS) -DRSL_BINARY_MODE $(PROG_LDFLAGS) -Iprograms/nuklear -I. $< programs/libc/libc.c -o $@
 
