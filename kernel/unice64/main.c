@@ -239,6 +239,7 @@ void _start(void) {
 
     void tasking_create_kernel_thread(void (*entry)(void), const char* name);
     void task_shell(void);
+    void task_cargo(void);
     void ahci_scan_remaining(void);
 
     /* USB Stack */
@@ -247,7 +248,11 @@ void _start(void) {
     void usbh_primary_task(void* arg);
     tasking_create_kernel_thread((void(*)(void))usbh_primary_task, "usb_primary");
 
-    tasking_create_kernel_thread(task_shell, "shell");
+    if (quiet_mode) {
+        tasking_create_kernel_thread(task_cargo, "cargo");
+    } else {
+        tasking_create_kernel_thread(task_shell, "shell");
+    }
     tasking_create_kernel_thread(ahci_scan_remaining, "ahci_bg");
     tasking_init();
 

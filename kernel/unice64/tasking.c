@@ -149,3 +149,10 @@ void tasking_init(void) {
 
     vga_print("[UNICE64] Multitasking initialized.\n");
 }
+
+void task_cargo(void) {
+    vga_print("[UNICE64] CARGO Installer Task Active.\n");
+    int tasking_spawn_app(const char* path);
+    tasking_spawn_app("BOOT:/bin/cargo.bin");
+    while (1) { sys_yield(); }
+}
