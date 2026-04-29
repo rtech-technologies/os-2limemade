@@ -11,7 +11,7 @@ typedef struct {
 
 void* slab_alloc(int id, size_t size);
 #include <kernel/unice64/task.h>
-void serial_write_str(const char* s);
+void vga_print(const char* fmt, ...);
 
 void arc_mem_service(kernel_event_t event) {
     if (event == EVENT_INIT) {

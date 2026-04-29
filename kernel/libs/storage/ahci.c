@@ -15,7 +15,7 @@ void vga_print(const char* fmt, ...);
 void* malloc(size_t size);
 void free(void* ptr);
 
-void serial_write_str(const char* s);
+void vga_print(const char* fmt, ...);
 
 static hba_mem_t* hba_base = NULL;
 static void* port_clb_virt[32];
@@ -71,7 +71,7 @@ int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_
             /* During INIT, we poll manually without full tasking */
             if (i % 1000 == 0) {
                 pit_wait_ms(1);
-                if (i % 10000 == 0) serial_write_str(".");
+                if (i % 10000 == 0) vga_print(".");
             }
         }
     }
@@ -352,7 +352,7 @@ void ahci_scan_remaining(void) {
     if (scanned) return;
     scanned = true;
 
-    serial_write_str("[AHCI] Performing background scan (Ports 5-31)...\n");
+    vga_print("[AHCI] Performing background scan (Ports 5-31)...\n");
     for (int p = 5; p < 32; p++) {
         if (hba_base->pi & (1 << p)) {
             ahci_init_port_hw(p);
@@ -459,7 +459,7 @@ void ahci_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
         if (hba_base != NULL) return; /* Shield: Already Initialized */
 
-        serial_write_str("[INIT] Scanning PCI for SATA/AHCI controllers...\n");
+        vga_print("[INIT] Scanning PCI for SATA/AHCI controllers...\n");
         bool found = false;
         for (int bus = 0; bus < 256; bus++) {
             for (int slot = 0; slot < 32; slot++) {
@@ -507,7 +507,7 @@ void ahci_service(kernel_event_t event) {
             if (found) break;
         }
         if (!found) {
-            serial_write_str("[AHCI] No SATA/AHCI Controller found. Entering Degraded Mode.\n");
+            vga_print("[AHCI] No SATA/AHCI Controller found. Entering Degraded Mode.\n");
         }
     }
 }

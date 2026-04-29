@@ -54,6 +54,12 @@ static inline uint64_t rsl_syscall(uint64_t id, uint64_t a1, uint64_t a2, uint64
 #define rsl_scan() rsl_syscall(19, 0, 0, 0)
 #define rsl_list_disks() rsl_syscall(101, 0, 0, 0)
 
+/* VFS Handle API */
+#define rsl_open(p, m) (void*)rsl_syscall(21, (uint64_t)(p), (uint64_t)(m), 0)
+#define rsl_read(h, b, l) rsl_syscall(22, (uint64_t)(h), (uint64_t)(b), (uint64_t)(l))
+#define rsl_write_h(h, b, l) rsl_syscall(23, (uint64_t)(h), (uint64_t)(b), (uint64_t)(l))
+#define rsl_close(h) rsl_syscall(24, (uint64_t)(h), 0, 0)
+
 /* GUI API */
 #define rsl_get_fb_info(idx) rsl_syscall(202, (uint64_t)(idx), 0, 0)
 #define rsl_de_start() rsl_syscall(203, 0, 0, 0)

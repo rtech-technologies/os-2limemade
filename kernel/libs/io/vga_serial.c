@@ -37,7 +37,7 @@ static int is_transmit_empty(void) {
     return inb(SERIAL_PORT + 5) & 0x20;
 }
 
-void serial_write_char(char c) {
+void vga_print("%c", char c) {
     /* 🎯 Sentry Fix: Bounded polling for serial write */
     uint32_t timeout = 1000000;
     while (is_transmit_empty() == 0 && timeout--) {
@@ -60,9 +60,9 @@ char serial_read_char(void) {
     return inb(SERIAL_PORT);
 }
 
-void serial_write_str(const char* s) {
+void vga_print(const char* s) {
     for (int i = 0; s[i] != '\0'; i++) {
-        serial_write_char(s[i]);
+        vga_print("%c", s[i]);
     }
 }
 
@@ -298,11 +298,11 @@ void vga_write_char(char c, uint8_t color_attr) {
      * Every character passed to the VGA console is transmitted to Serial COM1.
      */
     if (c == '\b') {
-        serial_write_char('\b');
-        serial_write_char(' ');
-        serial_write_char('\b');
+        vga_print("%c", '\b');
+        vga_print("%c", ' ');
+        vga_print("%c", '\b');
     } else {
-        serial_write_char(c);
+        vga_print("%c", c);
     }
 
     if (g_vga_silent) return;
@@ -576,24 +576,24 @@ void vga_pulse_cursor(void) {
 }
 
 void serial_print_hex(const char* label, uint16_t val) {
-    serial_write_str(label);
-    serial_write_str("0x");
+    vga_print(label);
+    vga_print("0x");
     const char* hex = "0123456789ABCDEF";
-    serial_write_char(hex[(val >> 12) & 0xF]);
-    serial_write_char(hex[(val >> 8) & 0xF]);
-    serial_write_char(hex[(val >> 4) & 0xF]);
-    serial_write_char(hex[val & 0xF]);
-    serial_write_char('\n');
+    vga_print("%c", hex[(val >> 12) & 0xF]);
+    vga_print("%c", hex[(val >> 8) & 0xF]);
+    vga_print("%c", hex[(val >> 4) & 0xF]);
+    vga_print("%c", hex[val & 0xF]);
+    vga_print("%c", '\n');
 }
 
 void serial_print_hex32(const char* label, uint32_t val) {
-    serial_write_str(label);
-    serial_write_str("0x");
+    vga_print(label);
+    vga_print("0x");
     const char* hex = "0123456789ABCDEF";
     for (int i = 7; i >= 0; i--) {
-        serial_write_char(hex[(val >> (i * 4)) & 0xF]);
+        vga_print("%c", hex[(val >> (i * 4)) & 0xF]);
     }
-    serial_write_char('\n');
+    vga_print("%c", '\n');
 }
 
 void vga_serial_service(kernel_event_t event) {

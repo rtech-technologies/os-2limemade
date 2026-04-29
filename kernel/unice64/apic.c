@@ -35,8 +35,7 @@ void apic_timer_init(uint32_t count) {
 
 uint64_t get_hhdm_offset(void);
 
-void serial_write_str(const char* s);
-void serial_write_char(char c);
+void vga_print(const char* fmt, ...);
 
 void apic_init(void) {
     uint64_t hhdm = get_hhdm_offset();

@@ -12,11 +12,27 @@ void load_theme(struct theme* t) {
     t->window_bg = nk_rgb(45, 45, 45);
     t->button_bg = nk_rgb(60, 60, 60);
 
-    /* 🎯 Sentry: Attempt to load from DISK0_P0 (ESP) */
-    if (rsl_exists("0:0:/theme.cfg")) {
-        /* Open and read would need a way to open by name without vfs_open direct call if not in rsl.h */
-        /* For now, keep it simple as proof of concept */
+    /* 🎯 Sentry: Load from DISK0_P0 (ESP) */
+    void* path = str_create("0:0:/theme.cfg");
+    void* mode = str_create("r");
+    void* h = rsl_open(path, mode);
+    if (h) {
+        char buf[128];
+        int bytes = rsl_read(h, buf, 127);
+        if (bytes > 0) {
+            buf[bytes] = '\0';
+            char* win = strstr(buf, "window=#");
+            if (win) {
+                long val = strtol(win + 8, NULL, 16);
+                t->window_bg.r = (uint8_t)(val >> 16);
+                t->window_bg.g = (uint8_t)(val >> 8);
+                t->window_bg.b = (uint8_t)val;
+            }
+        }
+        rsl_close(h);
     }
+    release(path);
+    release(mode);
 }
 
 void main(void) {

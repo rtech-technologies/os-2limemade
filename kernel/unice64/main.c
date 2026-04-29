@@ -7,7 +7,7 @@
 #include <stddef.h>
 
 int is_sovereign_disk(int disk_id);
-void serial_write_str(const char* s);
+void vga_print(const char* fmt, ...);
 void shell_main(void);
 void vga_print(const char* fmt, ...);
 void sys_yield(void);
@@ -135,7 +135,7 @@ void _start(void) {
     }
 
     /* Force serial logging for critical init regardless of VGA silence */
-    serial_write_str("[BOOT] Critical Init sequence started.\n");
+    vga_print("[BOOT] Critical Init sequence started.\n");
 
     /* Deliver INIT event to all services */
     vga_print("[BOOT] Dispatching INIT event to kernel services...\n");
@@ -162,7 +162,7 @@ void _start(void) {
     __asm__ volatile ("sti");
 
     /* Start the Shell and Main System Logic */
-    serial_write_str("[EVENT] Entering EVENT_MAIN...\n");
+    vga_print("[EVENT] Entering EVENT_MAIN...\n");
 
     bool mount_success = false;
     static FATFS boot_fs;

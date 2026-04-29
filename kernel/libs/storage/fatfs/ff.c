@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 void vga_print(const char* fmt, ...);
-void serial_write_str(const char* s);
+void vga_print(const char* fmt, ...);
 void serial_print_hex(const char* label, uint16_t val);
 
 typedef struct {

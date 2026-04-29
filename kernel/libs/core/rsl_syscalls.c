@@ -1,6 +1,7 @@
 #include <kernel/libs/core/services.h>
 #include <kernel/unice64/task.h>
 #include <include/rsl.h>
+#include <include/vfs.h>
 #include <include/cmdlets.h>
 #include <include/mouse.h>
 #include <limine.h>
@@ -81,7 +82,6 @@ static void* translate_user_ptr(void* ptr) {
 }
 
 uint64_t rsl_syscall_handler(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3) {
-    (void)a3;
     switch (id) {
         case 0: print((const char*)translate_user_ptr((void*)a1)); return 0;
         case 1: return (uint64_t)input((const char*)translate_user_ptr((void*)a1));
@@ -103,6 +103,21 @@ uint64_t rsl_syscall_handler(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3)
         case 18: rsl_stamp(translate_user_ptr((void*)a1)); return 0;
         case 19: rsl_scan(); return 0;
         case 20: rsl_eject(translate_user_ptr((void*)a1)); return 0;
+
+        /* New VFS Handle Syscalls */
+        case 21: return (uint64_t)vfs_open(translate_user_ptr((void*)a1), (const char*)translate_user_ptr((void*)a2));
+        case 22: {
+            void* buf = translate_user_ptr((void*)a2);
+            if (!buf || !is_valid_buffer(buf, a3)) { terminate_current_task("VFS Read Buffer Violation"); return (uint64_t)-1; }
+            return (uint64_t)vfs_read((vfs_handle_t*)a1, buf, (int)a3);
+        }
+        case 23: {
+            void* buf = translate_user_ptr((void*)a2);
+            if (!buf || !is_valid_buffer(buf, a3)) { terminate_current_task("VFS Write Buffer Violation"); return (uint64_t)-1; }
+            return (uint64_t)vfs_write((vfs_handle_t*)a1, buf, (int)a3);
+        }
+        case 24: vfs_close((vfs_handle_t*)a1); return 0;
+
         case 100: rsl_execute_command((char*)translate_user_ptr((void*)a1)); return 0;
         case 101: vdisk_ls_root(NULL, NULL); return 0;
         case 102: return (uint64_t)is_sovereign_disk((int)a1);
@@ -119,7 +134,6 @@ uint64_t rsl_syscall_handler(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3)
             return (uint64_t)slab_get_base(id);
         }
         case 202: {
-            struct limine_framebuffer_response* get_framebuffer(void);
             struct limine_framebuffer_response* fb_resp = get_framebuffer();
             if (!fb_resp || fb_resp->framebuffer_count == 0) return 0;
             struct limine_framebuffer* fb = fb_resp->framebuffers[0];
@@ -168,8 +182,8 @@ uint64_t rsl_syscall_handler(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3)
             uint32_t x = (uint32_t)(a1 >> 32), y = (uint32_t)a1;
             uint32_t w = (uint32_t)(a2 >> 32), h = (uint32_t)a2;
             void* ptr = translate_user_ptr((void*)a3);
-            if (!is_valid_buffer(ptr, (size_t)w * h * 4)) { // 🎯 Sentry Fix: Size-aware Buffer Validation
-                terminate_current_task("Blit Buffer Violation");
+            if (!is_valid_buffer(ptr, (size_t)w * h * 4)) {
+                terminate_current_task("Blit Buffer Violation"); // 🎯 Sentry Fix: Size-aware Buffer Validation
                 return 0;
             }
             void rtc64_blit(int x, int y, int w, int h, uint32_t* data);

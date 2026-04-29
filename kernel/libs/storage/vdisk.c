@@ -19,7 +19,7 @@ static int hw_count = 0;
 static vdisk_node_t connect_registry[MAX_DISKS];
 static int connect_count = 0;
 
-void serial_write_str(const char* s);
+void vga_print(const char* fmt, ...);
 void vga_print(const char* fmt, ...);
 struct limine_module_response* get_modules(void);
 
@@ -52,7 +52,7 @@ void register_hardware_disk(vdisk_node_t node) {
 void vdisk_connect(int hw_id) {
     if (hw_id >= 0 && hw_id < hw_count && connect_count < MAX_DISKS) {
         connect_registry[connect_count++] = hw_registry[hw_id];
-        serial_write_str("[CONNECT] Disk volume linked.\n");
+        vga_print("[CONNECT] Disk volume linked.\n");
     }
 }
 
