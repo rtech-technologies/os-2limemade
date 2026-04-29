@@ -158,7 +158,7 @@ static int ramdisk_read(void* priv, uint64_t lba, uint32_t count, void* buffer) 
 #include <include/vfs.h>
 #include <kernel/libs/storage/fatfs/ff.h>
 
-static void vdisk_ls_root(void* path, void* priv) {
+void vdisk_ls_root(void* path, void* priv) {
     (void)path; (void)priv;
     int count = get_hw_disk_count();
     for (int i = 0; i < count; i++) {

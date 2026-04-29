@@ -2,8 +2,6 @@
 #include <include/rsl.h>
 #include <include/stdlib.h>
 #include <include/string.h>
-#include <include/stdlib.h>
-#include <include/string.h>
 #include <kernel/libs/storage/fatfs/ff.h>
 #include <kernel/libs/storage/vdisk.h>
 
@@ -11,6 +9,8 @@
 static vfs_node_t vfs_registry[MAX_VFS_NODES];
 static int vfs_node_count = 0;
 static bool safe_mode_active = true;
+
+void vga_print(const char* fmt, ...);
 
 void vfs_init(void) {
     vfs_node_count = 0;
@@ -246,8 +246,6 @@ bool vfs_exists(void* path) {
     return false;
 }
 
-void vga_print(const char* fmt, ...);
-
 int vfs_mount_auto(int drive_id, const char* mount_point) {
     uint8_t* sector = malloc(2048);
     if (!sector) return -1;
@@ -273,6 +271,7 @@ int vfs_mount_auto(int drive_id, const char* mount_point) {
 
             vfs_register_node(node);
             vga_print("[VFS] Mechanical Judge: ISO 9660 Registered at %s:/ (Drive %d)\n", node.name, drive_id);
+            free(sector);
             return 0;
         }
     }
@@ -281,10 +280,12 @@ int vfs_mount_auto(int drive_id, const char* mount_point) {
     if (vdisk_read_hw(drive_id, 0, 1, sector) == 0) {
         if (sector[82] == 'F' && sector[83] == 'A' && sector[84] == 'T' && sector[85] == '3' && sector[86] == '2') {
             vga_print("[VFS] Mechanical Judge: FAT32 Detected on Drive %d.\n", drive_id);
+            free(sector);
             return 0;
         }
     }
 
+    free(sector);
     return -1;
 }
 

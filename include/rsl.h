@@ -50,8 +50,9 @@ static inline uint64_t rsl_syscall(uint64_t id, uint64_t a1, uint64_t a2, uint64
 #define rsl_mount(p) rsl_syscall(16, (uint64_t)(p), 0, 0)
 #define rsl_format(p) rsl_syscall(17, (uint64_t)(p), 0, 0)
 #define rsl_stamp(p) rsl_syscall(18, (uint64_t)(p), 0, 0)
-#define rsl_scan() rsl_syscall(19, 0, 0, 0)
 #define rsl_eject(p) rsl_syscall(20, (uint64_t)(p), 0, 0)
+#define rsl_scan() rsl_syscall(19, 0, 0, 0)
+#define rsl_list_disks() rsl_syscall(101, 0, 0, 0)
 
 /* GUI API */
 #define rsl_get_fb_info(idx) rsl_syscall(202, (uint64_t)(idx), 0, 0)

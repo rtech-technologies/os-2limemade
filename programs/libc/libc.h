@@ -25,3 +25,4 @@ double sin(double x);
 double cos(double x);
 
 #endif
+void itoa(int n, char s[], int base);

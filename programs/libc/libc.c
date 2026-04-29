@@ -137,3 +137,34 @@ double cos(double x) {
     double x6 = x4 * x2;
     return 1.0 - (x2 / 2.0) + (x4 / 24.0) - (x6 / 720.0);
 }
+int atoi(const char* s) {
+    int res = 0;
+    while (*s >= '0' && *s <= '9') {
+        res = res * 10 + (*s - '0');
+        s++;
+    }
+    return res;
+}
+
+void reverse(char s[]) {
+    int i, j;
+    char c;
+    for (i = 0, j = strlen(s)-1; i<j; i++, j--) {
+        c = s[i];
+        s[i] = s[j];
+        s[j] = c;
+    }
+}
+
+void itoa(int n, char s[], int base) {
+    int i, sign;
+    if ((sign = n) < 0) n = -n;
+    i = 0;
+    do {
+        int d = n % base;
+        s[i++] = (d > 9) ? (d - 10) + 'a' : d + '0';
+    } while ((n /= base) > 0);
+    if (sign < 0) s[i++] = '-';
+    s[i] = '\0';
+    reverse(s);
+}

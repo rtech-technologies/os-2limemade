@@ -1,11 +1,11 @@
-#include <kernel/libs/core/services.h>
-#include <kernel/unice64/task.h>
+#include <include/config.h>
+#include <include/mouse.h>
 #include <include/rsl.h>
 #include <include/vfs.h>
 #include <include/stdlib.h>
 #include <include/string.h>
-#include <include/stdlib.h>
-#include <include/string.h>
+#include <kernel/libs/core/services.h>
+#include <kernel/unice64/task.h>
 
 void vga_print(const char* fmt, ...);
 
@@ -128,7 +128,6 @@ void sovereign_request_submit(system_request_t* req) {
 }
 
 void sovereign_service_orchestrator(void) {
-    #include <include/config.h>
     void ahci_hardware_audit(int p);
     for (int i=0; i<5; i++) ahci_hardware_audit(i);
 
@@ -141,7 +140,6 @@ void sovereign_service_orchestrator(void) {
 }
 
 void mouse_service(kernel_event_t event) {
-    #include <include/config.h>
     void mouse_init(void);
     if (event == EVENT_INIT) {
 #if defined(CONFIG_INTERFACE_ALL) || defined(CONFIG_INTERFACE_PS2)

@@ -2,9 +2,13 @@
 #include <kernel/unice64/task.h>
 #include <include/rsl.h>
 #include <include/cmdlets.h>
+#include <include/mouse.h>
 #include <limine.h>
 #include <include/string.h>
 #include <include/stdlib.h>
+
+void vdisk_ls_root(void* path, void* priv);
+int is_sovereign_disk(int disk_id);
 
 void rsl_execute_command(char* line);
 void* input(const char* prompt);
@@ -39,21 +43,17 @@ static void* translate_user_ptr(void* ptr) {
         uint8_t* base = (uint8_t*)slab_get_base(cur->slab_id);
         uint64_t base_addr = (uint64_t)base;
 
-    /* 🎯 Sentry: Allow kernel heap access for RSL handles (String objects, etc) */
-    if (addr >= 0xFFFFFFFF80000000ULL || addr >= 0xFFFF800000000000ULL) return ptr;
         /* If absolute high-half address, verify slab boundary */
         if (addr >= 0xFFFF800000000000ULL) {
             if (addr >= base_addr && addr < base_addr + (4 * 1024 * 1024)) return ptr;
-            return NULL; // 🎯 Sentry Fix: Block Slab Escape
+            /* 🎯 Sentry Fix: Strict Slab Isolation - Transient tasks ONLY access their own slab */
+            return NULL;
         }
 
         /* If relative offset, verify it's within slab */
         if (addr < (4 * 1024 * 1024)) return (void*)(base + addr);
         return NULL; // 🎯 Sentry Fix: Block Out-of-Bounds Offset
     }
-
-    /* Fallback for Kernel Tasks: Allow high memory directly */
-    if (addr >= 0xFFFFFFFF80000000ULL || addr >= 0xFFFF800000000000ULL) return ptr;
 
     return ptr;
 }
@@ -82,19 +82,21 @@ uint64_t rsl_syscall_handler(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3)
         case 19: rsl_scan(); return 0;
         case 20: rsl_eject(translate_user_ptr((void*)a1)); return 0;
         case 100: rsl_execute_command((char*)translate_user_ptr((void*)a1)); return 0;
-        case 200: { /* RTC64 GUI Update/Draw Cycle */
+        case 101: vdisk_ls_root(NULL, NULL); return 0;
+        case 102: return (uint64_t)is_sovereign_disk((int)a1);
+        case 200: {
             void rtc64_update(void);
             void rtc64_draw_all(void);
             rtc64_update();
             rtc64_draw_all();
             return 0;
         }
-        case 201: { /* Get New Transient Slab */
+        case 201: {
             int id = slab_grab_transient();
             if (id == -1) return 0;
             return (uint64_t)slab_get_base(id);
         }
-        case 202: { /* Get Framebuffer Info */
+        case 202: {
             struct limine_framebuffer_response* get_framebuffer(void);
             struct limine_framebuffer_response* fb_resp = get_framebuffer();
             if (!fb_resp || fb_resp->framebuffer_count == 0) return 0;
@@ -105,15 +107,14 @@ uint64_t rsl_syscall_handler(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3)
             if (a1 == 3) return fb->pitch;
             return 0;
         }
-        case 203: { /* DE_start - Prepare for GUI High Fidelity Mode */
+        case 203: {
             void vga_set_scale(int scale);
             vga_set_scale(1);
             void vga_clear(void);
             vga_clear();
             return 0;
         }
-        case 204: { /* Get Mouse State */
-            #include <include/mouse.h>
+        case 204: {
             mouse_state_t* ms = get_mouse_state();
             if (a1 == 0) return ms->x;
             if (a1 == 1) return ms->y;
@@ -126,16 +127,14 @@ uint64_t rsl_syscall_handler(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3)
             }
             return 0;
         }
-        case 210: { /* GUI Draw Line (x1:y1, x2:y2, color) */
+        case 210: {
             uint32_t x1 = (uint32_t)(a1 >> 32), y1 = (uint32_t)a1;
             uint32_t x2 = (uint32_t)(a2 >> 32), y2 = (uint32_t)a2;
             void rtc64_draw_line(int x1, int y1, int x2, int y2, uint32_t color);
             rtc64_draw_line(x1, y1, x2, y2, (uint32_t)a3);
             return 0;
         }
-        case 211: { /* ImGui Draw Triangle (p1, p2, p3, color) - Packed args */
-            /* a1: x1:y1, a2: x2:y2, a3: x3:y3, a4 (not present, use global color or pack) */
-            /* Simplified: ID 211 (p1:x|y, p2:x|y, p3:x|y) - uses current color */
+        case 211: {
             uint32_t x1 = (uint32_t)(a1 >> 32), y1 = (uint32_t)a1;
             uint32_t x2 = (uint32_t)(a2 >> 32), y2 = (uint32_t)a2;
             uint32_t x3 = (uint32_t)(a3 >> 32), y3 = (uint32_t)a3;
@@ -143,14 +142,14 @@ uint64_t rsl_syscall_handler(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3)
             rtc64_draw_triangle(x1, y1, x2, y2, x3, y3, 0xFFFFFF);
             return 0;
         }
-        case 212: { /* GUI Blit (x, y, w, h, data) */
+        case 212: {
             uint32_t x = (uint32_t)(a1 >> 32), y = (uint32_t)a1;
             uint32_t w = (uint32_t)(a2 >> 32), h = (uint32_t)a2;
             void rtc64_blit(int x, int y, int w, int h, uint32_t* data);
             rtc64_blit(x, y, w, h, (uint32_t*)translate_user_ptr((void*)a3));
             return 0;
         }
-        case 213: { /* GUI Draw Char (c, px, py, fg, bg) */
+        case 213: {
             void draw_char_pixel(char c, int px, int py, uint32_t fg, uint32_t bg);
             draw_char_pixel((char)a1, (int)(a1 >> 32), (int)a2, (uint32_t)(a2 >> 32), (uint32_t)a3);
             return 0;
