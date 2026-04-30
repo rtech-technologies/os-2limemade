@@ -187,3 +187,12 @@ void vdisk_service(kernel_event_t event) {
         vfs_register_node(root_node);
     }
 }
+
+void get_hw_disk_info(int id, char* name, uint64_t* size) {
+    if (id >= 0 && id < hw_count) {
+        int k = 0;
+        while(hw_registry[id].name[k]) { name[k] = hw_registry[id].name[k]; k++; }
+        name[k] = '\0';
+        *size = hw_registry[id].total_lba * hw_registry[id].sector_size;
+    }
+}

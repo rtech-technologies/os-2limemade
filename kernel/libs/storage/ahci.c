@@ -101,7 +101,7 @@ typedef struct {
     uint32_t em_ctl;
     uint32_t cap2;
     uint32_t bohc;
-    uint8_t  rsv[0x100 - 0x2C]; /* Pad to 0x100 where ports start */
+    uint8_t  rsv[0x100 - 0x2C]; /* ⚓ Correction: Aligned to Intel AHCI 1.3.1 Spec (0x2C to 0x100) */
     hba_port_t ports[32];
 } hba_mem_t;
 
@@ -128,7 +128,7 @@ void ahci_port_start(hba_port_t *port) {
 void vga_print(const char* fmt, ...);
 void pit_wait_ms(uint32_t ms);
 
-int ahci_wait_status(volatile uint32_t* reg, uint32_t mask, uint32_t expected, uint32_t timeout_ms) {
+int Achi_wait_status(volatile uint32_t* reg, uint32_t mask, uint32_t expected, uint32_t timeout_ms) {
     for (uint32_t i = 0; i <= timeout_ms; i++) {
         if ((*reg & mask) == expected) return 0;
         if (i < timeout_ms) pit_wait_ms(1);
@@ -137,12 +137,12 @@ int ahci_wait_status(volatile uint32_t* reg, uint32_t mask, uint32_t expected, u
 }
 
 void ahci_force_port_reset(hba_port_t *port, int port_no) {
-    /* ⚓ Quartermaster: Deterministic Port Reset */
+    /* Quartermaster: Deterministic Port Reset */
     port->cmd &= ~0x0001; /* ST = 0 */
     port->cmd &= ~0x0010; /* FRE = 0 */
 
     /* Wait for engine to stop (bit 15 is CR, bit 14 is FR) */
-    ahci_wait_status(&port->cmd, 0xC000, 0, 500);
+    Achi_wait_status(&port->cmd, 0xC000, 0, 500);
 
     /* COMRESET Sequence */
     port->sctl = (port->sctl & ~0x0F) | 1; /* DET = 1 (Perform COMRESET) */
@@ -150,14 +150,14 @@ void ahci_force_port_reset(hba_port_t *port, int port_no) {
     port->sctl = (port->sctl & ~0x0F) | 0; /* DET = 0 (Resume normal operation) */
 
     /* Wait for communication established (DET = 3) */
-    if (ahci_wait_status(&port->ssts, 0x0F, 0x03, 1000) == 0) {
+    if (Achi_wait_status(&port->ssts, 0x0F, 0x03, 1000) == 0) {
         port->serr = 0xFFFFFFFF; /* Clear errors */
         /* Wait for TFD to be clear of BSY and DRQ */
-        ahci_wait_status(&port->tfd, 0x88, 0, 1000);
+        Achi_wait_status(&port->tfd, 0x88, 0, 1000);
 
         port->cmd |= 0x0010; /* FRE = 1 */
         port->cmd |= 0x0001; /* ST = 1 */
-        vga_print("[AHCI] PORT %d: ⚓ LINK ESTABLISHED\n", port_no);
+        vga_print("[AHCI] PORT %d: LINK ESTABLISHED\n", port_no);
     } else {
         vga_print("[AHCI] PORT %d: LINK FAILURE\n", port_no);
     }
@@ -363,7 +363,7 @@ void ahci_scan_remaining(void) {
                         .is_atapi = false
                     };
                     register_hardware_disk(sata_disk);
-                    vga_print("[AHCI] Port %d: ⚓ SATA Hard Disk Online.\n", p);
+                    vga_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
                 } else if (sig == 0xEB140101) { /* ATAPI */
                     vdisk_node_t cdrom = {
                         .name = "SATA_CD",
@@ -394,7 +394,7 @@ void ahci_scan_remaining(void) {
                     }
 
                     register_hardware_disk(cdrom);
-                    vga_print("[AHCI] Port %d: ⚓ ATAPI/SCSI Device Online.\n", p);
+                    vga_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
 
                     /* ISO Discovery Handshake */
                     rtech_iso_init(get_hw_disk_count() - 1);
@@ -424,19 +424,19 @@ void ahci_service(kernel_event_t event) {
                     uint64_t hhdm = get_hhdm_offset();
                     hba_base = (hba_mem_t*)(hhdm + (uint64_t)(bar5 & 0xFFFFFFF0));
 
-                    /* ⚓ Quartermaster: BIOS/OS Handoff */
+                    /* Quartermaster: BIOS/OS Handoff */
                     if (hba_base->cap2 & 0x1) {
                         hba_base->bohc |= 0x2; /* OS Owned Semaphore */
-                        if (ahci_wait_status(&hba_base->bohc, 0x1, 0, 25) != 0) {
+                        if (Achi_wait_status(&hba_base->bohc, 0x1, 0, 25) != 0) {
                             /* BIOS didn't hand off in 25ms, wait for BIOS Busy to clear */
-                            ahci_wait_status(&hba_base->bohc, 0x10, 0, 2000);
+                            Achi_wait_status(&hba_base->bohc, 0x10, 0, 2000);
                         }
                     }
 
-                    /* ⚓ Quartermaster: GHC Reset Sequence */
+                    /* Quartermaster: GHC Reset Sequence */
                     hba_base->ghc |= (1 << 31); /* AE: AHCI Enable */
                     hba_base->ghc |= (1 << 0);  /* HR: HBA Reset */
-                    if (ahci_wait_status(&hba_base->ghc, 0x1, 0, 1000) != 0) {
+                    if (Achi_wait_status(&hba_base->ghc, 0x1, 0, 1000) != 0) {
                         vga_print("[AHCI] FATAL: HBA Reset Timeout.\n");
                     }
                     hba_base->ghc |= (1 << 31); /* Re-enable AHCI after reset */
@@ -491,7 +491,7 @@ void ahci_service(kernel_event_t event) {
                                         .is_atapi = false
                                     };
                                     register_hardware_disk(sata_disk);
-                                    vga_print("[AHCI] Port %d: ⚓ SATA Hard Disk Online.\n", p);
+                                    vga_print("[AHCI] Port %d: SATA Hard Disk Online.\n", p);
                                 } else if (sig == 0xEB140101) { /* ATAPI */
                                     vdisk_node_t cdrom = {
                                         .name = "SATA_CD",
@@ -520,7 +520,7 @@ void ahci_service(kernel_event_t event) {
                     }
 
                     register_hardware_disk(cdrom);
-                    vga_print("[AHCI] Port %d: ⚓ ATAPI/SCSI Device Online.\n", p);
+                    vga_print("[AHCI] Port %d: ATAPI/SCSI Device Online.\n", p);
 
                     /* ISO Discovery Handshake */
                     rtech_iso_init(get_hw_disk_count() - 1);

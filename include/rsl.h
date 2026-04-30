@@ -47,4 +47,19 @@ void* rsl_paste(void);
 void rsl_settings(void);
 void rsl_debug_dump(void);
 
+/* Storage and Partitioning Syscalls */
+int rsl_list_disks(void);
+bool rsl_is_sovereign(int disk_id);
+int rsl_get_disk_info(int disk_id, char* name, uint64_t* size);
+
+/* Graphics Syscall */
+typedef struct {
+    uint64_t address;
+    uint64_t width;
+    uint64_t height;
+    uint64_t pitch;
+    uint16_t bpp;
+} rsl_fb_t;
+int rsl_get_fb(rsl_fb_t* fb);
+
 #endif /* RSL_H */
