@@ -33,3 +33,14 @@ int memcmp(const void* s1, const void* s2, size_t n) {
     }
     return 0;
 }
+
+int atoi(const char* s) {
+    int res = 0;
+    int sign = 1;
+    if (*s == '-') { sign = -1; s++; }
+    while (*s >= '0' && *s <= '9') {
+        res = res * 10 + (*s - '0');
+        s++;
+    }
+    return sign * res;
+}
