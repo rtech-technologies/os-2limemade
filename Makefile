@@ -160,5 +160,5 @@ iso: system-iso installer-iso
 
 clean:
 	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) $(SYSTEM_ISO) $(INSTALLER_ISO) $(SATA_DISK) ramdisk.img $(PROGRAMS) programs/*.o
-	rm -rf iso_root system_iso_root installer_iso_root installer_limine.cfg
+	rm -rf iso_root system_iso_root installer_iso_root
 	@if [ -d "limine" ]; then $(MAKE) -C limine clean || true; fi

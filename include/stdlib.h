@@ -10,6 +10,6 @@ void* calloc(size_t nmemb, size_t size);
 
 int atoi(const char* s);
 void itoa(int n, char s[], int base);
+long strtol(const char* nptr, char** endptr, int base);
 
 #endif
-long strtol(const char* nptr, char** endptr, int base);

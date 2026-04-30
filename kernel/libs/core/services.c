@@ -63,8 +63,8 @@ static void worker_task_entry(void) {
         case REQ_KBD_CONFIG: {
             extern uint64_t g_kbd_initial_delay;
             extern uint64_t g_kbd_repeat_rate;
-            g_kbd_initial_delay = req->result;
-            g_kbd_repeat_rate = (uint64_t)req->content;
+            g_kbd_initial_delay = req->result; /* initial */
+            g_kbd_repeat_rate = (uint64_t)req->content; /* repeat */
             break;
         }
         case REQ_APP_SPAWN: {
@@ -80,10 +80,11 @@ static void worker_task_entry(void) {
         }
 
         req_head = (req_head + 1) % REQ_QUEUE_SIZE;
-        sys_yield();
+        sys_yield(); /* Yield between requests to let callers wake up */
     }
 
     worker_active = false;
+    /* Work complete, transition to zombie */
     task_t* self = get_current_task();
     if (self) self->state = TASK_ZOMBIE;
     sys_yield();
@@ -94,6 +95,7 @@ void sovereign_request_submit(system_request_t* req) {
     req->caller_task = current;
     req->done = false;
 
+    /* Enqueue Request */
     int next_tail = (req_tail + 1) % REQ_QUEUE_SIZE;
     if (next_tail == req_head) {
         vga_print("[WARN] Sovereign Request Queue Full!\n");
@@ -107,6 +109,7 @@ void sovereign_request_submit(system_request_t* req) {
 
     if (!worker_active) {
         worker_active = true;
+        /* Spawn worker task for the queue */
         int register_transient_task(void (*entry)(void), uint32_t slab_id, uint64_t arg);
         int tid = register_transient_task(worker_task_entry, 4, 0);
 
@@ -120,6 +123,7 @@ void sovereign_request_submit(system_request_t* req) {
         }
     }
 
+    /* Transition caller to wait state and yield */
     if (current) current->state = TASK_WAITING;
     sys_yield();
 }

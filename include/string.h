@@ -11,6 +11,6 @@ int memcmp(const void* s1, const void* s2, size_t n);
 size_t strlen(const char* s);
 char* strcpy(char* dst, const char* src);
 int strcmp(const char* s1, const char* s2);
+char* strstr(const char* haystack, const char* needle);
 
 #endif
-char* strstr(const char* haystack, const char* needle);
