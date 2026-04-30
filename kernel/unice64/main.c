@@ -73,7 +73,7 @@ void _start(void) {
         /* Simple polling mount for timeout logic */
         FRESULT res = f_mount(&boot_fs, i);
         if (res == FR_OK) {
-            vga_print("[BOOT] Sovereign HDD Online.\n");
+            vga_print("[BOOT] ⚓ Sovereign HDD Online.\n");
             boot_drive = i;
             mount_success = true;
             break;
@@ -87,7 +87,7 @@ void _start(void) {
         for (int i = 0; i < hw_count; i++) {
             if (!vdisk_is_atapi(i)) continue;
             if (f_mount(&boot_fs, i) == FR_OK) {
-                vga_print("[BOOT] Falling back to Ramdisk/CDROM (Drive %d).\n", i);
+                vga_print("[BOOT] ⚓ Falling back to Ramdisk/CDROM (Drive %d).\n", i);
                 boot_drive = i;
                 mount_success = true;
                 break;

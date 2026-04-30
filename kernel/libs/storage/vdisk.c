@@ -162,17 +162,22 @@ void vdisk_service(kernel_event_t event) {
         /* Register INITRD if module present */
         struct limine_module_response* resp = get_modules();
         if (resp && resp->module_count > 0) {
-            vdisk_node_t initrd = {
-                .name = "RAMDISK",
-                .sector_size = 512,
-                .total_lba = resp->modules[0]->size / 512,
-                .partition_offset = 2048, /* Sovereign Partition Standard */
-                .read_lba = ramdisk_read,
-                .write_lba = NULL,
-                .is_atapi = false /* RAMDISK is virtual, not ATAPI */
-            };
-            register_hardware_disk(initrd);
-            serial_write_str("[INIT] Ramdisk registered as Physical Volume.\n");
+            /* ⚓ Quartermaster: Module Integrity Validation */
+            if (resp->modules[0]->address != NULL && resp->modules[0]->size > 0) {
+                vdisk_node_t initrd = {
+                    .name = "RAMDISK",
+                    .sector_size = 512,
+                    .total_lba = resp->modules[0]->size / 512,
+                    .partition_offset = 2048, /* Sovereign Partition Standard */
+                    .read_lba = ramdisk_read,
+                    .write_lba = NULL,
+                    .is_atapi = false /* RAMDISK is virtual, not ATAPI */
+                };
+                register_hardware_disk(initrd);
+                serial_write_str("[INIT] Ramdisk registered as Physical Volume.\n");
+            } else {
+                serial_write_str("[INIT] FATAL: Ramdisk module present but invalid.\n");
+            }
         }
 
         vfs_node_t root_node = {
