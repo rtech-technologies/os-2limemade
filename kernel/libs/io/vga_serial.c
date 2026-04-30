@@ -35,18 +35,12 @@ static int is_transmit_empty(void) {
     return inb(SERIAL_PORT + 5) & 0x20;
 }
 
-void serial_write_char(char c) {
+void serial_write_char_raw(char c) {
     uint32_t timeout = 1000000;
     while (is_transmit_empty() == 0 && timeout--) {
         __asm__ volatile ("pause");
     }
     if (timeout > 0) outb(SERIAL_PORT, c);
-}
-
-void serial_write_str(const char* s) {
-    for (int i = 0; s[i] != '\0'; i++) {
-        serial_write_char(s[i]);
-    }
 }
 
 int serial_received(void) { return inb(SERIAL_PORT + 5) & 1; }
@@ -138,7 +132,7 @@ static const uint8_t font8x8_basic[128][8] = {
     [0x6A] = { 0x0C, 0x00, 0x0C, 0x0C, 0x0C, 0x0C, 0x0C, 0x38 },
     [0x6B] = { 0x60, 0x60, 0x42, 0x44, 0x48, 0x44, 0x42, 0x00 },
     [0x6C] = { 0x38, 0x18, 0x18, 0x18, 0x18, 0x18, 0x3C, 0x00 },
-    [0x6D] = { 0x00, 0x00, 0x42, 0x7F, 0x7F, 0x42, 0x3F, 0x00 },
+    [0x6D] = { 0x00, 0x00, 0x42, 0x7F, 0x7F, 0x42, 0x63, 0x00 },
     [0x6E] = { 0x00, 0x00, 0x7C, 0x66, 0x66, 0x66, 0x66, 0x00 },
     [0x6F] = { 0x00, 0x00, 0x3C, 0x66, 0x66, 0x66, 0x3C, 0x00 },
     [0x70] = { 0x00, 0x00, 0x7C, 0x66, 0x66, 0x7C, 0x60, 0x60 },
@@ -148,7 +142,7 @@ static const uint8_t font8x8_basic[128][8] = {
     [0x74] = { 0x30, 0x30, 0x7C, 0x30, 0x30, 0x30, 0x1C, 0x00 },
     [0x75] = { 0x00, 0x00, 0x42, 0x42, 0x42, 0x42, 0x3E, 0x00 },
     [0x76] = { 0x00, 0x00, 0x42, 0x42, 0x42, 0x3C, 0x18, 0x00 },
-    [0x77] = { 0x00, 0x00, 0x43, 0x4B, 0x7F, 0x7F, 0x36, 0x00 },
+    [0x77] = { 0x00, 0x00, 0x43, 0x6B, 0x7F, 0x7F, 0x36, 0x00 },
     [0x78] = { 0x00, 0x00, 0x42, 0x3C, 0x18, 0x3C, 0x42, 0x00 },
     [0x79] = { 0x00, 0x00, 0x42, 0x42, 0x42, 0x3E, 0x06, 0x3C },
     [0x7A] = { 0x00, 0x00, 0x7E, 0x0C, 0x18, 0x30, 0x7E, 0x00 },
@@ -180,26 +174,6 @@ void draw_pixel(int x, int y, uint32_t color) {
     *pixel = color;
 }
 
-uint32_t get_pixel(int x, int y) {
-    if (!global_fb) return 0;
-    if (x < 0 || (uint64_t)x >= global_fb->width || y < 0 || (uint64_t)y >= global_fb->height) return 0;
-    uint32_t* pixel = (uint32_t*)(global_fb->address + y * global_fb->pitch + x * 4);
-    return *pixel;
-}
-
-void vga_erase_mouse(void) {
-    /* Removed for now */
-}
-
-void vga_draw_mouse(int x, int y) {
-    (void)x; (void)y;
-}
-
-void vga_set_scale(int scale) {
-    if (scale < 1) scale = 1;
-    g_vga_scale = scale;
-}
-
 void draw_char_pixel(char c, int px, int py, uint32_t fg, uint32_t bg) {
     if (!global_fb || (uint8_t)c >= 128) return;
     const uint8_t* glyph = font8x8_basic[(uint8_t)c];
@@ -217,9 +191,9 @@ void draw_char_pixel(char c, int px, int py, uint32_t fg, uint32_t bg) {
 
 void vga_write_char(char c, uint8_t color_attr) {
     if (c == '\b') {
-        serial_write_char('\b'); serial_write_char(' '); serial_write_char('\b');
+        serial_write_char_raw('\b'); serial_write_char_raw(' '); serial_write_char_raw('\b');
     } else {
-        serial_write_char(c);
+        serial_write_char_raw(c);
     }
 
     if (g_vga_silent) return;
@@ -236,6 +210,7 @@ void vga_write_char(char c, uint8_t color_attr) {
     else if (c == '\b') {
         if (cursor_x > 0) cursor_x--;
         draw_char_pixel(' ', cursor_x * char_width, cursor_y * 8 * g_vga_scale, fg, bg);
+        if (cursor_y < TERM_ROWS && cursor_x < TERM_COLS) terminal_buffer[cursor_y][cursor_x] = ' ';
     } else {
         if (cursor_x >= max_cols) { cursor_x = 0; cursor_y++; }
         draw_char_pixel(c, cursor_x * char_width, cursor_y * 8 * g_vga_scale, fg, bg);
@@ -286,13 +261,14 @@ void vga_clear(void) {
 }
 
 void vga_print_logo(void) {
+    void vga_print(const char* fmt, ...);
     vga_print("\n\n");
     vga_print("  _____ _______ ______ _____ _    _ \n");
-    vga_print(" |  __ \__   __|  ____/ ____| |  | |\n");
+    vga_print(" |  __ \\__   __|  ____/ ____| |  | |\n");
     vga_print(" | |__) | | |  | |__ | |    | |__| |\n");
     vga_print(" |  _  /  | |  |  __|| |    |  __  |\n");
-    vga_print(" | | \ \  | |  | |___| |____| |  | |\n");
-    vga_print(" |_|  \_\ |_|  |______\_____|_|  |_|\n");
+    vga_print(" | | \\ \\  | |  | |___| |____| |  | |\n");
+    vga_print(" |_|  \\_\\ |_|  |______\\_____|_|  |_|\n");
     vga_print("\n [ RTECH SOVEREIGN ] MECHANICAL TRUTH \n\n");
 }
 
@@ -301,6 +277,8 @@ void telemetry_update(int task_id, const char* status) { (void)task_id; (void)st
 void vga_set_selection(int x1, int y1, int x2, int y2) { (void)x1;(void)y1;(void)x2;(void)y2; }
 void vga_refresh_screen(void) {}
 void vga_set_cursor(int x, int y) { cursor_x = x; cursor_y = y; }
+void vga_set_scale(int scale) { g_vga_scale = scale; }
+void vga_draw_mouse(int x, int y) { (void)x;(void)y; }
 
 void vga_serial_service(kernel_event_t event) {
     if (event == EVENT_INIT) {

@@ -1,40 +1,17 @@
-#include <include/rsl.h>
+#include <kernel/libs/core/services.h>
+#include <include/config.h>
 #include <stdint.h>
-#include <stddef.h>
 
 void vga_print(const char* fmt, ...);
-static inline void outb(uint16_t port, uint8_t val) {
-    __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
-}
+void vga_set_cursor(int x, int y);
 
 static inline void outw(uint16_t port, uint16_t val) {
     __asm__ volatile ("outw %0, %1" : : "a"(val), "Nd"(port));
 }
 
 void rsl_shutdown(void) {
-    /* VGA Farewell */
-    void vga_clear(void);
-    void vga_set_cursor(int x, int y);
-    vga_clear();
-    set_color(WHITE, BLACK);
-    vga_set_cursor(12, 33);
-    print("Goodnight!!");
-
-    /* Serial Debugging */
+    vga_set_cursor(0, 0);
     vga_print("\n[OS] Initiating Sovereign Shutdown Protocol...\n");
-    vga_print("[OS] Flushing SATA caches (Command 0xE7)...\n");
-
-    /* 6-second mechanical safety delay */
-    /* Wait for the HDD to physically spin down/park */
-    void pit_wait_ms(uint32_t ms);
-    pit_wait_ms(6000);
-
     vga_print("[OS] Powering off via ACPI...\n");
-
-    /* ACPI Shutdown (QEMU/VirtualBox compatible) */
     outw(0x604, 0x2000);
-    /* Alternative if above fails */
-    outw(0xB004, 0x2000);
-
-    for (;;) { __asm__ volatile ("hlt"); }
 }

@@ -134,6 +134,8 @@ uint64_t rsl_syscall_handler(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3)
             return (uint64_t)slab_get_base(id);
         }
         case 202: {
+            extern struct limine_framebuffer_response* get_framebuffer(void);
+            struct limine_framebuffer_response* get_framebuffer(void);
             struct limine_framebuffer_response* fb_resp = get_framebuffer();
             if (!fb_resp || fb_resp->framebuffer_count == 0) return 0;
             struct limine_framebuffer* fb = fb_resp->framebuffers[0];

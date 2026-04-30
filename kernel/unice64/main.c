@@ -95,7 +95,7 @@ void _start(void) {
     apic_timer_init(50000);
 
     #include <kernel/libs/core/pci.h>
-    pci_scan_verbose();
+    pci_scan_verbose();;
 
     /*
      * Opaque Sheep Boot Flow:
@@ -131,7 +131,7 @@ void _start(void) {
 
     if (!quiet_mode) {
         void vga_print_logo(void);
-        vga_print_logo();
+
     }
 
     /* Force serial logging for critical init regardless of VGA silence */
@@ -256,7 +256,7 @@ void _start(void) {
     }
 
     /* Initialize Active-Relay Multitasking */
-    bool ahci_is_ready(void);
+    extern bool ahci_is_ready(void);
     if (ahci_is_ready()) {
         vga_print("[INIT] AHCI Polling Success - Handoff to Orchestrator\n");
     } else {
