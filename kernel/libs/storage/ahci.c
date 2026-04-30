@@ -126,33 +126,51 @@ void ahci_port_start(hba_port_t *port) {
 void vga_print(const char* fmt, ...);
 void pit_wait_ms(uint32_t ms);
 
+/* ⚓ Quartermaster Handshake: Bounded Polling Utility */
+int ahci_wait_status(volatile uint32_t* reg, uint32_t mask, uint32_t expected, uint32_t timeout_ms) {
+    uint32_t elapsed = 0;
+    while ((*reg & mask) != expected) {
+        if (elapsed >= timeout_ms) return -1;
+        pit_wait_ms(1);
+        elapsed++;
+    }
+    return 0;
+}
+
 void ahci_force_port_reset(hba_port_t *port, int port_no) {
+    /* ⚓ Quartermaster: Ensure engine is STOPPED before reset */
+    port->cmd &= ~0x0001; /* ST = 0 */
+    port->cmd &= ~0x0010; /* FRE = 0 */
+
+    if (ahci_wait_status(&port->cmd, 0x8000, 0, 500) != 0) {
+        vga_print("[AHCI] Port %d: Engine Handoff Failure (CR still set).\n", port_no);
+    }
+    if (ahci_wait_status(&port->cmd, 0x4000, 0, 500) != 0) {
+        vga_print("[AHCI] Port %d: Engine Handoff Failure (FR still set).\n", port_no);
+    }
+
     port->serr = 0xFFFFFFFF;
-    port->is = 0xFFFFFFFF;
-    port->cmd &= ~0x0001;
-    port->cmd &= ~0x0010;
 
-    int engine_timeout = 1000;
-    while ((port->cmd & 0x8000 || port->cmd & 0x4000) && engine_timeout--) {
-        pit_wait_ms(1);
-    }
-
-    port->sctl = (port->sctl & ~0x0F) | 0x301;
+    /* ⚓ Quartermaster: COMRESET (DET=1) */
+    port->sctl = (port->sctl & ~0x0F) | 0x01;
     pit_wait_ms(10);
-    port->sctl = (port->sctl & ~0x0F) | 0x300;
-    pit_wait_ms(50);
+    port->sctl = (port->sctl & ~0x0F); /* DET=0 (Normal Operation) */
 
-    int timeout = 1000;
-    while ((port->ssts & 0x0F) != 0x03 && timeout--) {
-        pit_wait_ms(1);
-    }
+    /* Wait for communication established (SSTS.DET == 3) */
+    if (ahci_wait_status(&port->ssts, 0x0F, 0x03, 1000) == 0) {
+        vga_print("[AHCI] Port %d: ⚓ Link Established.\n", port_no);
+        port->serr = 0xFFFFFFFF; /* Clear errors after link */
 
-    if ((port->ssts & 0x0F) == 0x03) {
-        vga_print("[AHCI] PORT %d: LINK ESTABLISHED\n", port_no);
-        port->cmd |= 0x0010;
-        port->cmd |= 0x0001;
+        /* Wait for device to be ready (TFD.BSY == 0 and TFD.DRQ == 0) */
+        if (ahci_wait_status(&port->tfd, (0x80 | 0x08), 0, 1000) == 0) {
+             vga_print("[AHCI] Port %d: ⚓ Device Ready.\n", port_no);
+             port->cmd |= 0x0010; /* FRE = 1 */
+             port->cmd |= 0x0001; /* ST = 1 */
+        } else {
+             vga_print("[AHCI] Port %d: Device Stall (TFD=0x%x).\n", port_no, port->tfd);
+        }
     } else {
-        vga_print("[AHCI] PORT %d: MECHANICAL FAILURE\n", port_no);
+        vga_print("[AHCI] Port %d: Mechanical Failure (SSTS=0x%x).\n", port_no, port->ssts);
     }
 }
 
@@ -308,39 +326,43 @@ int satapi_check_medium(void* priv);
 int satapi_read_capacity(void* priv, uint32_t* out_lba, uint32_t* out_ss);
 int rtech_iso_init(int drive);
 
+int ahci_init_port(int p) {
+    void* slab_alloc_aligned(int id, size_t size, size_t align);
+
+    /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
+    port_clb_virt[p] = slab_alloc_aligned(0, 1024, 1024);
+    port_fb_virt[p] = slab_alloc_aligned(0, 256, 256);
+    port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
+
+    if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
+        vga_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);
+        return -1;
+    }
+
+    uint64_t clb_phys = vmm_get_phys(port_clb_virt[p]);
+    hba_base->ports[p].clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
+    hba_base->ports[p].clbu = (uint32_t)(clb_phys >> 32);
+
+    uint64_t fb_phys = vmm_get_phys(port_fb_virt[p]);
+    hba_base->ports[p].fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
+    hba_base->ports[p].fbu = (uint32_t)(fb_phys >> 32);
+
+    uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
+    hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
+    cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
+    cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
+
+    ahci_force_port_reset(&hba_base->ports[p], p);
+    pit_wait_ms(10); /* Signature Delay */
+    return 0;
+}
+
 void ahci_scan_remaining(void) {
     if (!hba_base) return;
     vga_print("[AHCI] Performing extended scan (Ports 9-31)...\n");
-    void* slab_alloc_aligned(int id, size_t size, size_t align);
     for (int p = 9; p < 32; p++) {
         if (hba_base->pi & (1 << p)) {
-            /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
-            port_clb_virt[p] = slab_alloc_aligned(0, 1024, 1024);
-            port_fb_virt[p] = slab_alloc_aligned(0, 256, 256);
-            port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
-
-            if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
-                vga_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);
-                continue;
-            }
-
-            uint64_t clb_phys = vmm_get_phys(port_clb_virt[p]);
-            hba_base->ports[p].clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
-            hba_base->ports[p].clbu = (uint32_t)(clb_phys >> 32);
-
-            uint64_t fb_phys = vmm_get_phys(port_fb_virt[p]);
-            hba_base->ports[p].fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
-            hba_base->ports[p].fbu = (uint32_t)(fb_phys >> 32);
-
-            uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
-            hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
-            cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
-            cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
-
-            ahci_force_port_reset(&hba_base->ports[p], p);
-
-            /* Signature Delay: Wait for hardware to update registers after reset */
-            pit_wait_ms(10);
+            if (ahci_init_port(p) != 0) continue;
 
             if ((hba_base->ports[p].ssts & 0x0F) == 0x03) {
                 uint32_t sig = hba_base->ports[p].sig;
@@ -417,47 +439,30 @@ void ahci_service(kernel_event_t event) {
                     uint64_t hhdm = get_hhdm_offset();
                     hba_base = (hba_mem_t*)(hhdm + (uint64_t)(bar5 & 0xFFFFFFF0));
 
-                    hba_base->ghc |= (1 << 31);
-                    hba_base->ghc |= (1 << 0);
-                    int ghc_timeout = 1000;
-                    while ((hba_base->ghc & (1 << 0)) && ghc_timeout--) pit_wait_ms(1);
-                    hba_base->ghc |= (1 << 31);
+                    /* ⚓ Quartermaster Handshake: BIOS/OS Handoff (BOHC) */
+                    if (hba_base->cap2 & (1 << 0)) {
+                        hba_base->bohc |= (1 << 1); /* OS Ownership */
+                        if (ahci_wait_status(&hba_base->bohc, (1 << 0), 0, 25) != 0) {
+                            vga_print("[AHCI] BOHC: BIOS Handshake Timeout - Forcing Control.\n");
+                        }
+                    }
+
+                    /* ⚓ Quartermaster Handshake: GHC Reset & AE Stability */
+                    hba_base->ghc |= (1 << 31); /* AE: AHCI Enable */
+                    hba_base->ghc |= (1 << 0);  /* HR: Host Reset */
+
+                    if (ahci_wait_status(&hba_base->ghc, (1 << 0), 0, 1000) != 0) {
+                        vga_print("[AHCI] FATAL: GHC Host Reset Timeout.\n");
+                        return;
+                    }
+
+                    hba_base->ghc |= (1 << 31); /* Ensure AE remains set after reset */
+                    vga_print("[AHCI] ⚓ Quartermaster: GHC Reset Verified (AE=1, HR=0).\n");
 
                     /* OSx2: Scan the first 9 ports on boot per Sovereign mandate */
-                    void* slab_alloc_aligned(int id, size_t size, size_t align);
                     for (int p = 0; p < 9; p++) {
                         if (hba_base->pi & (1 << p)) {
-                            /* CLB Alignment: AHCI Command Lists must be 1KB aligned */
-                            port_clb_virt[p] = slab_alloc_aligned(0, 1024, 1024);
-
-                            /* Received FIS: 256 bytes, 256B aligned */
-                            port_fb_virt[p] = slab_alloc_aligned(0, 256, 256);
-
-                            /* Command Table: 4KB aligned for standard safety */
-                            port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
-
-                            if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) {
-                                vga_print("[AHCI] FATAL: Port %d Heap Allocation Failure.\n", p);
-                                continue;
-                            }
-
-                            uint64_t clb_phys = vmm_get_phys(port_clb_virt[p]);
-                            hba_base->ports[p].clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
-                            hba_base->ports[p].clbu = (uint32_t)(clb_phys >> 32);
-
-                            uint64_t fb_phys = vmm_get_phys(port_fb_virt[p]);
-                            hba_base->ports[p].fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
-                            hba_base->ports[p].fbu = (uint32_t)(fb_phys >> 32);
-
-                            uint64_t ctba_phys = vmm_get_phys(port_ctba_virt[p]);
-                            hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
-                            cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
-                            cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
-
-                            ahci_force_port_reset(&hba_base->ports[p], p);
-
-                            /* Signature Delay: Wait for hardware to update registers after reset */
-                            pit_wait_ms(10);
+                            if (ahci_init_port(p) != 0) continue;
 
                             if ((hba_base->ports[p].ssts & 0x0F) == 0x03) {
                                 uint32_t sig = hba_base->ports[p].sig;
