@@ -101,7 +101,8 @@ typedef struct {
     uint32_t em_ctl;
     uint32_t cap2;
     uint32_t bohc;
-    uint8_t  rsv[0x100 - 0x2C]; /* ⚓ Correction: Aligned to Intel AHCI 1.3.1 Spec (0x2C to 0x100) */
+    uint32_t rsv0[3];
+    uint8_t  rsv1[0x100 - 0x38]; /* Correction: Aligned to Intel AHCI 1.3.1 Spec (0x38 to 0x100) */
     hba_port_t ports[32];
 } hba_mem_t;
 
@@ -248,7 +249,7 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     int p = (int)(uint64_t)priv;
     hba_port_t* port = &hba_base->ports[p];
 
-    /* SATA Test for ATAPI: Reject generic SATA writes on ATAPI signatures */
+    /* SATA Test for ATAPI: Reject generic SATA reads on ATAPI signatures */
     if (port->sig == 0xEB140101) {
         vga_print("[AHCI] Port %d: Rejected SATA Write on ATAPI device.\n", p);
         return -1;

@@ -3,6 +3,7 @@
 #include <kernel/libs/storage/vdisk.h>
 #include <kernel/libs/core/services.h>
 #include <kernel/unice64/task.h>
+#include <kernel/libs/storage/fatfs/ff.h>
 #include <limine.h>
 #include <stdint.h>
 #include <stddef.h>
@@ -32,8 +33,7 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
             break;
         }
         case 104: { // rsl_format(disk_id)
-            extern int f_mkfs(int drive);
-            *(int*)rcx = f_mkfs((int)rbx);
+            *(int*)rcx = (f_mkfs((int)rbx) == FR_OK) ? 0 : -1;
             break;
         }
         case 202: { // rsl_get_fb

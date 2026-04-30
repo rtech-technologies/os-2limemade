@@ -162,7 +162,7 @@ void vdisk_service(kernel_event_t event) {
         /* Register INITRD if module present */
         struct limine_module_response* resp = get_modules();
         if (resp && resp->module_count > 0) {
-            /* ⚓ Quartermaster: Module Integrity Validation */
+            /* Quartermaster: Module Integrity Validation */
             if (resp->modules[0]->address != NULL && resp->modules[0]->size > 0) {
                 vdisk_node_t initrd = {
                     .name = "RAMDISK",

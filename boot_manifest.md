@@ -1,4 +1,4 @@
-# ⚓ Quartermaster's Log: Boot Manifest
+# Quartermaster's Log: Boot Manifest
 
 ## 🔍 Synchronization Audit
 
@@ -24,4 +24,4 @@
 
 1. **AHCI Handshake**: The GHC reset sequence is basic and lacks BIOS/OS handoff.
 2. **Standardized Polling**: Lack of a unified `ahci_wait_status` leads to inconsistent timeouts.
-3. **Logging**: Success markers ('⚓') are missing from the boot log.
+3. **Logging**: Success markers () are missing from the boot log.
