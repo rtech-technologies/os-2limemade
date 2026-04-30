@@ -270,6 +270,7 @@ void _start(void) {
      * Sovereign Boot Phase 2: Silent Console
      * All logs up to the shell have been displayed. Stop logging to VGA.
      */
+    g_vga_silent = true;
 
     void tasking_create_kernel_thread(void (*entry)(void), const char* name);
     void task_shell(void);

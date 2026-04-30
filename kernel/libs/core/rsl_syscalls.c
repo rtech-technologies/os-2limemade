@@ -35,6 +35,8 @@ void rsl_stamp(void* path);
 void rsl_scan(void);
 void rsl_eject(void* path);
 
+struct limine_framebuffer_response* get_framebuffer(void);
+
 static void terminate_current_task(const char* reason) {
     task_t* cur = get_current_task();
     if (cur) {
