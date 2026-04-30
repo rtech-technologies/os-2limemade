@@ -42,7 +42,7 @@ void register_hardware_disk(vdisk_node_t node) {
         } else {
             hw_registry[hw_count++] = node;
         }
-        vga_print("[VDISK] Physical hardware registered: %s\n", node.name);
+        vga_print("[VDISK] ⚓ Physical hardware registered: %s\n", node.name);
     }
 }
 
@@ -162,17 +162,27 @@ void vdisk_service(kernel_event_t event) {
         /* Register INITRD if module present */
         struct limine_module_response* resp = get_modules();
         if (resp && resp->module_count > 0) {
-            vdisk_node_t initrd = {
-                .name = "RAMDISK",
-                .sector_size = 512,
-                .total_lba = resp->modules[0]->size / 512,
-                .partition_offset = 2048, /* Sovereign Partition Standard */
-                .read_lba = ramdisk_read,
-                .write_lba = NULL,
-                .is_atapi = false /* RAMDISK is virtual, not ATAPI */
-            };
-            register_hardware_disk(initrd);
-            serial_write_str("[INIT] Ramdisk registered as Physical Volume.\n");
+            struct limine_file* ram_file = resp->modules[0];
+
+            /* ⚓ Quartermaster: Payload Validation */
+            if (ram_file->size > 0 && ram_file->address != NULL) {
+                vga_print("[INIT] ⚓ RAMDISK Payload Validated (%d bytes at %p).\n",
+                          (int)ram_file->size, ram_file->address);
+
+                vdisk_node_t initrd = {
+                    .name = "RAMDISK",
+                    .sector_size = 512,
+                    .total_lba = ram_file->size / 512,
+                    .partition_offset = 2048, /* Sovereign Partition Standard */
+                    .read_lba = ramdisk_read,
+                    .write_lba = NULL,
+                    .is_atapi = false /* RAMDISK is virtual, not ATAPI */
+                };
+                register_hardware_disk(initrd);
+                serial_write_str("[INIT] Ramdisk registered as Physical Volume.\n");
+            } else {
+                vga_print("[INIT] ⚓ RAMDISK PAYLOAD CORRUPTED OR MISSING.\n");
+            }
         }
 
         vfs_node_t root_node = {
