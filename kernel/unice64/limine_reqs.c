@@ -7,49 +7,49 @@ __attribute__((used, section(".limine_requests")))
 volatile uint64_t limine_base_revision[3] = { 0xf95627f307074494, 0x7b62640244799044, 3 };
 
 __attribute__((used, section(".limine_requests"), aligned(8)))
-static volatile struct limine_memmap_request memmap_request = {
+volatile struct limine_memmap_request memmap_request = {
     .id = LIMINE_MEMMAP_REQUEST,
     .revision = 0
 };
 
 __attribute__((used, section(".limine_requests"), aligned(8)))
-static volatile struct limine_kernel_file_request kernel_file_request = {
+volatile struct limine_kernel_file_request kernel_file_request = {
     .id = LIMINE_KERNEL_FILE_REQUEST,
     .revision = 0
 };
 
 __attribute__((used, section(".limine_requests"), aligned(8)))
-static volatile struct limine_hhdm_request hhdm_request = {
+volatile struct limine_hhdm_request hhdm_request = {
     .id = LIMINE_HHDM_REQUEST,
     .revision = 0
 };
 
 __attribute__((used, section(".limine_requests"), aligned(8)))
-static volatile struct limine_module_request module_request = {
+volatile struct limine_module_request module_request = {
     .id = LIMINE_MODULE_REQUEST,
     .revision = 0
 };
 
 __attribute__((used, section(".limine_requests"), aligned(8)))
-static volatile struct limine_framebuffer_request framebuffer_request = {
+volatile struct limine_framebuffer_request framebuffer_request = {
     .id = LIMINE_FRAMEBUFFER_REQUEST,
     .revision = 0
 };
 
 __attribute__((used, section(".limine_requests"), aligned(8)))
-static volatile struct limine_kernel_address_request kernel_address_request = {
+volatile struct limine_kernel_address_request kernel_address_request = {
     .id = LIMINE_KERNEL_ADDRESS_REQUEST,
     .revision = 0
 };
 
 __attribute__((used, section(".limine_requests"), aligned(8)))
-static volatile struct limine_bootloader_info_request bootloader_info_request = {
+volatile struct limine_bootloader_info_request bootloader_info_request = {
     .id = LIMINE_BOOTLOADER_INFO_REQUEST,
     .revision = 0
 };
 
 __attribute__((used, section(".limine_requests"), aligned(8)))
-static volatile struct limine_rsdp_request rsdp_request = {
+volatile struct limine_rsdp_request rsdp_request = {
     .id = LIMINE_RSDP_REQUEST,
     .revision = 0
 };
@@ -68,7 +68,17 @@ uint64_t vmm_get_phys(void* virt) {
     uint64_t v = (uint64_t)virt;
     uint64_t hhdm = get_hhdm_offset();
     struct limine_kernel_address_response* ka = get_kernel_address();
-    if (ka && v >= ka->virtual_base) return v - ka->virtual_base + ka->physical_base;
-    if (hhdm != 0 && v >= hhdm) return v - hhdm;
+
+    /* 1. Check if it's in the kernel text/data/bss range */
+    if (ka && v >= ka->virtual_base && v < ka->virtual_base + 0x100000000ULL) {
+        return v - ka->virtual_base + ka->physical_base;
+    }
+
+    /* 2. Check if it's in the HHDM range */
+    if (hhdm != 0 && v >= hhdm) {
+        return v - hhdm;
+    }
+
+    /* 3. Fallback: Assume it's already a physical address (identity mapped in low memory) */
     return v;
 }

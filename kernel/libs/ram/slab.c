@@ -17,7 +17,7 @@ typedef struct slab_header {
 } slab_header_t;
 
 typedef struct {
-    uintptr_t base;
+    uintptr_t base; /* Physical Base */
     size_t offset;
     bool active;
     bool in_use;
@@ -68,16 +68,28 @@ void* slab_get_base(int id) {
 void* slab_alloc_aligned(int id, size_t size, size_t align) {
     if (id < 0 || id >= MAX_SLABS) return NULL;
     uint64_t hhdm = get_hhdm_offset();
-    uintptr_t current_addr = slabs[id].base + hhdm + slabs[id].offset;
-    uintptr_t aligned_addr = (current_addr + (align - 1)) & ~(align - 1);
-    size_t padding = aligned_addr - current_addr;
+    uintptr_t current_virt = slabs[id].base + hhdm + slabs[id].offset;
+    uintptr_t aligned_virt = (current_virt + (align - 1)) & ~(align - 1);
+    size_t padding = aligned_virt - current_virt;
+
     if (slabs[id].offset + padding + size > SLAB_SIZE) return NULL;
     slabs[id].offset += padding + size;
-    return (void*)aligned_addr;
+    return (void*)aligned_virt;
+}
+
+/* 🎯 Sentry Fix: Explicit Physical Addressing Support */
+void* slab_alloc_phys(int id, size_t size, size_t align, uint64_t* out_phys) {
+    void* virt = slab_alloc_aligned(id, size, align);
+    if (!virt) return NULL;
+    if (out_phys) {
+        uint64_t offset_in_slab = (uint64_t)virt - (uint64_t)slab_get_base(id);
+        *out_phys = slabs[id].base + offset_in_slab;
+    }
+    return virt;
 }
 
 void* slab_alloc(int id, size_t size) {
-    return slab_alloc_aligned(id, size, 16); /* Force 16-byte alignment for SSE */
+    return slab_alloc_aligned(id, size, 16); /* 🎯 Sentry Fix: Strict 16-byte alignment for SSE */
 }
 
 void* malloc_ext(int id, size_t size) {
@@ -102,7 +114,7 @@ void free(void* ptr) {
 }
 
 #define SHIELD_DEPTH 4
-static uint8_t fatfs_buffer_shields[SHIELD_DEPTH][2048];
+static uint8_t fatfs_buffer_shields[SHIELD_DEPTH][2048] __attribute__((aligned(16)));
 static bool fatfs_shields_in_use[SHIELD_DEPTH] = {false, false, false, false};
 
 void* slab_alloc_persistent(size_t size) {

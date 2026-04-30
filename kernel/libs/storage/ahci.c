@@ -18,11 +18,17 @@ hba_mem_t* hba_base = NULL;
 void* port_clb_virt[32];
 void* port_fb_virt[32];
 void* port_ctba_virt[32];
+uint64_t port_clb_phys[32];
+uint64_t port_fb_phys[32];
+uint64_t port_ctba_phys[32];
+
 static uint32_t g_registered_ports_mask = 0;
 static bool ahci_ready = false;
+static bool g_ahci_controller_initialized = false; /* 🎯 Sentry Fix: Fix B - Double Init Guard */
 
 void* get_port_clb(int p) { return port_clb_virt[p]; }
 void* get_port_ctba(int p) { return port_ctba_virt[p]; }
+uint64_t get_port_ctba_phys(int p) { return port_ctba_phys[p]; }
 bool ahci_is_ready(void) { return ahci_ready; }
 hba_mem_t* get_hba_base(void) { return hba_base; }
 
@@ -59,12 +65,16 @@ void ahci_port_stop(int p) {
 void ahci_port_start(int p) {
     hba_port_t* port = &hba_base->ports[p];
     ahci_port_stop(p);
-    uint64_t clb_phys = virtual_to_physical(port_clb_virt[p]);
+
+    /* 🎯 Sentry Fix: Fix A - Use pre-calculated physical addresses */
+    uint64_t clb_phys = port_clb_phys[p];
     port->clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
     port->clbu = (uint32_t)(clb_phys >> 32);
-    uint64_t fb_phys = virtual_to_physical(port_fb_virt[p]);
+
+    uint64_t fb_phys = port_fb_phys[p];
     port->fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
     port->fbu = (uint32_t)(fb_phys >> 32);
+
     port->cmd = (port->cmd & ~0xF0000000) | 0x10000000 | (1 << 1);
     port->serr = 0xFFFFFFFF; port->is = 0xFFFFFFFF;
     port->cmd |= (1 << 4) | (1 << 0);
@@ -88,9 +98,12 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     uint64_t phys_buffer = virtual_to_physical(buffer);
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
     cmdhdr->dw0 = 5 | (1 << 16); cmdhdr->prdbc = 0;
-    uint64_t ctba_phys = virtual_to_physical(port_ctba_virt[p]);
+
+    /* 🎯 Sentry Fix: Fix A - Use pre-calculated physical address */
+    uint64_t ctba_phys = port_ctba_phys[p];
     cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
     cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
+
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)port_ctba_virt[p];
     memset(cmdtbl, 0, sizeof(hba_cmd_tbl_t));
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
@@ -111,9 +124,12 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     uint64_t phys_buffer = virtual_to_physical(buffer);
     hba_cmd_header_t* cmdhdr = (hba_cmd_header_t*)port_clb_virt[p];
     cmdhdr->dw0 = 5 | (1 << 6) | (1 << 16); cmdhdr->prdbc = 0;
-    uint64_t ctba_phys = virtual_to_physical(port_ctba_virt[p]);
+
+    /* 🎯 Sentry Fix: Fix A - Use pre-calculated physical address */
+    uint64_t ctba_phys = port_ctba_phys[p];
     cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
     cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
+
     hba_cmd_tbl_t* cmdtbl = (hba_cmd_tbl_t*)port_ctba_virt[p];
     memset(cmdtbl, 0, sizeof(hba_cmd_tbl_t));
     cmdtbl->prdt_entry[0].dba = (uint32_t)(phys_buffer & 0xFFFFFFFF);
@@ -169,10 +185,10 @@ void register_hardware_disk_from_port(int p) {
 }
 
 static void ahci_init_port_hw(int p) {
-    void* slab_alloc_aligned(int id, size_t size, size_t align);
-    port_clb_virt[p] = slab_alloc_aligned(0, 1024, 1024);
-    port_fb_virt[p] = slab_alloc_aligned(0, 4096, 256);
-    port_ctba_virt[p] = slab_alloc_aligned(0, 4096, 4096);
+    void* slab_alloc_phys(int id, size_t size, size_t align, uint64_t* out_phys);
+    port_clb_virt[p] = slab_alloc_phys(0, 1024, 1024, &port_clb_phys[p]);
+    port_fb_virt[p] = slab_alloc_phys(0, 4096, 256, &port_fb_phys[p]);
+    port_ctba_virt[p] = slab_alloc_phys(0, 4096, 4096, &port_ctba_phys[p]);
     if (!port_clb_virt[p] || !port_fb_virt[p] || !port_ctba_virt[p]) return;
     ahci_force_port_reset(p);
 }
@@ -208,12 +224,13 @@ void ahci_scan_remaining(void) {
 
 void ahci_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
-        if (hba_base != NULL) return;
+        if (hba_base != NULL || g_ahci_controller_initialized) return;
         for (int bus = 0; bus < 256; bus++) {
             for (int slot = 0; slot < 32; slot++) {
                 for (int func = 0; func < 8; func++) {
                     uint32_t class_info = pci_config_read(bus, slot, func, 0x08);
                     if (((class_info >> 24) & 0xFF) == 0x01 && ((class_info >> 16) & 0xFF) == 0x06) {
+                        g_ahci_controller_initialized = true; /* 🎯 Sentry Fix: Fix B - Guard */
                         pci_enable_master(bus, slot, func);
                         uint32_t bar5 = pci_config_read(bus, slot, func, 0x24);
                         hba_base = (hba_mem_t*)(get_hhdm_offset() + (uint64_t)(bar5 & 0xFFFFFFF0));
