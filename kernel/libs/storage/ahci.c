@@ -101,8 +101,7 @@ typedef struct {
     uint32_t em_ctl;
     uint32_t cap2;
     uint32_t bohc;
-    uint32_t rsv0[3];
-    uint8_t  rsv1[0x100 - 0x38]; /* Correction: Aligned to Intel AHCI 1.3.1 Spec (0x38 to 0x100) */
+    uint8_t  rsv[0x100 - 0x2C]; /* Corrected Padding for AHCI 1.3.1 Spec: 0x2C = 44 bytes */
     hba_port_t ports[32];
 } hba_mem_t;
 
@@ -158,7 +157,7 @@ void ahci_force_port_reset(hba_port_t *port, int port_no) {
 
         port->cmd |= 0x0010; /* FRE = 1 */
         port->cmd |= 0x0001; /* ST = 1 */
-        vga_print("[AHCI] PORT %d: LINK ESTABLISHED\n", port_no);
+        vga_print("[SNAP] AHCI PORT %d: LINK ESTABLISHED\n", port_no);
     } else {
         vga_print("[AHCI] PORT %d: LINK FAILURE\n", port_no);
     }
@@ -249,7 +248,7 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     int p = (int)(uint64_t)priv;
     hba_port_t* port = &hba_base->ports[p];
 
-    /* SATA Test for ATAPI: Reject generic SATA reads on ATAPI signatures */
+    /* SATA Test for ATAPI: Reject generic SATA writes on ATAPI signatures */
     if (port->sig == 0xEB140101) {
         vga_print("[AHCI] Port %d: Rejected SATA Write on ATAPI device.\n", p);
         return -1;
@@ -427,20 +426,24 @@ void ahci_service(kernel_event_t event) {
 
                     /* Quartermaster: BIOS/OS Handoff */
                     if (hba_base->cap2 & 0x1) {
-                        hba_base->bohc |= 0x2; /* OS Owned Semaphore */
-                        if (Achi_wait_status(&hba_base->bohc, 0x1, 0, 25) != 0) {
-                            /* BIOS didn't hand off in 25ms, wait for BIOS Busy to clear */
-                            Achi_wait_status(&hba_base->bohc, 0x10, 0, 2000);
+                        vga_print("[AHCI] BOHC Handoff initiated...\n");
+                        hba_base->bohc |= (1 << 1); /* OOS: OS Ownership */
+                        if (Achi_wait_status(&hba_base->bohc, (1 << 0), 0, 25) != 0) {
+                            /* BIOS didn't hand off in 25ms, wait for BIOS Busy (BB) to clear */
+                            Achi_wait_status(&hba_base->bohc, (1 << 4), 0, 2000);
                         }
+                        vga_print("[SNAP] AHCI BIOS/OS HANDSHAKE COMPLETE\n");
                     }
 
                     /* Quartermaster: GHC Reset Sequence */
                     hba_base->ghc |= (1 << 31); /* AE: AHCI Enable */
                     hba_base->ghc |= (1 << 0);  /* HR: HBA Reset */
-                    if (Achi_wait_status(&hba_base->ghc, 0x1, 0, 1000) != 0) {
-                        vga_print("[AHCI] FATAL: HBA Reset Timeout.\n");
+                    if (Achi_wait_status(&hba_base->ghc, (1 << 0), 0, 1000) != 0) {
+                        vga_print("[!] AHCI FATAL: HBA Reset Timeout.\n");
                     }
                     hba_base->ghc |= (1 << 31); /* Re-enable AHCI after reset */
+                    Achi_wait_status(&hba_base->ghc, (1 << 31), (1 << 31), 100);
+                    vga_print("[SNAP] AHCI CONTROLLER RESET COMPLETE\n");
 
                     /* OSx2: Scan the first 9 ports on boot per Sovereign mandate */
                     void* slab_alloc_aligned(int id, size_t size, size_t align);

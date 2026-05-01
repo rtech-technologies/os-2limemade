@@ -99,13 +99,8 @@ unice64_context_switch:
     mov %rax, %rsi
     add $task_t_context_OFFSET, %rsi # %rsi = &next->context
 
-    # Forensic Check: RSP Boundary Validation
-    mov ctx_rsp(%rsi), %rax
-
-    # Quartermaster: Bypass strict kernel-space bounds for task stacks
-    # which might be in the HHDM or slab range.
-
     # Switch to target task stack
+    mov ctx_rsp(%rsi), %rax
     mov %rax, %rsp
 
     # Restore iretq frame

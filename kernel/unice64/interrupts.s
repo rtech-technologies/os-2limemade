@@ -47,7 +47,8 @@ irq_timer_handler:
 
 .extern rsl_syscall_handler
 rsl_syscall_entry:
-    # Save all general purpose registers
+    #  Quartermaster: Deterministic Syscall Register Handover
+    # Save user state
     pushq %rcx
     pushq %rdx
     pushq %rsi
@@ -59,19 +60,26 @@ rsl_syscall_entry:
     pushq %rbx
     pushq %rbp
 
-    # rsl_syscall_handler(rax, rbx, rcx, rdx, rsi)
-    # ABI: rdi, rsi, rdx, rcx, r8
-    # Reorder to avoid clobbering:
-    movq %rsi, %r8
-    movq %rdx, %r9
-    movq %rcx, %rdx
-    movq %r9, %rcx
-    movq %rbx, %rsi
-    movq %rax, %rdi
+    # ABI Requirement: rdi, rsi, rdx, rcx, r8
+    # User Input: RAX (id), RBX (arg1), RCX (arg2), RDX (arg3), RSI (arg4)
+    # Mapping:
+    # RDI <- RAX
+    # RSI <- RBX
+    # RDX <- RCX
+    # RCX <- RDX
+    # R8  <- RSI
+
+    # Shuffle user registers to ABI order:
+    movq %rsi, %r8   # arg4 -> R8
+    movq %rdx, %r11  # Save arg3
+    movq %rcx, %rdx  # arg2 -> RDX
+    movq %r11, %rcx  # arg3 -> RCX
+    movq %rbx, %rsi  # arg1 -> RSI
+    movq %rax, %rdi  # id   -> RDI
 
     call rsl_syscall_handler
 
-    # Restore all general purpose registers
+    # Restore user state
     popq %rbp
     popq %rbx
     popq %r11

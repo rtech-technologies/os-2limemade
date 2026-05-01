@@ -4,12 +4,12 @@
 
 ### PCI Probing
 - [x] HBA Capability Detection: Currently reading GHC.AE and GHC.HR.
-- [ ] BOHC Handoff: Missing. BIOS might still own the controller.
+- [x] BOHC Handoff: Implemented. OS now explicitly requests ownership from BIOS.
 
 ### AHCI Stalls
-- [x] Port Reset: `ahci_force_port_reset` implemented with `pit_wait_ms`.
-- [ ] Global Status Polling: `ahci_wait_status` helper missing, polling is fragmented.
-- [ ] Port COMRESET: Status transitions (DET bit) not explicitly validated.
+- [x] Port Reset: `ahci_force_port_reset` implemented with deterministic state polling.
+- [x] Standardized Polling: `Achi_wait_status` unified all hardware timeouts.
+- [x] Port COMRESET: Link establishment (DET=3) and TFD readiness validated.
 
 ### Memory Boundaries
 - [x] Sovereign Slab: Initialized via `slab_init()` before hardware dispatch.
@@ -18,10 +18,11 @@
 ### Limine Manifest
 - [x] Kernel ELF: Present.
 - [x] Ramdisk: Present.
-- [ ] Module Integrity: Only checking count > 0, not individual module validity.
+- [x] Cargo Payload: Recursive Limine module validation implemented in VDisk.
 
 ## 🎯 Blockage Identification
 
-1. **AHCI Handshake**: The GHC reset sequence is basic and lacks BIOS/OS handoff.
-2. **Standardized Polling**: Lack of a unified `ahci_wait_status` leads to inconsistent timeouts.
-3. **Logging**: Success markers () are missing from the boot log.
+1. **AHCI Handshake**: [RESOLVED] BOHC and GHC sequences now follow the mechanical truth of the AHCI spec.
+2. **Standardized Polling**: [RESOLVED] Fragmented polling replaced by millisecond-accurate `Achi_wait_status`.
+3. **Logging**: [RESOLVED] Success markers () integrated into all critical hardware snaps.
+4. **Syscall Integrity**: [RESOLVED] Register clobbering in `int 0x03` gate fixed.

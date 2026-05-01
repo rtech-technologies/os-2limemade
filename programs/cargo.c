@@ -51,7 +51,10 @@ void _start(void) {
         char name[16] = {0};
         uint64_t size = 0;
         get_disk_info(i, name, &size);
-        print(" - Storage Target DISK 0 [ONLINE]\n");
+        print(" - Storage Target DISK ");
+        char id_buf[2] = { '0' + i, '\0' };
+        print(id_buf);
+        print(" [ONLINE]\n");
     }
 
     print("\nPhase 2: Partitioning [GPT]\n");
