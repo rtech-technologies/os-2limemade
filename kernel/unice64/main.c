@@ -11,7 +11,7 @@ void serial_write_str(const char* s);
 void shell_main(void);
 
 #include <kernel/libs/storage/fatfs/ff.h>
-void forensic_panic(const char* message, void* state);
+void quartermaster_panic(const char* message, void* state);
 
 void gdt_init(void);
 void pmm_init(void);

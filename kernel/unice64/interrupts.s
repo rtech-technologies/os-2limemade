@@ -5,7 +5,7 @@
 .global exception_handler_stub
 .extern apic_eoi
 .extern unice64_context_switch
-.extern forensic_panic
+.extern quartermaster_panic
 
 idt_load:
     lidt (%rdi)
@@ -89,7 +89,7 @@ exception_handler_stub:
     cli
     movq $panic_msg, %rdi
     xorq %rsi, %rsi
-    call forensic_panic
+    call quartermaster_panic
     1: hlt
     jmp 1b
 

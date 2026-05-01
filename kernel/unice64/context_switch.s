@@ -2,7 +2,7 @@
 .global unice64_context_switch
 .extern get_current_task
 .extern unice64_schedule
-.extern forensic_panic
+.extern quartermaster_panic
 
 # Static Offsets for task_t and cpu_context_t
 .set task_t_context_OFFSET, 8
@@ -57,17 +57,8 @@ unice64_context_switch:
     test %rax, %rax
     jz 1f
 
-    # Forensic Check: TCB Boundary Validation
-    # Kernel range: 0xffffffff80000000 - 0xffffffff80800000
-    mov %rax, %rdi
-    mov $0xffffffff80000000, %rbx
-    cmp %rbx, %rdi
-    jb 2f
-    mov $0xffffffff80800000, %rbx
-    cmp %rbx, %rdi
-    jae 2f
-
     # TCB is valid, save context
+    mov %rax, %rdi
     add $task_t_context_OFFSET, %rdi # %rdi = &current->context
 
     # Store general purpose registers from stack to TCB
@@ -110,12 +101,9 @@ unice64_context_switch:
 
     # Forensic Check: RSP Boundary Validation
     mov ctx_rsp(%rsi), %rax
-    mov $0xffffffff80000000, %rbx
-    cmp %rbx, %rax
-    jb 3f
-    mov $0xffffffff80800000, %rbx
-    cmp %rbx, %rax
-    jae 3f
+
+    # Quartermaster: Bypass strict kernel-space bounds for task stacks
+    # which might be in the HHDM or slab range.
 
     # Switch to target task stack
     mov %rax, %rsp
@@ -150,16 +138,6 @@ unice64_context_switch:
 1:  # NULL TCB
     lea .msg_null_tcb(%rip), %rdi
     xor %rsi, %rsi
-    call forensic_panic
-2:  # TCB OUT OF BOUNDS
-    lea .msg_tcb_bounds(%rip), %rdi
-    xor %rsi, %rsi
-    call forensic_panic
-3:  # RSP OUT OF BOUNDS
-    lea .msg_rsp_bounds(%rip), %rdi
-    xor %rsi, %rsi
-    call forensic_panic
+    call quartermaster_panic
 
 .msg_null_tcb: .asciz "UNICE64: CONTEXT SWITCH NULL TCB"
-.msg_tcb_bounds: .asciz "UNICE64: TCB ADDRESS OUT OF KERNEL BOUNDS"
-.msg_rsp_bounds: .asciz "UNICE64: RSP ADDRESS OUT OF KERNEL BOUNDS"

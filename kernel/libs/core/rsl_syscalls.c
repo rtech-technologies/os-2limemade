@@ -12,7 +12,7 @@ extern struct limine_framebuffer_response* get_framebuffer(void);
 void vga_print(const char* fmt, ...);
 
 void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx, uint64_t rsi) {
-    (void)rdx; (void)rsi;
+    (void)rsi;
 
     switch(rax) {
         case 0: // print
@@ -34,6 +34,10 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
         }
         case 104: { // rsl_format(disk_id)
             *(int*)rcx = (f_mkfs((int)rbx) == FR_OK) ? 0 : -1;
+            break;
+        }
+        case 105: { // rsl_fdisk(disk_id)
+            *(int*)rcx = (f_fdisk((int)rbx) == FR_OK) ? 0 : -1;
             break;
         }
         case 202: { // rsl_get_fb

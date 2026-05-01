@@ -54,7 +54,7 @@ The RSL is the native interface for userspace (`programs/shell.c`).
 ## 6. Forensic Panic System
 If a fatal error occurs, the system triggers an **Autopsy**.
 
-- **Autopsy (`kernel/libs/panic.c`):** The `forensic_panic()` function:
+- **Autopsy (`kernel/libs/panic.c`):** The `quartermaster_panic()` function:
     1. Sets the console to Emerald Green (10, 0).
     2. Prints a diagnostic message and dumps the `cpu_state_t` (RAX-R15).
     3. Mandatory Step: Scans and dumps USB controller registers (XHCI_USBCMD, XHCI_USBSTS) to Serial COM1.

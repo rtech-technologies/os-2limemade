@@ -20,7 +20,7 @@ DSTATUS disk_initialize(BYTE pdrv) {
     return 0;
 }
 
-void forensic_panic(const char* message, void* state);
+void quartermaster_panic(const char* message, void* state);
 
 void* malloc(size_t size);
 void free(void* ptr);
@@ -29,7 +29,7 @@ DRESULT disk_read(BYTE pdrv, BYTE* buff, DWORD sector, uint32_t count) {
     /* Hardware Guard: Verify drive index exists */
     if ((int)pdrv >= get_hw_disk_count()) {
         serial_write_str("[GLUE] FATAL: Invalid Physical Drive Access Request.\n");
-        forensic_panic("DISK READ OUT OF BOUNDS", NULL);
+        quartermaster_panic("DISK READ OUT OF BOUNDS", NULL);
         return RES_ERROR;
     }
 
@@ -59,7 +59,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE* buff, DWORD sector, uint32_t count) {
     /* Hardware Guard: Verify drive index exists */
     if ((int)pdrv >= get_hw_disk_count()) {
         serial_write_str("[GLUE] FATAL: Invalid Physical Drive Access Request.\n");
-        forensic_panic("DISK WRITE OUT OF BOUNDS", NULL);
+        quartermaster_panic("DISK WRITE OUT OF BOUNDS", NULL);
         return RES_ERROR;
     }
 
