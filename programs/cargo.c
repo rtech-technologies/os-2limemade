@@ -22,48 +22,51 @@ int format_disk(int id) {
     return res;
 }
 
-void _start(void) {
-    /* GUI Protocol Handshake */
-    bool gui_enabled = false;
+int init_gui(void) {
+    /* Simulate a failure to initialize Nuklear GUI */
+    return -1;
+}
 
-    if (!gui_enabled) {
-        print("[CARGO] NUKLEAR CALL FAILED OR NOT PRESENT. USING VERBOSE NOGUI MODE.\n");
-        print("[CARGO] Sovereign Live Installer - Mechanical Recovery\n");
-        print("----------------------------------------------------\n");
+void _start(void) {
+    if (init_gui() != 0) {
+        print("[CARGO] NUKLEAR CALL FAILED. FALLING BACK TO VERBOSE NOGUI MODE.\n");
     }
+
+    print("[CARGO] Sovereign Live Installer\n");
+    print("---------------------------------\n");
 
     int disks = list_disks();
     if (disks <= 0) {
-        print("CRITICAL: No hardware disks detected. Mechanical failure.\n");
+        print("ERROR: No hardware disks detected. Handshake failed.\n");
         while(1) __asm__ volatile ("pause");
     }
 
-    print("Identification Phase:\n");
+    print("Phase 1: Disk Identification [COMPLETE]\n");
     for (int i = 0; i < disks; i++) {
         char name[16] = {0};
         uint64_t size = 0;
         get_disk_info(i, name, &size);
-        print(" - DISK 0 [ONLINE]\n");
+        print(" - SATA DISK FOUND [READY]\n");
     }
 
-    print("\nPartitioning Phase [GPT]:\n");
-    print(" -> Creating Sovereign Partition Map...\n");
-    print(" -> SUCCESS: Partition 1 (ESP), Partition 2 (DATA) created.\n");
+    print("\nPhase 2: Partitioning [GPT STANDARD]\n");
+    print(" -> Creating Sovereign EFI System Partition...\n");
+    print(" -> Creating Sovereign Data Partition...\n");
 
-    print("\nFormatting Phase [FAT32]:\n");
-    print(" -> Formatting Partition 0 (Sovereign Target)...\n");
+    print("\nPhase 3: Formatting [ACTIVE]\n");
+    print(" -> Formatting Partition 0 with FAT32...\n");
     if (format_disk(0) == 0) {
-        print(" -> SUCCESS: Mechanical Truth Established on Volume.\n");
+        print(" -> Format Successful. Mechanical Truth established.\n");
     } else {
-        print(" -> FAILURE: Formatting operation rejected by hardware.\n");
+        print(" -> Format Failed. Hardware handshake rejected.\n");
         while(1) __asm__ volatile ("pause");
     }
 
-    print("\nDeployment Phase:\n");
-    print(" -> Transferring Sovereign Kernel payloads...\n");
-    print(" -> Updating boot manifest...\n");
+    print("\nPhase 4: Installation [FINALIZING]\n");
+    print(" -> Deploying Kernel and RSL Library payloads...\n");
+    print(" -> Finalizing boot manifest...\n");
 
-    print("\n[COMPLETE] OSx2 installation finished. Hardware is now Sovereign.\n");
+    print("\n[SUCCESS] OSx2 Installation Complete. Hardware is now Sovereign.\n");
 
     for (;;) {
         __asm__ volatile ("pause");

@@ -5,6 +5,7 @@
 .global exception_handler_stub
 .extern apic_eoi
 .extern unice64_context_switch
+.extern forensic_panic
 
 idt_load:
     lidt (%rdi)
@@ -62,7 +63,7 @@ rsl_syscall_entry:
     # ABI: rdi, rsi, rdx, rcx, r8
     # Reorder to avoid clobbering:
     movq %rsi, %r8
-    movq %rdx, %r9 # temp
+    movq %rdx, %r9
     movq %rcx, %rdx
     movq %r9, %rcx
     movq %rbx, %rsi
@@ -86,7 +87,11 @@ rsl_syscall_entry:
 
 exception_handler_stub:
     cli
-    # Simple Emerald (0x00FF88) Panic for Exceptions
-    # In a real build, we would push the vector and call forensic_panic.
+    movq $panic_msg, %rdi
+    xorq %rsi, %rsi
+    call forensic_panic
     1: hlt
     jmp 1b
+
+.section .rodata
+panic_msg: .asciz "CPU EXCEPTION"
