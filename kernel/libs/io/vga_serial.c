@@ -34,8 +34,14 @@ static int is_transmit_empty(void) {
 }
 
 void serial_write_char(char c) {
-    while (is_transmit_empty() == 0);
-    outb(SERIAL_PORT, c);
+    /* Quartermaster: Serial Transmit Timeout (approx 10ms) */
+    int timeout = 1000000;
+    while (is_transmit_empty() == 0 && timeout--) {
+        __asm__ volatile ("pause");
+    }
+    if (timeout > 0) {
+        outb(SERIAL_PORT, c);
+    }
 }
 
 int serial_received(void) {

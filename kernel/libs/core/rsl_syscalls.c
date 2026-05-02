@@ -12,11 +12,25 @@ extern struct limine_framebuffer_response* get_framebuffer(void);
 void vga_print(const char* fmt, ...);
 
 void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx, uint64_t rsi) {
-    (void)rsi;
-
     switch(rax) {
         case 0: // print
             vga_print("%s", (const char*)rbx);
+            sys_yield();
+            break;
+        case 1: { // rsl_input(prompt, buffer)
+            void* res = input((const char*)rbx);
+            if (res) {
+                const char* cstr = str_to_cstr(res);
+                char* out_buf = (char*)rcx;
+                int k = 0;
+                while (cstr[k]) { out_buf[k] = cstr[k]; k++; }
+                out_buf[k] = '\0';
+                release(res);
+            }
+            break;
+        }
+        case 2: // rsl_yield
+            sys_yield();
             break;
         case 15: // rsl_exists
             *(bool*)rsi = vfs_exists((void*)rbx);

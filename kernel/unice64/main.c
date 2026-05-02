@@ -178,6 +178,15 @@ void _start(void) {
     apic_init();
     apic_timer_init(1000000);
 
+    /* Quartermaster Logistics: Cargo First */
+    if (mount_success) {
+        if (!vfs_exists(str_create("/user/"))) {
+            vga_print("[SNAP] Sovereign Installation not found. Engaging Cargo...\n");
+            void tasking_spawn_module(int module_index, uint32_t slab_id);
+            tasking_spawn_module(1, 3); /* cargo.bin is typically module 1 */
+        }
+    }
+
     /* Automated Sovereignty: Try to execute BOOT.RSL */
     void rsl_execute_stream(const char* path);
     if (mount_success) {

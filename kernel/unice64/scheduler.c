@@ -24,16 +24,21 @@ void unice64_scheduler_init(void) {
 
 void register_task(void (*entry_point)(void), uint32_t slab_id) {
     if (task_count < MAX_TASKS) {
-        task_table[task_count].id = task_count;
-        task_table[task_count].state = TASK_READY;
-        task_table[task_count].slab_id = slab_id;
+        int idx = task_count;
+        task_table[idx].id = idx;
+        task_table[idx].state = TASK_READY;
+        task_table[idx].slab_id = slab_id;
 
         /* Set Kernel Stack for Task (16KB aligned in Kernel Binary) */
-        uint64_t stack_virt = (uint64_t)&task_stacks[task_count];
-        task_table[task_count].kernel_stack_top = stack_virt + TASK_STACK_SIZE;
+        uint64_t stack_virt = (uint64_t)&task_stacks[idx];
+        task_table[idx].kernel_stack_top = stack_virt + TASK_STACK_SIZE;
 
         /* Initialize Context */
-        cpu_context_t* ctx = &task_table[task_count].context;
+        cpu_context_t* ctx = &task_table[idx].context;
+        /* Zero out context for deterministic startup */
+        uint8_t* p = (uint8_t*)ctx;
+        for (size_t i = 0; i < sizeof(cpu_context_t); i++) p[i] = 0;
+
         ctx->rip = (uint64_t)entry_point;
         ctx->cs = 0x08; /* Kernel Code Segment */
         ctx->ss = 0x10; /* Kernel Data Segment */
@@ -76,6 +81,15 @@ void get_task_info(int idx, uint32_t* id, const char** state, uint32_t* slab) {
 }
 
 void telemetry_update(int task_id, const char* status);
+
+void task_exit(void) {
+    task_t* current = get_current_task();
+    if (current) {
+        current->state = TASK_ZOMBIE;
+        vga_print("[UNICE64] Task %d terminated.\n", current->id);
+    }
+    while (1) { sys_yield(); }
+}
 
 void sovereign_yield(void) {
     sys_yield();

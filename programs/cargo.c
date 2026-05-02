@@ -6,6 +6,10 @@ void print(const char* s) {
     __asm__ volatile ("int $3" : : "a"((uint64_t)0), "b"((uint64_t)s) : "memory");
 }
 
+void rsl_input(const char* prompt, char* buffer) {
+    __asm__ volatile ("int $3" : : "a"((uint64_t)1), "b"((uint64_t)prompt), "c"((uint64_t)buffer) : "memory");
+}
+
 int list_disks(void) {
     volatile int count = 0;
     __asm__ volatile ("int $3" : : "a"((uint64_t)101), "b"((uint64_t)&count) : "memory");
@@ -82,8 +86,12 @@ void _start(void) {
     print(" -> Finalizing boot manifest synchronization...\n");
 
     print("\n[COMPLETE] OSx2 is now Sovereign on this hardware.\n");
+    print("Press ENTER to reboot...\n");
+    char dummy[16];
+    rsl_input("", dummy);
 
+    /* Standalone programs should exit or yield */
     for (;;) {
-        __asm__ volatile ("pause");
+        __asm__ volatile ("int $0x81");
     }
 }

@@ -67,3 +67,18 @@ void tasking_init(void) {
 
     vga_print("[UNICE64] Multitasking initialized (3 tasks).\n");
 }
+
+#include <limine.h>
+struct limine_module_response* get_modules(void);
+
+void tasking_spawn_module(int module_index, uint32_t slab_id) {
+    struct limine_module_response* resp = get_modules();
+    if (!resp || (uint64_t)module_index >= resp->module_count) return;
+
+    struct limine_file* mod = resp->modules[module_index];
+    if (!mod->address) return;
+
+    /* stand-alone binaries start at the beginning of the module */
+    vga_print("[UNICE64] Spawning module %d as task...\n", module_index);
+    register_task((void (*)(void))mod->address, slab_id);
+}
