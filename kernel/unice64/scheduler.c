@@ -9,6 +9,7 @@ static task_t task_table[MAX_TASKS];
 static uint8_t task_stacks[MAX_TASKS][TASK_STACK_SIZE] __attribute__((aligned(4096)));
 static int task_count = 0;
 static int current_task_idx = 0;
+static bool scheduler_active = false;
 
 void vga_print(const char* fmt, ...);
 void* pmm_alloc(uint64_t count);
@@ -18,6 +19,7 @@ uint64_t get_hhdm_offset(void);
 void unice64_scheduler_init(void) {
     task_count = 0;
     current_task_idx = 0;
+    scheduler_active = true;
 }
 
 void register_task(void (*entry_point)(void), uint32_t slab_id) {
@@ -46,11 +48,31 @@ void register_task(void (*entry_point)(void), uint32_t slab_id) {
 }
 
 task_t* get_current_task(void) {
+    if (task_count == 0) return NULL;
     return &task_table[current_task_idx];
 }
 
 int get_task_count(void) {
     return task_count;
+}
+
+const char* task_state_to_str(task_state_t state) {
+    switch(state) {
+        case TASK_RUNNING: return "RUNNING";
+        case TASK_READY:   return "READY";
+        case TASK_SLEEPING:return "SLEEP";
+        case TASK_WAITING: return "WAIT";
+        case TASK_ZOMBIE:  return "ZOMBIE";
+        default:           return "UNKNOWN";
+    }
+}
+
+void get_task_info(int idx, uint32_t* id, const char** state, uint32_t* slab) {
+    if (idx >= 0 && idx < task_count) {
+        *id = task_table[idx].id;
+        *state = task_state_to_str(task_table[idx].state);
+        *slab = task_table[idx].slab_id;
+    }
 }
 
 void telemetry_update(int task_id, const char* status);
@@ -67,6 +89,8 @@ void vga_pulse_cursor(void);
 void apic_timer_init(uint32_t count);
 
 void unice64_schedule(void) {
+    if (!scheduler_active) return;
+
     /* Update UI Pulse */
     vga_pulse_cursor();
 

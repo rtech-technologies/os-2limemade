@@ -1,11 +1,36 @@
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 #include <limine.h>
 
-// ⚓ External Handshakes
+// External Handshakes
 extern struct limine_framebuffer_response* get_framebuffer(void);
+uint64_t get_hhdm_offset(void);
 
-// ⚓ The CPU State Structure (Matches context_switch.s / idt.c push order)
+// Cached Framebuffer Manifest
+static struct {
+    uint64_t address;
+    uint64_t width;
+    uint64_t height;
+    uint64_t pitch;
+    uint16_t bpp;
+    bool valid;
+} fb_manifest = {0};
+
+void panic_cache_fb(void) {
+    struct limine_framebuffer_response* resp = get_framebuffer();
+    if (resp && resp->framebuffer_count > 0) {
+        struct limine_framebuffer* fb = resp->framebuffers[0];
+        fb_manifest.address = (uint64_t)fb->address;
+        fb_manifest.width = fb->width;
+        fb_manifest.height = fb->height;
+        fb_manifest.pitch = fb->pitch;
+        fb_manifest.bpp = fb->bpp;
+        fb_manifest.valid = true;
+    }
+}
+
+// The CPU State Structure (Matches your context_switch.s / idt.c push order)
 struct cpu_state {
     uint64_t r15, r14, r13, r12, r11, r10, r9, r8;
     uint64_t rbp, rdi, rsi, rdx, rcx, rbx, rax;
@@ -13,7 +38,7 @@ struct cpu_state {
     uint64_t rip, cs, rflags, rsp, ss;
 };
 
-/* Minimal Embedded Font for Panic Recovery (Copy of font8x8_basic) */
+/* Minimal Embedded Font for Panic Recovery (8x8) */
 static const uint8_t panic_font[128][8] = {
     [0x20] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
     [0x21] = { 0x18, 0x18, 0x18, 0x18, 0x00, 0x00, 0x18, 0x00 },
@@ -113,21 +138,19 @@ static const uint8_t panic_font[128][8] = {
 };
 
 void draw_string(int x, int y, const char* str, uint32_t color) {
-    struct limine_framebuffer* fb = get_framebuffer()->framebuffers[0];
-    if (!fb) return;
+    if (!fb_manifest.valid) return;
 
     for (int i = 0; str[i] != '\0'; i++) {
         uint8_t c = (uint8_t)str[i];
         if (c >= 128) continue;
         const uint8_t* glyph = panic_font[c];
-
         for (int gy = 0; gy < 8; gy++) {
             for (int gx = 0; gx < 8; gx++) {
                 if (glyph[gy] & (1 << (7 - gx))) {
                     int px = x + (i * 8) + gx;
                     int py = y + gy;
-                    if (px >= 0 && (uint64_t)px < fb->width && py >= 0 && (uint64_t)py < fb->height) {
-                        uint32_t* pixel = (uint32_t*)(fb->address + py * fb->pitch + px * 4);
+                    if (px >= 0 && (uint64_t)px < fb_manifest.width && py >= 0 && (uint64_t)py < fb_manifest.height) {
+                        uint32_t* pixel = (uint32_t*)(fb_manifest.address + py * fb_manifest.pitch + px * 4);
                         *pixel = color;
                     }
                 }
@@ -152,30 +175,30 @@ void int_to_hex(uint64_t val, char* out) {
  * @param state: The CPU registers captured during the crash (can be NULL)
  */
 void quartermaster_panic(const char* message, void* state) {
-    // ⚓ 1. Absolute Silence
+    // 1. Absolute Silence
     __asm__ volatile ("cli");
 
-    struct limine_framebuffer* fb = get_framebuffer()->framebuffers[0];
-    if (!fb) {
-        // Fallback to simple infinite loop if no FB
+    if (!fb_manifest.valid) {
+        // Fallback to simple infinite loop if no cached manifest
         for (;;) { __asm__ volatile ("hlt"); }
     }
-    uint32_t* fb_ptr = (uint32_t*)fb->address;
+
+    uint32_t* fb_ptr = (uint32_t*)fb_manifest.address;
     struct cpu_state* regs = (struct cpu_state*)state;
 
-    // ⚓ 2. Paint the Sovereign Canvas RED
+    // 2. Paint the Sovereign Canvas RED
     // One step = one line: Mechanical clear
-    for (uint64_t i = 0; i < (fb->pitch / 4) * fb->height; i++) {
+    for (uint64_t i = 0; i < (fb_manifest.pitch / 4) * fb_manifest.height; i++) {
         fb_ptr[i] = 0x00AA0000; // Deep Crimson
     }
 
-    // ⚓ 3. The Header
+    // 3. The Header
     draw_string(50, 50,  "********************************************", 0xFFFFFFFF);
     draw_string(50, 70,  "* MECHANICAL FAILURE: SYSTEM HALTED        *", 0xFFFFFFFF);
     draw_string(50, 90,  "* ALL CARGO HAS BEEN LOST OR CORRUPTED     *", 0xFFFFFFFF);
     draw_string(50, 110, "********************************************", 0xFFFFFFFF);
 
-    // ⚓ 4. Error Description
+    // 4. Error Description
     draw_string(50, 150, "DIAGNOSTIC MESSAGE:", 0xFFFFFF00); // Yellow
     if (message) {
         draw_string(70, 170, message, 0xFFFFFFFF);
@@ -183,7 +206,7 @@ void quartermaster_panic(const char* message, void* state) {
         draw_string(70, 170, "CRITICAL EXCEPTION: NO MESSAGE PROVIDED", 0xFFFFFFFF);
     }
 
-    // ⚓ 5. Register Forensic Dump
+    // 5. Register Forensic Dump
     if (regs) {
         char buf[32];
         draw_string(50, 210, "FORENSIC REGISTER DUMP:", 0xFFFFFF00);
@@ -205,11 +228,15 @@ void quartermaster_panic(const char* message, void* state) {
         draw_string(70, 290, "ERR: ", 0xFFFFFFFF); draw_string(120, 290, buf, 0xFFFFFFFF);
 
         // Analysis
-        if (regs->rsp < 0xffffffff80000000) {
+        uint64_t hhdm = get_hhdm_offset();
+        bool in_kernel = (regs->rsp >= 0xffffffff80000000);
+        bool in_hhdm = (hhdm != 0 && regs->rsp >= hhdm && regs->rsp < hhdm + 0x400000000000);
+
+        if (!in_kernel && !in_hhdm) {
             draw_string(50, 330, "QUARTERMASTER ANALYSIS: RSP OUT OF KERNEL BOUNDS", 0xFF00FF00); // Green analysis
         }
     }
 
-    // ⚓ 6. Eternal Halt
+    // 6. Eternal Halt
     for (;;) { __asm__ volatile ("hlt"); }
 }

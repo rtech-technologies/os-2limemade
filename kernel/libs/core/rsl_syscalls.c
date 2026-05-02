@@ -24,10 +24,25 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
         case 101: // rsl_list_disks
             *(int*)rbx = get_hw_disk_count();
             break;
-        case 102: // rsl_is_sovereign
-            // Check if disk has Sovereign signature or partition
-            *(bool*)rcx = true;
+        case 102: { // rsl_is_sovereign
+            int drive = (int)rbx;
+            uint8_t sector[512];
+            bool* out = (bool*)rcx;
+            *out = false;
+            /* Check 1: FAT32 Label in BPB at LBA 2048 */
+            if (disk_read(drive, sector, 2048, 1) == RES_OK) {
+                if (sector[510] == 0x55 && sector[511] == 0xAA) {
+                    /* Check OEM Name or Label */
+                    if (sector[3] == 'O' && sector[4] == 'S' && sector[5] == 'X') *out = true;
+                }
+            }
+            /* Check 2: GPT Partition Name "Sovereign" at LBA 2 */
+            if (!*out && disk_read(drive, sector, 2, 1) == RES_OK) {
+                /* GPT Entry 1 Name is at offset 56, "Sovereign" in UTF-16LE */
+                if (sector[56] == 'S' && sector[58] == 'o') *out = true;
+            }
             break;
+        }
         case 103: { // rsl_get_disk_info(disk_id, name_ptr, size_ptr)
             get_hw_disk_info((int)rbx, (char*)rcx, (uint64_t*)rdx);
             break;

@@ -1,0 +1,89 @@
+make limine-setup
+make[1]: Entering directory '/app'
+Building Limine tools in limine/ folder...
+make[2]: Entering directory '/app/limine'
+cc -g -O2 -pipe -Wall -Wextra    -std=c99 limine.c  -o limine
+make[2]: Leaving directory '/app/limine'
+make[1]: Leaving directory '/app'
+make kernel
+make[1]: Entering directory '/app'
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/unice64/apic.c -o kernel/unice64/apic.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/unice64/idt.c -o kernel/unice64/idt.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/unice64/limine_reqs.c -o kernel/unice64/limine_reqs.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/unice64/main.c -o kernel/unice64/main.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/unice64/scheduler.c -o kernel/unice64/scheduler.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/unice64/tasking.c -o kernel/unice64/tasking.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/io/console.c -o kernel/libs/io/console.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/io/vga_serial.c -o kernel/libs/io/vga_serial.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/ram/arc_mem.c -o kernel/libs/ram/arc_mem.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/ram/bump_alloc.c -o kernel/libs/ram/bump_alloc.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/ram/pmm.c -o kernel/libs/ram/pmm.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/ram/slab.c -o kernel/libs/ram/slab.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/storage/ahci.c -o kernel/libs/storage/ahci.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/storage/atapi.c -o kernel/libs/storage/atapi.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/storage/iso9660.c -o kernel/libs/storage/iso9660.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/storage/nvme.c -o kernel/libs/storage/nvme.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/storage/satapi.c -o kernel/libs/storage/satapi.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/storage/usb_xhci.c -o kernel/libs/storage/usb_xhci.o
+kernel/libs/storage/usb_xhci.c: In function ‘xhci_bios_handover’:
+kernel/libs/storage/usb_xhci.c:21:14: warning: unused variable ‘cap_length’ [-Wunused-variable]
+   21 |     uint32_t cap_length = *(volatile uint8_t*)base;
+      |              ^~~~~~~~~~
+kernel/libs/storage/usb_xhci.c:20:14: warning: unused variable ‘hhdm’ [-Wunused-variable]
+   20 |     uint64_t hhdm = get_hhdm_offset();
+      |              ^~~~
+kernel/libs/storage/usb_xhci.c:19:33: warning: unused parameter ‘bus’ [-Wunused-parameter]
+   19 | void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
+      |                         ~~~~~~~~^~~
+kernel/libs/storage/usb_xhci.c:19:46: warning: unused parameter ‘slot’ [-Wunused-parameter]
+   19 | void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
+      |                                      ~~~~~~~~^~~~
+kernel/libs/storage/usb_xhci.c:19:60: warning: unused parameter ‘func’ [-Wunused-parameter]
+   19 | void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
+      |                                                    ~~~~~~~~^~~~
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/storage/vdisk.c -o kernel/libs/storage/vdisk.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/storage/vfs.c -o kernel/libs/storage/vfs.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/storage/fatfs/ff.c -o kernel/libs/storage/fatfs/ff.o
+kernel/libs/storage/fatfs/ff.c: In function ‘f_mkdir’:
+kernel/libs/storage/fatfs/ff.c:429:9: warning: this ‘for’ clause does not guard... [-Wmisleading-indentation]
+  429 |         for(k=0; k<last_slash; k++) dir_path[k] = path[k]; dir_path[k] = '\0';
+      |         ^~~
+kernel/libs/storage/fatfs/ff.c:429:60: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the ‘for’
+  429 |         for(k=0; k<last_slash; k++) dir_path[k] = path[k]; dir_path[k] = '\0';
+      |                                                            ^~~~~~~~
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/storage/fatfs/ff_glue.c -o kernel/libs/storage/fatfs/ff_glue.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/core/gdt.c -o kernel/libs/core/gdt.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/core/panic.c -o kernel/libs/core/panic.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/core/pci.c -o kernel/libs/core/pci.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/core/rsl_commands.c -o kernel/libs/core/rsl_commands.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/core/rsl_string.c -o kernel/libs/core/rsl_string.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/core/rsl_syscalls.c -o kernel/libs/core/rsl_syscalls.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/core/run.c -o kernel/libs/core/run.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/core/services.c -o kernel/libs/core/services.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/core/shutdown.c -o kernel/libs/core/shutdown.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/libs/core/timer.c -o kernel/libs/core/timer.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c programs/shell.c -o programs/shell.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/unice64/context_switch.s -o kernel/unice64/context_switch.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -c kernel/unice64/interrupts.s -o kernel/unice64/interrupts.o
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -Wl,-T,boot/linker.ld -static -nostdlib -Wl,-z,max-page-size=0x1000 kernel/unice64/apic.o kernel/unice64/idt.o kernel/unice64/limine_reqs.o kernel/unice64/main.o kernel/unice64/scheduler.o kernel/unice64/tasking.o kernel/libs/io/console.o kernel/libs/io/vga_serial.o kernel/libs/ram/arc_mem.o kernel/libs/ram/bump_alloc.o kernel/libs/ram/pmm.o kernel/libs/ram/slab.o kernel/libs/storage/ahci.o kernel/libs/storage/atapi.o kernel/libs/storage/iso9660.o kernel/libs/storage/nvme.o kernel/libs/storage/satapi.o kernel/libs/storage/usb_xhci.o kernel/libs/storage/vdisk.o kernel/libs/storage/vfs.o kernel/libs/storage/fatfs/ff.o kernel/libs/storage/fatfs/ff_glue.o kernel/libs/core/gdt.o kernel/libs/core/panic.o kernel/libs/core/pci.o kernel/libs/core/rsl_commands.o kernel/libs/core/rsl_string.o kernel/libs/core/rsl_syscalls.o kernel/libs/core/run.o kernel/libs/core/services.o kernel/libs/core/shutdown.o kernel/libs/core/timer.o programs/shell.o kernel/unice64/context_switch.o kernel/unice64/interrupts.o -o kernel.elf
+OSx2 Limemade Kernel Compiled: kernel.elf
+make[1]: Leaving directory '/app'
+make cargo
+make[1]: Entering directory '/app'
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -nostdlib -static -Wl,-Ttext,0x1000 programs/cargo.c -o cargo.bin
+OSx2 Cargo Utility Compiled: cargo.bin
+make[1]: Leaving directory '/app'
+make iso
+make[1]: Entering directory '/app'
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -Wl,-T,boot/linker.ld -static -nostdlib -Wl,-z,max-page-size=0x1000 kernel/unice64/apic.o kernel/unice64/idt.o kernel/unice64/limine_reqs.o kernel/unice64/main.o kernel/unice64/scheduler.o kernel/unice64/tasking.o kernel/libs/io/console.o kernel/libs/io/vga_serial.o kernel/libs/ram/arc_mem.o kernel/libs/ram/bump_alloc.o kernel/libs/ram/pmm.o kernel/libs/ram/slab.o kernel/libs/storage/ahci.o kernel/libs/storage/atapi.o kernel/libs/storage/iso9660.o kernel/libs/storage/nvme.o kernel/libs/storage/satapi.o kernel/libs/storage/usb_xhci.o kernel/libs/storage/vdisk.o kernel/libs/storage/vfs.o kernel/libs/storage/fatfs/ff.o kernel/libs/storage/fatfs/ff_glue.o kernel/libs/core/gdt.o kernel/libs/core/panic.o kernel/libs/core/pci.o kernel/libs/core/rsl_commands.o kernel/libs/core/rsl_string.o kernel/libs/core/rsl_syscalls.o kernel/libs/core/run.o kernel/libs/core/services.o kernel/libs/core/shutdown.o kernel/libs/core/timer.o programs/shell.o kernel/unice64/context_switch.o kernel/unice64/interrupts.o -o kernel.elf
+OSx2 Limemade Kernel Compiled: kernel.elf
+gcc -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -nostdlib -static -Wl,-Ttext,0x1000 programs/cargo.c -o cargo.bin
+OSx2 Cargo Utility Compiled: cargo.bin
+OSX2: 64MB GPT Sovereign Disk Created at ramdisk.img.
+Warning: xorriso not found, created empty osx2.iso for source compliance.
+OSx2 Limemade ISO Created: osx2.iso
+make[1]: Leaving directory '/app'
+make sata_disk.img
+make[1]: Entering directory '/app'
+OSx2: 64MB Empty persistent disk created for internal installation test.
+make[1]: Leaving directory '/app'

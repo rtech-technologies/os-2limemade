@@ -98,20 +98,14 @@ void _start(void) {
     if (boot_drive == -1) {
         set_color(YELLOW, BLACK);
         print("\n[BOOT] NO SOVEREIGN DISK FOUND.\n");
-        void* choice = input("Search for non-FAT disks and install? (y/n): ");
-        if (choice && str_match(choice, "y")) {
-            for (int i = 0; i < hw_count; i++) {
-                if (vdisk_is_atapi(i)) continue;
-                vga_print("OSx2: Installing to Drive %d...\n", i);
-                if (f_mkfs(i) == FR_OK) {
-                    vga_print("OSx2: Installation Complete on Drive %d.\n", i);
-                    boot_drive = i;
-                    break;
-                }
-            }
-            release(choice);
-        } else if (choice) {
-            release(choice);
+        /* Quartermaster: Automating Cargo Installer Deployment */
+        if (hw_count > 0) {
+            vga_print("[SNAP] ENGAGING CARGO INSTALLER...\n");
+
+            /* Find and Execute Installer Payload */
+            void rsl_execute_stream(const char* path);
+            /* The ramdisk is typically INITRD and is verified in vdisk.c */
+            rsl_execute_stream("INITRD:/bin/cargo.bin");
         }
     }
 

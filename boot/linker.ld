@@ -31,7 +31,11 @@ SECTIONS
         *(COMMON)
     } :data
 
+    .note.gnu.build-id : {
+        *(.note.gnu.build-id)
+    } :rodata
+
     /DISCARD/ : {
-        *(.note .note.*)
+        *(.note.GNU-stack)
     }
 }

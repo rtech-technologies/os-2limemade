@@ -31,5 +31,7 @@ void unice64_scheduler_init(void);
 void register_task(void (*entry_point)(void), uint32_t slab_id);
 void sys_yield(void);
 task_t* get_current_task(void);
+int get_task_count(void);
+void get_task_info(int idx, uint32_t* id, const char** state, uint32_t* slab);
 
 #endif

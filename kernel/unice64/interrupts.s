@@ -2,7 +2,6 @@
 .global idt_load
 .global irq_timer_handler
 .global rsl_syscall_entry
-.global exception_handler_stub
 .extern apic_eoi
 .extern unice64_context_switch
 .extern quartermaster_panic
@@ -47,7 +46,7 @@ irq_timer_handler:
 
 .extern rsl_syscall_handler
 rsl_syscall_entry:
-    #  Quartermaster: Deterministic Syscall Register Handover
+    # Quartermaster: Deterministic Syscall Register Handover
     # Save user state
     pushq %rcx
     pushq %rdx
@@ -62,12 +61,6 @@ rsl_syscall_entry:
 
     # ABI Requirement: rdi, rsi, rdx, rcx, r8
     # User Input: RAX (id), RBX (arg1), RCX (arg2), RDX (arg3), RSI (arg4)
-    # Mapping:
-    # RDI <- RAX
-    # RSI <- RBX
-    # RDX <- RCX
-    # RCX <- RDX
-    # R8  <- RSI
 
     # Shuffle user registers to ABI order:
     movq %rsi, %r8   # arg4 -> R8
@@ -98,14 +91,14 @@ rsl_syscall_entry:
 isr\num:
     pushq $0
     pushq $\num
-    jmp exception_common_stub
+    jmp exception_forensic_autopsy
 .endm
 
 .macro ISR_ERRCODE num
 .global isr\num
 isr\num:
     pushq $\num
-    jmp exception_common_stub
+    jmp exception_forensic_autopsy
 .endm
 
 ISR_NOERRCODE 0
@@ -141,8 +134,11 @@ ISR_NOERRCODE 29
 ISR_NOERRCODE 30
 ISR_NOERRCODE 31
 
-exception_common_stub:
-    # ⚓ Quartermaster: Full State Capture
+exception_forensic_autopsy:
+    # Quartermaster: Full State Capture (Matches struct cpu_state)
+    # Stack at this point: [SS, RSP, RFLAGS, CS, RIP, ERR, NUM]
+    # We need to push RAX, RBX, RCX, RDX, RSI, RDI, RBP, R8..R15
+
     pushq %rax
     pushq %rbx
     pushq %rcx
@@ -163,6 +159,10 @@ exception_common_stub:
     movq %rsp, %rsi          # RSI = &cpu_state
     lea panic_msg(%rip), %rdi # RDI = "CPU EXCEPTION"
 
+    # Quartermaster: ABI Alignment for Panic
+    # Align stack to 16-bytes for C call
+    movq %rsp, %rbp
+    andq $-16, %rsp
     call quartermaster_panic
 
     1: hlt
@@ -170,3 +170,4 @@ exception_common_stub:
 
 .section .rodata
 panic_msg: .asciz "CPU EXCEPTION"
+.section .note.GNU-stack,"",@progbits

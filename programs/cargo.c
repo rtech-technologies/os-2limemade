@@ -28,17 +28,9 @@ int format_disk(int id) {
     return res;
 }
 
-int init_gui(void) {
-    /* Simulation of GUI protocol handshake failure */
-    return -1;
-}
-
 void _start(void) {
-    if (init_gui() != 0) {
-        print("[CARGO] NUKLEAR GUI PROTOCOL FAILED. ENGAGING VERBOSE NOGUI MODE.\n");
-        print("[CARGO] Sovereign Live Installer - Recovery Interface\n");
-        print("----------------------------------------------------\n");
-    }
+    print("[CARGO] Sovereign Live Installer - Recovery Interface\n");
+    print("----------------------------------------------------\n");
 
     int disks = list_disks();
     if (disks <= 0) {
@@ -46,19 +38,30 @@ void _start(void) {
         while(1) __asm__ volatile ("pause");
     }
 
-    print("Phase 1: Identification [COMPLETE]\n");
+    print("Phase 1: Hardware Identification [COMPLETE]\n");
+    int target_disk = -1;
     for (int i = 0; i < disks; i++) {
         char name[16] = {0};
         uint64_t size = 0;
         get_disk_info(i, name, &size);
-        print(" - Storage Target DISK ");
-        char id_buf[2] = { '0' + i, '\0' };
-        print(id_buf);
-        print(" [ONLINE]\n");
+
+        /* Auto-select first non-readonly disk */
+        if (target_disk == -1) {
+             print(" - Selected Storage Target DISK ");
+             char id_buf[2] = { '0' + i, '\0' };
+             print(id_buf);
+             print(" ("); print(name); print(") [ONLINE]\n");
+             target_disk = i;
+        }
+    }
+
+    if (target_disk == -1) {
+        print("CRITICAL ERROR: No writable hardware found.\n");
+        while(1) __asm__ volatile ("pause");
     }
 
     print("\nPhase 2: Partitioning [GPT]\n");
-    if (partition_disk(0) == 0) {
+    if (partition_disk(target_disk) == 0) {
         print(" -> SUCCESS: Sovereign Partition Map established.\n");
     } else {
         print(" -> FAILURE: Partitioning rejected by firmware.\n");
@@ -67,7 +70,7 @@ void _start(void) {
 
     print("\nPhase 3: Formatting [FAT32]\n");
     print(" -> Initializing Sovereign System Partition...\n");
-    if (format_disk(0) == 0) {
+    if (format_disk(target_disk) == 0) {
         print(" -> SUCCESS: Mechanical Truth established on volume.\n");
     } else {
         print(" -> FAILURE: Format operation failed.\n");

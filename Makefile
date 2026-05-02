@@ -68,9 +68,10 @@ cargo: programs/cargo.c
 
 iso: limine-setup kernel cargo
 	@mkdir -p iso_root/boot
+	@mkdir -p iso_root/bin
 	@mkdir -p iso_root/EFI/BOOT
 	@cp $(KERNEL_ELF) iso_root/boot/
-	@cp $(CARGO_BIN) iso_root/boot/
+	@cp $(CARGO_BIN) iso_root/bin/
 	@cp boot/installer_limine.cfg iso_root/limine.cfg
 	@cp $(LIMINE_DIR)/limine-uefi-cd.bin iso_root/EFI/BOOT/BOOTX64.EFI
 	@python3 scripts/fat_tool.py ramdisk.img
