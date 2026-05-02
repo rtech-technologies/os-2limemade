@@ -24,14 +24,22 @@ void serial_print_hex(const char* label, uint16_t val);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
 void* bump_alloc(size_t size);
 uint64_t vmm_get_phys(void* virt);
+void vga_print(const char* fmt, ...);
+int ahci_wait_status(volatile uint32_t* reg, uint32_t mask, uint32_t expected, uint32_t timeout_ms);
 
 void ahci_port_start(hba_port_t *port) {
-    while (port->cmd & (1 << 15));
-    port->cmd |= (1 << 4);
-    port->cmd |= (1 << 0);
-}
+    /* Quartermaster: Engine Handshake Shield */
+    if (port->cmd & (1 << 0)) return; /* Already running */
 
-void vga_print(const char* fmt, ...);
+    /* Wait for bit 15 (CR - Command list Running) to clear */
+    if (ahci_wait_status(&port->cmd, (1 << 15), 0, 500) != 0) {
+        vga_print("[!] AHCI: Port engine stop timeout (CR still set).\n");
+        return;
+    }
+
+    port->cmd |= (1 << 4); /* FRE: FIS Receive Enable */
+    port->cmd |= (1 << 0); /* ST: Start */
+}
 void pit_wait_ms(uint32_t ms);
 
 int ahci_wait_status(volatile uint32_t* reg, uint32_t mask, uint32_t expected, uint32_t timeout_ms) {

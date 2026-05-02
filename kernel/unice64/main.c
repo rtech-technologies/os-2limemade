@@ -182,9 +182,11 @@ void _start(void) {
     void rsl_execute_stream(const char* path);
     if (mount_success) {
         const char* script_path = vdisk_is_atapi(boot_drive) ? "INITRD:/BOOT.RSL" : "BOOT:/BOOT.RSL";
-        serial_write_str("CHECKPOINT A: Executing stream...\n");
-        rsl_execute_stream(script_path);
-        serial_write_str("CHECKPOINT B: Stream finished.\n");
+        if (vfs_exists(str_create(script_path))) {
+            serial_write_str("CHECKPOINT A: Executing stream...\n");
+            rsl_execute_stream(script_path);
+            serial_write_str("CHECKPOINT B: Stream finished.\n");
+        }
     }
 
     /* The main thread becomes an observer or a task.

@@ -9,6 +9,7 @@ void pit_wait_ms(uint32_t ms);
 void idle_task(void) {
     while (1) {
         /* Low power state */
+        sys_yield();
         __asm__ volatile ("hlt");
     }
 }
@@ -27,10 +28,18 @@ void task_shell(void) {
 
 void system_task(void) {
     vga_print("[UNICE64] System Maintenance Task Active.\n");
+    static uint64_t last_audit = 0;
+    extern uint64_t get_system_ticks(void);
+
     while (1) {
-        /* System Maintenance: Check AHCI Port 0 for Sovereign connectivity */
-        void ahci_hardware_audit(int p);
-        ahci_hardware_audit(0);
+        uint64_t now = get_system_ticks();
+        /* Throttle hardware audits to every 5 seconds (5000 ticks) */
+        if (now - last_audit >= 5000) {
+            last_audit = now;
+            /* System Maintenance: Check AHCI Port 0 for Sovereign connectivity */
+            void ahci_hardware_audit(int p);
+            ahci_hardware_audit(0);
+        }
 
         /* Voluntary handover */
         sys_yield();
