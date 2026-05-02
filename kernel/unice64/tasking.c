@@ -15,11 +15,14 @@ void idle_task(void) {
 
 void shell_main(void);
 
-void shell_task(void) {
+void task_shell(void) {
     vga_print("[UNICE64] Shell Task Started.\n");
     shell_main();
     /* If shell exits, go into infinite sleep */
-    while (1) { __asm__ volatile ("hlt"); }
+    while (1) {
+        sys_yield();
+        __asm__ volatile ("pause");
+    }
 }
 
 void system_task(void) {
@@ -41,7 +44,7 @@ void tasking_init(void) {
     register_task(idle_task, 0);
 
     /* Register Shell Task in Slab 1 */
-    register_task(shell_task, 1);
+    register_task(task_shell, 1);
 
     /* Register System Maintenance Task in Slab 2 */
     register_task(system_task, 2);

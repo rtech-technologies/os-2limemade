@@ -205,7 +205,6 @@ void vga_write_char(char c, uint8_t color_attr) {
 
     /* Ignore non-printable gibberish except for key control codes */
     if ((uint8_t)c < 32 && c != '\n' && c != '\r' && c != '\b' && c != '\t') return;
-    if ((uint8_t)c >= 127) return;
 
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;

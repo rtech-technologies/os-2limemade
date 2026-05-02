@@ -3,6 +3,7 @@
 #include <kernel/libs/core/pci.h>
 #include <include/rsl.h>
 #include <include/vfs.h>
+#include <kernel/unice64/task.h>
 #include <limine.h>
 #include <stddef.h>
 
@@ -195,6 +196,7 @@ void _start(void) {
 
     /* Hang if we ever return */
     for (;;) {
-        __asm__ volatile ("hlt");
+        sys_yield();
+        __asm__ volatile ("pause");
     }
 }
