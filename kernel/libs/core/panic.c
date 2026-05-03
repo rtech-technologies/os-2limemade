@@ -174,9 +174,18 @@ void int_to_hex(uint64_t val, char* out) {
  * @param message: A custom error string (can be NULL)
  * @param state: The CPU registers captured during the crash (can be NULL)
  */
+void serial_write_str(const char* s);
+
 void quartermaster_panic(const char* message, void* state) {
     // 1. Absolute Silence
     __asm__ volatile ("cli");
+
+    serial_write_str("\n\n!!! MECHANICAL FAILURE: SYSTEM HALTED !!!\n");
+    if (message) {
+        serial_write_str("DIAGNOSTIC MESSAGE: ");
+        serial_write_str(message);
+        serial_write_str("\n");
+    }
 
     if (!fb_manifest.valid) {
         // Fallback to simple infinite loop if no cached manifest
@@ -210,22 +219,27 @@ void quartermaster_panic(const char* message, void* state) {
     if (regs) {
         char buf[32];
         draw_string(50, 210, "FORENSIC REGISTER DUMP:", 0xFFFFFF00);
+        serial_write_str("FORENSIC REGISTER DUMP:\n");
 
         // RIP (Where the crash happened)
         int_to_hex(regs->rip, buf);
         draw_string(70, 230, "RIP: ", 0xFFFFFFFF); draw_string(120, 230, buf, 0xFFFFFFFF);
+        serial_write_str("  RIP: "); serial_write_str(buf); serial_write_str("\n");
 
         // RSP (The Stack Pointer - Current suspect)
         int_to_hex(regs->rsp, buf);
         draw_string(70, 250, "RSP: ", 0xFFFFFFFF); draw_string(120, 250, buf, 0xFFFFFFFF);
+        serial_write_str("  RSP: "); serial_write_str(buf); serial_write_str("\n");
 
         // RAX/RBX
         int_to_hex(regs->rax, buf);
         draw_string(70, 270, "RAX: ", 0xFFFFFFFF); draw_string(120, 270, buf, 0xFFFFFFFF);
+        serial_write_str("  RAX: "); serial_write_str(buf); serial_write_str("\n");
 
         // Error Code (From the CPU)
         int_to_hex(regs->error_code, buf);
         draw_string(70, 290, "ERR: ", 0xFFFFFFFF); draw_string(120, 290, buf, 0xFFFFFFFF);
+        serial_write_str("  ERR: "); serial_write_str(buf); serial_write_str("\n");
 
         // Analysis
         uint64_t hhdm = get_hhdm_offset();

@@ -26,6 +26,7 @@ void register_task(void (*entry_point)(void), uint32_t slab_id) {
     if (task_count < MAX_TASKS) {
         int idx = task_count;
         task_table[idx].id = idx;
+        task_table[idx].uid = 0; /* Default to System/Root */
         task_table[idx].state = TASK_READY;
         task_table[idx].slab_id = slab_id;
 

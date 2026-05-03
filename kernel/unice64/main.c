@@ -180,7 +180,7 @@ void _start(void) {
 
     /* Quartermaster Logistics: Cargo First */
     if (mount_success) {
-        if (!vfs_exists(str_create("/user/"))) {
+        if (!vfs_exists(str_create("BOOT:/users/"))) {
             vga_print("[SNAP] Sovereign Installation not found. Engaging Cargo...\n");
             void tasking_spawn_module(int module_index, uint32_t slab_id);
             tasking_spawn_module(1, 3); /* cargo.bin is typically module 1 */

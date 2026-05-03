@@ -69,6 +69,45 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
             *(int*)rcx = (f_fdisk((int)rbx) == FR_OK) ? 0 : -1;
             break;
         }
+        case 110: { // rsl_set_uid(uid)
+            task_t* current = get_current_task();
+            /* Quartermaster: Security. Only UID 0 can set other UIDs */
+            if (current && current->uid == 0) current->uid = (uint32_t)rbx;
+            break;
+        }
+        case 111: { // rsl_get_uid()
+            task_t* current = get_current_task();
+            if (current) *(uint32_t*)rbx = current->uid;
+            break;
+        }
+        case 120: { // rsl_write(path, content)
+            vfs_write_dispatch((void*)rbx, (void*)rcx);
+            break;
+        }
+        case 121: { // rsl_mkdir(path)
+            vfs_mkdir((void*)rbx);
+            break;
+        }
+        case 122: { // rsl_open(path, mode)
+            *(vfs_handle_t**)rdx = vfs_open((void*)rbx, (const char*)rcx);
+            break;
+        }
+        case 123: { // rsl_read(handle, buf, len)
+            *(int*)rdx = vfs_read((vfs_handle_t*)rbx, (void*)rcx, (int)rsi);
+            break;
+        }
+        case 124: { // rsl_close(handle)
+            vfs_close((vfs_handle_t*)rbx);
+            break;
+        }
+        case 130: { // rsl_hash(string, out_u64)
+            const char* s = (const char*)rbx;
+            uint64_t hash = 5381;
+            int c;
+            while ((c = *s++)) hash = ((hash << 5) + hash) + c;
+            *(uint64_t*)rcx = hash;
+            break;
+        }
         case 202: { // rsl_get_fb
             struct limine_framebuffer_response* resp = get_framebuffer();
             if (resp && resp->framebuffer_count > 0) {

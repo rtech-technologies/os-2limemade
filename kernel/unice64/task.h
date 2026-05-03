@@ -20,6 +20,7 @@ typedef struct {
 
 typedef struct {
     uint32_t id;
+    uint32_t uid; /* Quartermaster: User Identity */
     task_state_t state;
     cpu_context_t context;
     uint32_t slab_id;
