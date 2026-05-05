@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+void* slab_alloc_aligned(int id, size_t size, size_t align);
+
 /* I/O Port Helper */
 static inline void outb(uint16_t port, uint8_t val) {
     __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
@@ -173,6 +175,8 @@ static bool cursor_visible = true;
 #define SCALE 2
 
 static struct limine_framebuffer* global_fb = NULL;
+static uint32_t* virtual_buffer = NULL;
+static uint32_t* back_buffer = NULL;
 
 void draw_pixel(int x, int y, uint32_t color) {
     if (!global_fb) return;
@@ -381,11 +385,69 @@ void vga_serial_service(kernel_event_t event) {
             global_fb = fb_resp->framebuffers[0];
             panic_cache_fb();
             serial_write_str("[INIT] GOP Framebuffer initialized and cached.\n");
+
+            /* Allocate Double Buffers (aligned to 64 bytes for cache efficiency) */
+            size_t fb_size = global_fb->height * global_fb->pitch;
+            virtual_buffer = slab_alloc_aligned(0, fb_size, 64);
+            back_buffer = slab_alloc_aligned(0, fb_size, 64);
+            if (virtual_buffer && back_buffer) {
+                serial_write_str("[SNAP] GUI Double Buffers Allocated.\n");
+            }
         } else {
             serial_write_str("[WARN] GOP Framebuffer not found, console output disabled.\n");
         }
 
         serial_write_str("[INIT] Serial and VGA Mirroring active.\n");
         vga_clear();
+    }
+}
+
+void nk_rtc64_draw_line(int x0, int y0, int x1, int y1, uint32_t color) {
+    /* Implementation for RTC64 drawer */
+    (void)x0; (void)y0; (void)x1; (void)y1; (void)color;
+}
+
+void nk_rtc64_draw_rect(int x, int y, int w, int h, uint32_t color) {
+    if (!virtual_buffer) return;
+    for (int j = y; j < y + h; j++) {
+        for (int i = x; i < x + w; i++) {
+            virtual_buffer[j * (global_fb->pitch / 4) + i] = color;
+        }
+    }
+}
+
+void nk_rtc64_draw_text(int x, int y, const char* text, int len, uint32_t color) {
+    (void)x; (void)y; (void)text; (void)len; (void)color;
+}
+
+void delta_move_flush(void) {
+    if (!global_fb || !virtual_buffer || !back_buffer) return;
+
+    size_t width = global_fb->width;
+    size_t height = global_fb->height;
+    size_t pitch = global_fb->pitch;
+    uint32_t* fb_addr = (uint32_t*)global_fb->address;
+
+    /* Block-based delta move to respect cachelines (64 bytes = 16 pixels) */
+    const int block_size = 16;
+    for (size_t y = 0; y < height; y++) {
+        for (size_t x = 0; x < width; x += block_size) {
+            size_t offset = (y * (pitch / 4)) + x;
+            bool changed = false;
+
+            for (int i = 0; i < block_size && (x + i) < width; i++) {
+                if (virtual_buffer[offset + i] != back_buffer[offset + i]) {
+                    changed = true;
+                    break;
+                }
+            }
+
+            if (changed) {
+                for (int i = 0; i < block_size && (x + i) < width; i++) {
+                    fb_addr[offset + i] = virtual_buffer[offset + i];
+                    back_buffer[offset + i] = virtual_buffer[offset + i];
+                }
+            }
+        }
     }
 }

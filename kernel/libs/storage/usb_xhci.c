@@ -2,8 +2,10 @@
 #include <limine.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 #include <kernel/libs/storage/vdisk.h>
 #include <kernel/libs/core/pci.h>
+#include <kernel/libs/storage/cherryusb/usb_osal.h>
 
 void serial_write_str(const char* s);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
@@ -17,8 +19,7 @@ void* get_xhci_base(void) {
 }
 
 void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
-    uint64_t hhdm = get_hhdm_offset();
-    uint32_t cap_length = *(volatile uint8_t*)base;
+    (void)bus; (void)slot; (void)func;
     uint32_t hccparams1 = *(volatile uint32_t*)((uint8_t*)base + 0x10);
     uint32_t xecp = (hccparams1 >> 16) & 0xFFFF;
 
@@ -58,34 +59,46 @@ void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
     }
 }
 
+static void xhci_probe(uint8_t bus, uint8_t slot, uint8_t func, pci_id_t id) {
+    if (xhci_base != NULL) return;
+    (void)id;
+    serial_write_str("[INIT] Found XHCI Controller.\n");
+    pci_enable_master(bus, slot, func);
+
+    uint32_t bar0 = pci_config_read(bus, slot, func, 0x10);
+    uint64_t hhdm = get_hhdm_offset();
+    xhci_base = (void*)(hhdm + (uint64_t)(bar0 & 0xFFFFFFF0));
+
+    xhci_bios_handover(bus, slot, func, xhci_base);
+
+    /* xHCI Initialization sequence */
+    volatile uint32_t* usbcmd = (uint32_t*)((uint8_t*)xhci_base + *(uint8_t*)xhci_base + 0x00);
+    volatile uint32_t* usbsts = (uint32_t*)((uint8_t*)xhci_base + *(uint8_t*)xhci_base + 0x04);
+
+    /* 1. Stop Controller */
+    *usbcmd &= ~(1 << 0);
+    while (!(*usbsts & (1 << 0))) pit_wait_ms(1);
+
+    /* 2. Reset Controller */
+    *usbcmd |= (1 << 1);
+    while (*usbcmd & (1 << 1)) pit_wait_ms(1);
+    while (*usbsts & (1 << 11)) pit_wait_ms(1); /* Wait for CNR (Controller Not Ready) to clear */
+
+    serial_write_str("[SNAP] xHCI Controller Reset Complete.\n");
+}
+
+static pci_id_t xhci_ids[] = {
+    {0xFFFF, 0xFFFF, 0x0C, 0x03, 0x30}
+};
+
 void usb_xhci_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
-        serial_write_str("[INIT] Scanning PCI bus for XHCI controllers...\n");
-
-        for (int bus = 0; bus < 256; bus++) {
-            for (int slot = 0; slot < 32; slot++) {
-                for (int func = 0; func < 8; func++) {
-                    uint32_t vendor_device = pci_config_read(bus, slot, func, 0);
-                    if ((vendor_device & 0xFFFF) == 0xFFFF) continue;
-
-                    uint32_t class_info = pci_config_read(bus, slot, func, 0x08);
-                    uint8_t base_class = (class_info >> 24) & 0xFF;
-                    uint8_t sub_class = (class_info >> 16) & 0xFF;
-                    uint8_t prog_if = (class_info >> 8) & 0xFF;
-
-                    if (base_class == 0x0C && sub_class == 0x03 && prog_if == 0x30) {
-                        serial_write_str("[INIT] Found XHCI Controller.\n");
-                        pci_enable_master(bus, slot, func);
-
-                        uint32_t bar0 = pci_config_read(bus, slot, func, 0x10);
-                        uint64_t hhdm = get_hhdm_offset();
-                        xhci_base = (void*)(hhdm + (uint64_t)(bar0 & 0xFFFFFFF0));
-
-                        xhci_bios_handover(bus, slot, func, xhci_base);
-                    }
-                    if (func == 0 && !(pci_config_read(bus, slot, 0, 0x0C) & 0x800000)) break;
-                }
-            }
-        }
+        pci_driver_t driver = {
+            .name = "xHCI",
+            .id_table = xhci_ids,
+            .id_count = 1,
+            .probe = xhci_probe
+        };
+        pci_register_driver(driver);
     }
 }

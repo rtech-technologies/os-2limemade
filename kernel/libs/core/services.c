@@ -1,4 +1,5 @@
 #include <kernel/libs/core/services.h>
+#include <kernel/libs/core/pci.h>
 #include <stddef.h>
 
 #define MAX_SERVICES 16
@@ -26,5 +27,9 @@ void dispatch_event(kernel_event_t event) {
         if (services[i]) {
             services[i](event);
         }
+    }
+
+    if (event == EVENT_INIT) {
+        pci_scan_bus();
     }
 }

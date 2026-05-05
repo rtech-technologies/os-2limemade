@@ -59,6 +59,26 @@ void pmm_init(void) {
         }
     }
 
+    /* KASAN Shadow Allocation (Carve out unused space) */
+    size_t shadow_size = (highest_addr >> 3);
+    for (uint64_t i = 0; i < memmap->entry_count; i++) {
+        struct limine_memmap_entry* entry = memmap->entries[i];
+        if (entry->type == LIMINE_MEMMAP_USABLE && entry->length >= shadow_size) {
+            void* shadow_base = (void*)(hhdm + entry->base);
+            void kasan_init(void* shadow_base);
+            kasan_init(shadow_base);
+
+            /* Mark shadow area as used */
+            for (uint64_t j = 0; j < shadow_size; j += PAGE_SIZE) {
+                uint64_t page = (entry->base + j) / PAGE_SIZE;
+                bitmap[page / 8] |= (1 << (page % 8));
+            }
+            entry->base += (shadow_size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+            entry->length -= (shadow_size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+            break;
+        }
+    }
+
     /* Free usable regions in the bitmap */
     for (uint64_t i = 0; i < memmap->entry_count; i++) {
         struct limine_memmap_entry* entry = memmap->entries[i];
