@@ -31,9 +31,3 @@
 2. **XHCI Handover**: [RESOLVED] Deterministic handover protocol enforced.
 3. **Cargo Delivery**: [RESOLVED] Adjusted `Makefile` and `limine.cfg` to ensure payload reached the hardware.
 4. **Register Integrity**: [RESOLVED] Context switch clobbering fixed by preserving `%r12`.
-
-## ⚓ Quartermaster's Final Handshake
-- [x] RAM Sanitization: Usable regions zeroed out during PMM init for "Fresh Silicon" certainty.
-- [x] User Sovereignty: Local Administrator creation decoupled and integrated into the Cargo ritual.
-- [x] Guest Isolation: Syscall-level write protection (UID 2000+) enforced for guest accounts.
-- [x] Unified Bridge: Mismatched syscall IDs synchronized between freestanding libc and kernel.

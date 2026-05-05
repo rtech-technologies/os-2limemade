@@ -181,8 +181,8 @@ void _start(void) {
     if (mount_success) {
         if (!vfs_exists(str_create("BOOT:/users/"))) {
             vga_print("[SNAP] Sovereign Installation not found. Engaging Cargo...\n");
-            void tasking_spawn_module(int module_index, uint32_t slab_id);
-            tasking_spawn_module(1, 3); /* cargo.bin is typically module 1 */
+            void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid);
+            tasking_spawn_module(1, 3, 0); /* cargo.bin is typically module 1, Slab 3, UID 0 */
         }
     }
 

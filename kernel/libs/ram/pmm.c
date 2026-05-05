@@ -59,14 +59,10 @@ void pmm_init(void) {
         }
     }
 
-    /* Free and Sanitize usable regions in the bitmap */
+    /* Free usable regions in the bitmap */
     for (uint64_t i = 0; i < memmap->entry_count; i++) {
         struct limine_memmap_entry* entry = memmap->entries[i];
         if (entry->type == LIMINE_MEMMAP_USABLE) {
-            /* ⚓ Quartermaster: RAM Sanitization - ensure fresh hardware state */
-            uint8_t* ptr = (uint8_t*)(hhdm + entry->base);
-            for (uint64_t j = 0; j < entry->length; j++) ptr[j] = 0;
-
             for (uint64_t j = 0; j < entry->length; j += PAGE_SIZE) {
                 uint64_t page = (entry->base + j) / PAGE_SIZE;
                 bitmap[page / 8] &= ~(1 << (page % 8));

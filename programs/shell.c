@@ -1,5 +1,4 @@
 #include <include/rsl.h>
-#include <include/string.h>
 
 /* Standalone Shell doesn't have access to kernel-internal vfs_handle_t directly,
    but we use the RSL syscalls via libc wrappers. */
@@ -38,12 +37,6 @@ void close_file(vfs_handle_t h) {
 
 void set_uid(uint32_t uid) {
     __asm__ volatile ("int $3" : : "a"((uint64_t)110), "b"((uint64_t)uid) : "memory");
-}
-
-uint32_t get_uid(void) {
-    volatile uint32_t uid = 0xFFFFFFFF;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)111), "b"((uint64_t)&uid) : "memory");
-    return uid;
 }
 
 #define COLOR_BG      0x1A1B26
@@ -116,11 +109,6 @@ void _start(void) {
                     close_file(h);
 
                     char* hash_str = file_data;
-                    int level = 3; /* Default to Guest level if error */
-                    if (strstr(file_data, "LEVEL: 1")) level = 1;
-                    else if (strstr(file_data, "LEVEL: 2")) level = 2;
-                    else if (strstr(file_data, "LEVEL: 3")) level = 3;
-
                     while (*hash_str && *hash_str != '\n') hash_str++;
                     if (*hash_str == '\n') {
                         hash_str++;
@@ -136,7 +124,7 @@ void _start(void) {
                         if (entered_hash == stored_hash) {
                             set_color(GREEN, BLACK);
                             print("Access Granted. Welcome, "); print(uname); print(".\n");
-                            set_uid(level == 1 ? 1 : (level == 2 ? 1000 : 2000));
+                            set_uid(1000);
                             release(pass_input);
                             release(user_input);
                             break;
@@ -169,7 +157,7 @@ void _start(void) {
     print(" |_|  \\_\\ |_|  |______\\_____|_|  |_|  \\____/|_____/_/\\_\\____|\n");
     print("\n[ OSx2 Sovereign ] Build Success.\n");
 
-    bool is_safe = (get_uid() >= 2000); /* Guests are in safe mode by default */
+    bool is_safe = false;
     void* curdir = str_create("/");
 
     while (1) {

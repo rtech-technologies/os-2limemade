@@ -163,13 +163,13 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
         }
         case 140: { // malloc
             void** out_ptr = (void**)rcx;
-            void* arc_malloc(size_t size);
-            *out_ptr = arc_malloc((size_t)rbx);
+            void* arc_alloc(size_t size);
+            *out_ptr = arc_alloc((size_t)rbx);
             break;
         }
         case 141: { // free
-            void arc_free(void* ptr);
-            arc_free((void*)rbx);
+            void release(void* ptr);
+            release((void*)rbx);
             break;
         }
         case 202: { // rsl_get_fb

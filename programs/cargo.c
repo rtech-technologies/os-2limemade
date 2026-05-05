@@ -42,21 +42,10 @@ uint64_t hash_password(const char* pass) {
     return h;
 }
 
-void run_program(const char* path) {
-     void* curdir = str_create("/");
-     bool safe = false;
-     char cmd[128] = "run ";
-     int i = 4, j = 0;
-     while(path[j]) cmd[i++] = path[j++];
-     cmd[i] = '\0';
-     rsl_dispatch_command(cmd, &curdir, &safe);
-}
-
 #define COLOR_BG      0x222222
 #define COLOR_PANEL   0x444444
 #define COLOR_TEXT    0xFFFFFF
 #define COLOR_PRIMARY 0x00FF88
-#define COLOR_SUCCESS 0x00FF00
 
 void _start(void) {
     rsl_fb_t fb;
@@ -68,54 +57,55 @@ void _start(void) {
     /* Background */
     gui_draw_rect(&fb, 0, 0, fb.width, fb.height, COLOR_BG);
 
-    /* Main Panel */
+    /* Main Panel (Rounded-ish via offset) */
     int panel_w = 600;
     int panel_h = 400;
     int px = (fb.width - panel_w) / 2;
     int py = (fb.height - panel_h) / 2;
     gui_draw_rect(&fb, px, py, panel_w, panel_h, COLOR_PANEL);
 
-    gui_draw_text(&fb, px + 50, py + 30, "OSx2 SOVEREIGN INSTALLER", COLOR_PRIMARY);
-    gui_draw_text(&fb, px + 50, py + 70, "1. Disk Partitioning & GPT Ritual", COLOR_TEXT);
-    gui_draw_text(&fb, px + 50, py + 90, "2. File System Handshake (FAT32)", COLOR_TEXT);
-    gui_draw_text(&fb, px + 50, py + 110, "3. Initial System Payload Delivery", COLOR_TEXT);
-    gui_draw_text(&fb, px + 50, py + 130, "4. Local Administrator Creation", COLOR_TEXT);
+    /* Text from installer.png */
+    gui_draw_text(&fb, px + 100, py + 50, "Have you used os*2? before?", COLOR_TEXT);
 
-    print("[CARGO] Installation Sequence Initialized.\n");
+    const char* options[] = {
+        "yes but I don't want a tutorial",
+        "yes but I'd like a tutorial",
+        "No  but I don't want a tutorial",
+        "no  but I'd like a tutorial"
+    };
+
+    for (int i = 0; i < 4; i++) {
+        /* Radio Button */
+        gui_draw_rect(&fb, px + 80, py + 100 + (i * 30), 16, 16, COLOR_TEXT);
+        if (i == 0) gui_draw_rect(&fb, px + 82, py + 102 + (i * 30), 12, 12, COLOR_BG);
+
+        gui_draw_text(&fb, px + 110, py + 105 + (i * 30), options[i], COLOR_TEXT);
+    }
+
+    /* Note box */
+    gui_draw_rect(&fb, px + 60, py + 300, 480, 80, 0x333333);
+    gui_draw_text(&fb, px + 70, py + 310, "note:", COLOR_TEXT);
+    gui_draw_text(&fb, px + 70, py + 330, "this tutorial will teach you how to use", COLOR_TEXT);
+    gui_draw_text(&fb, px + 70, py + 350, "this os to its fullest", COLOR_TEXT);
+
+    /* Proceed with actual installation logic in background/fallback */
+    print("[CARGO] UI Loaded. Waiting for hardware handshake...\n");
 
     int disks = list_disks();
     if (disks <= 0) {
-        gui_draw_text(&fb, px + 50, py + 160, "ERROR: NO MECHANICAL DRIVES FOUND", 0xFF5555);
+        gui_draw_text(&fb, px + 70, py + 370, "ERROR: NO DISKS FOUND", 0xFF5555);
         while(1) __asm__ volatile ("pause");
     }
 
-    /* Target disk 0 for Sovereign Home */
-    int target = 0;
-    print("[CARGO] Partitioning Disk 0...\n");
-    if (partition_disk(target) != 0) {
-        gui_draw_text(&fb, px + 50, py + 160, "FAILED: GPT PARTITION RITUAL", 0xFF5555);
-        while(1) __asm__ volatile ("pause");
+    /* Auto-installer logic (Simplified for demo) */
+    int target_disk = 0;
+    if (partition_disk(target_disk) == 0 && format_disk(target_disk) == 0) {
+        mkdir("BOOT:/users");
+        mkdir("BOOT:/bin");
+        write_file("BOOT:/CHANGELOG.txt", "SYSTEM INSTALLED VIA GUI\n");
     }
 
-    print("[CARGO] Formatting Partition...\n");
-    if (format_disk(target) != 0) {
-        gui_draw_text(&fb, px + 50, py + 160, "FAILED: FS HANDSHAKE", 0xFF5555);
-        while(1) __asm__ volatile ("pause");
-    }
-
-    /* Deliver Payload */
-    mkdir("BOOT:/users");
-    mkdir("BOOT:/bin");
-    write_file("BOOT:/CHANGELOG.txt", "SYSTEM INSTALLED VIA CARGO\n");
-
-    /* Administrator Creation Step */
-    gui_draw_text(&fb, px + 50, py + 200, "Proceeding to User Creation...", COLOR_PRIMARY);
-    print("[CARGO] Handing over to User Creator...\n");
-
-    run_program("INITRD:/bin/user_creator.bin");
-
-    gui_draw_text(&fb, px + 50, py + 300, "INSTALLATION COMPLETE.", COLOR_SUCCESS);
-    gui_draw_text(&fb, px + 50, py + 330, "PRESS ENTER TO REBOOT INTO SOVEREIGN OS", COLOR_PRIMARY);
+    gui_draw_text(&fb, px + 350, py + 370, "[ PRESS ENTER TO REBOOT ]", COLOR_PRIMARY);
 
     char dummy[16];
     rsl_input("", dummy);
