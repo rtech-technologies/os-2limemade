@@ -62,6 +62,11 @@ int get_task_count(void) {
     return task_count;
 }
 
+task_t* get_task_by_idx(int idx) {
+    if (idx >= 0 && idx < task_count) return &task_table[idx];
+    return NULL;
+}
+
 const char* task_state_to_str(task_state_t state) {
     switch(state) {
         case TASK_RUNNING: return "RUNNING";

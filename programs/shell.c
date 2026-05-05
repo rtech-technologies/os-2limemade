@@ -1,7 +1,9 @@
 #include <include/rsl.h>
-#include <include/vfs.h>
+#include <include/string.h>
 
-void rsl_dispatch_command(char* line, void** curdir_ptr, bool* is_safe_ptr);
+/* Standalone Shell doesn't have access to kernel-internal vfs_handle_t directly,
+   but we use the RSL syscalls via libc wrappers. */
+typedef void* vfs_handle_t;
 
 static bool cstr_match(const char* s1, const char* s2) {
     int i = 0;
@@ -18,19 +20,19 @@ uint64_t hash_password(const char* pass) {
     return h;
 }
 
-vfs_handle_t* open_file(const char* path, const char* mode) {
-    vfs_handle_t* h = NULL;
+vfs_handle_t open_file(const char* path, const char* mode) {
+    vfs_handle_t h = NULL;
     __asm__ volatile ("int $3" : : "a"((uint64_t)122), "b"((uint64_t)path), "c"((uint64_t)mode), "d"((uint64_t)&h) : "memory");
     return h;
 }
 
-int read_file(vfs_handle_t* h, void* buf, int len) {
+int read_file(vfs_handle_t h, void* buf, int len) {
     volatile int br = -1;
     __asm__ volatile ("int $3" : : "a"((uint64_t)123), "b"((uint64_t)h), "c"((uint64_t)buf), "d"((uint64_t)&br), "S"((uint64_t)len) : "memory");
     return br;
 }
 
-void close_file(vfs_handle_t* h) {
+void close_file(vfs_handle_t h) {
     __asm__ volatile ("int $3" : : "a"((uint64_t)124), "b"((uint64_t)h) : "memory");
 }
 
@@ -38,10 +40,43 @@ void set_uid(uint32_t uid) {
     __asm__ volatile ("int $3" : : "a"((uint64_t)110), "b"((uint64_t)uid) : "memory");
 }
 
-void shell_main(void) {
-    set_color(GREEN, BLACK);
+uint32_t get_uid(void) {
+    volatile uint32_t uid = 0xFFFFFFFF;
+    __asm__ volatile ("int $3" : : "a"((uint64_t)111), "b"((uint64_t)&uid) : "memory");
+    return uid;
+}
 
-    /* Quartermaster: Secure Login Handshake */
+#define COLOR_BG      0x1A1B26
+#define COLOR_PANEL   0x24283B
+#define COLOR_TEXT    0xC0CAF5
+#define COLOR_ACCENT  0x7AA2F7
+#define COLOR_SUCCESS 0x9ECE6A
+#define COLOR_ERROR   0xF7768E
+
+void draw_login_screen(rsl_fb_t* fb) {
+    gui_draw_rect(fb, 0, 0, fb->width, fb->height, COLOR_BG);
+
+    int pw = 400;
+    int ph = 250;
+    int px = (fb->width - pw) / 2;
+    int py = (fb->height - ph) / 2;
+
+    gui_draw_rect(fb, px, py, pw, ph, COLOR_PANEL);
+    gui_draw_rect(fb, px, py, pw, 2, COLOR_ACCENT);
+
+    gui_draw_text(fb, px + 20, py + 20, "SOVEREIGN OS v2.0", COLOR_ACCENT);
+    gui_draw_text(fb, px + 20, py + 40, "Mechanical Truth Protocol Active", COLOR_TEXT);
+}
+
+void _start(void) {
+    rsl_fb_t fb;
+    bool has_gui = (rsl_get_fb(&fb) == 0);
+
+    if (has_gui) {
+        draw_login_screen(&fb);
+    }
+
+    set_color(CYAN, BLACK);
     print("\n[ OSx2 SOVEREIGN LOGIN ]\n");
 
     while (1) {
@@ -53,7 +88,6 @@ void shell_main(void) {
 
         const char* uname = str_to_cstr(user_input);
 
-        /* Bypass for System Master */
         if (cstr_match(uname, "root") || cstr_match(uname, "system")) {
              print("Access Granted. System Master active.\n");
              set_uid(0);
@@ -74,15 +108,19 @@ void shell_main(void) {
             if (pass_input) {
                 uint64_t entered_hash = hash_password(str_to_cstr(pass_input));
 
-                vfs_handle_t* h = open_file(inf_path, "r");
+                vfs_handle_t h = open_file(inf_path, "r");
                 if (h) {
                     char file_data[256];
                     int br = read_file(h, file_data, 255);
                     file_data[br] = '\0';
                     close_file(h);
 
-                    /* Find start of hash in user.inf (second line) */
                     char* hash_str = file_data;
+                    int level = 3; /* Default to Guest level if error */
+                    if (strstr(file_data, "LEVEL: 1")) level = 1;
+                    else if (strstr(file_data, "LEVEL: 2")) level = 2;
+                    else if (strstr(file_data, "LEVEL: 3")) level = 3;
+
                     while (*hash_str && *hash_str != '\n') hash_str++;
                     if (*hash_str == '\n') {
                         hash_str++;
@@ -91,27 +129,38 @@ void shell_main(void) {
                             int val = 0;
                             if (hash_str[i] >= '0' && hash_str[i] <= '9') val = hash_str[i] - '0';
                             else if (hash_str[i] >= 'A' && hash_str[i] <= 'F') val = hash_str[i] - 'A' + 10;
+                            else if (hash_str[i] >= 'a' && hash_str[i] <= 'f') val = hash_str[i] - 'a' + 10;
                             stored_hash = (stored_hash << 4) | (val & 0xF);
                         }
 
                         if (entered_hash == stored_hash) {
+                            set_color(GREEN, BLACK);
                             print("Access Granted. Welcome, "); print(uname); print(".\n");
-                            set_uid(1000);
+                            set_uid(level == 1 ? 1 : (level == 2 ? 1000 : 2000));
                             release(pass_input);
                             release(user_input);
                             break;
                         }
                     }
                 }
+                set_color(RED, BLACK);
                 print("Mechanical Error: Credentials rejected.\n");
+                set_color(CYAN, BLACK);
                 release(pass_input);
             }
         } else {
+            set_color(RED, BLACK);
             print("Mechanical Error: Property owner not found.\n");
+            set_color(CYAN, BLACK);
         }
         release(user_input);
     }
 
+    if (has_gui) {
+        gui_draw_rect(&fb, 0, 0, fb.width, fb.height, 0x000000);
+    }
+
+    set_color(GREEN, BLACK);
     print("  _____ _______ ______ _____ _    _    ____   _____     ___  \n");
     print(" |  __ \\__   __|  ____/ ____| |  | |  / __ \\ / ____|   |__ \\ \n");
     print(" | |__) | | |  | |__ | |    | |__| | | |  | | (_____  __  ) |\n");
@@ -120,7 +169,7 @@ void shell_main(void) {
     print(" |_|  \\_\\ |_|  |______\\_____|_|  |_|  \\____/|_____/_/\\_\\____|\n");
     print("\n[ OSx2 Sovereign ] Build Success.\n");
 
-    bool is_safe = false;
+    bool is_safe = (get_uid() >= 2000); /* Guests are in safe mode by default */
     void* curdir = str_create("/");
 
     while (1) {

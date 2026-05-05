@@ -1,5 +1,6 @@
 #include "task.h"
 #include <include/rsl.h>
+#include <include/limine.h>
 #include <stddef.h>
 
 void vga_print(const char* fmt, ...);
@@ -16,10 +17,26 @@ void idle_task(void) {
 
 void shell_main(void);
 
+void kernel_fallback_shell(void);
+struct limine_module_response* get_modules(void);
+
 void task_shell(void) {
     vga_print("[UNICE64] Shell Task Started.\n");
-    shell_main();
-    /* If shell exits, go into infinite sleep */
+
+    /* Attempt to spawn standalone shell from module 2 (shell.bin) */
+    /* Logistics: Module 0 = Ramdisk, 1 = Cargo, 2 = Shell */
+    struct limine_module_response* resp = get_modules();
+    if (resp && resp->module_count >= 3) {
+        vga_print("[UNICE64] Found shell.bin, spawning...\n");
+        void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid);
+        tasking_spawn_module(2, 1, 100);
+        /* Standalone shell is now its own task. This wrapper task becomes the fallback monitor. */
+    } else {
+        vga_print("[WARN] Standalone shell.bin not found. Engaging Fallback...\n");
+        kernel_fallback_shell();
+    }
+
+    /* If shell exits or fallback is used, go into infinite sleep */
     while (1) {
         sys_yield();
         __asm__ volatile ("pause");
@@ -71,14 +88,32 @@ void tasking_init(void) {
 #include <limine.h>
 struct limine_module_response* get_modules(void);
 
-void tasking_spawn_module(int module_index, uint32_t slab_id) {
+void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid) {
     struct limine_module_response* resp = get_modules();
     if (!resp || (uint64_t)module_index >= resp->module_count) return;
 
     struct limine_file* mod = resp->modules[module_index];
     if (!mod->address) return;
 
-    /* stand-alone binaries start at the beginning of the module */
-    vga_print("[UNICE64] Spawning module %d as task...\n", module_index);
-    register_task((void (*)(void))mod->address, slab_id);
+    /* Quartermaster: Flat Binary RTECH Handshake */
+    uint8_t* ptr = (uint8_t*)mod->address;
+    void (*entry)(void) = (void (*)(void))mod->address;
+
+    if (ptr[0] == 'R' && ptr[1] == 'T' && ptr[2] == 'E' && ptr[3] == 'C' && ptr[4] == 'H') {
+        rtech_header_t* header = (rtech_header_t*)mod->address;
+        entry = (void (*)(void))((uintptr_t)mod->address + header->entry_offset);
+        vga_print("[UNICE64] RTECH Header valid. Entry offset: 0x%x\n", (uint32_t)header->entry_offset);
+    } else {
+        vga_print("[WARN] Module %d has no RTECH header. Assuming LBA 0 entry.\n", module_index);
+    }
+
+    vga_print("[UNICE64] Spawning module %d (UAID %d) as task...\n", module_index, uaid);
+    register_task(entry, slab_id);
+
+    /* Set UAID for the newly created task */
+    extern int get_task_count(void);
+    extern task_t* get_task_by_idx(int idx);
+    int idx = get_task_count() - 1;
+    task_t* t = get_task_by_idx(idx);
+    if (t) t->uaid = uaid;
 }

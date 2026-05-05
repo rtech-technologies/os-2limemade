@@ -438,10 +438,15 @@ FRESULT f_mkdir(FATFS* fs, const TCHAR* path) {
     for(int k=0; path[k]; k++) if(path[k] == '/') last_slash = k;
     uint32_t parent_cluster;
     const char* filename;
-    if (last_slash == -1) { parent_cluster = fs->root_cluster; filename = path; }
-    else {
+    if (last_slash == -1) {
+        parent_cluster = fs->root_cluster;
+        filename = path;
+    } else {
         int k;
-        for(k=0; k<last_slash; k++) dir_path[k] = path[k]; dir_path[k] = '\0';
+        for(k=0; k<last_slash; k++) {
+            dir_path[k] = path[k];
+        }
+        dir_path[k] = '\0';
         parent_cluster = resolve_path_to_cluster(fs, dir_path, NULL, NULL, NULL);
         filename = &path[last_slash+1];
     }

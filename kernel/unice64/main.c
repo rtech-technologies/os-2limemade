@@ -103,10 +103,9 @@ void _start(void) {
         if (hw_count > 0) {
             vga_print("[SNAP] ENGAGING CARGO INSTALLER...\n");
 
-            /* Find and Execute Installer Payload */
-            void rsl_execute_stream(const char* path);
-            /* The ramdisk is typically INITRD and is verified in vdisk.c */
-            rsl_execute_stream("INITRD:/bin/cargo.bin");
+            /* Find and Execute Installer Payload as Standalone Binary */
+            void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid);
+            tasking_spawn_module(1, 3, 0); /* cargo.bin is typically module 1, Slab 3, UID 0 */
         }
     }
 
