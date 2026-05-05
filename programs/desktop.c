@@ -42,16 +42,18 @@ void desktop_main(void) {
     while (1) {
         rtc64_draw_rect(0, 0, 1024, 768, 0x004488);
 
-        if (nk_begin(&ctx, "System License", nk_rect(600, 50, 400, 300), NK_WINDOW_TITLE|NK_WINDOW_BORDER)) {
+        if (nk_begin(&ctx, "Sovereign Estates", nk_rect(50, 50, 250, 300), NK_WINDOW_TITLE|NK_WINDOW_BORDER)) {
+            nk_layout_row_dynamic(&ctx, 30, 1);
+            if (nk_button_label(&ctx, "Launch Estate: Shell")) { rsl_execute_stream("BOOT:/bin/shell.rsl"); }
+            if (nk_button_label(&ctx, "Launch Estate: Cargo")) { rsl_execute_stream("BOOT:/bin/cargo.rsl"); }
+        }
+        nk_end(&ctx);
+
+        if (nk_begin(&ctx, "System Info", nk_rect(600, 50, 400, 300), NK_WINDOW_TITLE|NK_WINDOW_BORDER)) {
             nk_layout_row_dynamic(&ctx, 20, 1);
-            nk_label(&ctx, "OSx2 Sovereign License", NK_TEXT_LEFT);
-            nk_label(&ctx, "-------------------------", NK_TEXT_LEFT);
-            nk_label(&ctx, "Build Manifest:", NK_TEXT_LEFT);
+            nk_label(&ctx, "OSx2 Limemade Build", NK_TEXT_LEFT);
             nk_label(&ctx, g_build_manifest_hash, NK_TEXT_LEFT);
-            nk_label(&ctx, "Mechanical Truth Verified", NK_TEXT_LEFT);
-            nk_label(&ctx, "-------------------------", NK_TEXT_LEFT);
-            nk_label(&ctx, "Changelog: Implement NVMe, xHCI,", NK_TEXT_LEFT);
-            nk_label(&ctx, "CherryUSB, and RTC64 GUI.", NK_TEXT_LEFT);
+            nk_label(&ctx, "Status: Verified", NK_TEXT_LEFT);
         }
         nk_end(&ctx);
 

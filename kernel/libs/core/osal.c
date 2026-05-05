@@ -66,7 +66,12 @@ int usb_hc_deinit(struct usbh_bus *bus) { (void)bus; return 0; }
 int usbh_roothub_control(struct usbh_bus *bus, struct usb_setup_packet *setup, uint8_t *buf) {
     (void)bus; (void)setup; (void)buf; return 0;
 }
-int usbh_submit_urb(struct usbh_urb *urb) { (void)urb; return 0; }
+int usbh_submit_urb(struct usbh_urb *urb) {
+    extern void xhci_ring_doorbell(uint32_t slot, uint32_t endpoint);
+    /* In a real implementation, we would map urb to xhci TRBs here */
+    xhci_ring_doorbell(0, 0); /* Ring host doorbell for demo */
+    return 0;
+}
 int usbh_kill_urb(struct usbh_urb *urb) { (void)urb; return 0; }
 
 usb_osal_sem_t usb_osal_sem_create_counting(uint32_t max_count) { return usb_osal_sem_create(0); }

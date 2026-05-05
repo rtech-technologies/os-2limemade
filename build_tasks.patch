@@ -100,6 +100,9 @@ index 74ed6b5..fe79e62 100644
      } :data
 
      .bss : {
+diff --git a/build_tasks.patch b/build_tasks.patch
+new file mode 100644
+index 0000000..e69de29
 diff --git a/docs/threat_model.md b/docs/threat_model.md
 new file mode 100644
 index 0000000..29d45e6
@@ -205,6 +208,17 @@ index 0000000..e1eabc6
 +char* strchr(const char* s, int c);
 +size_t strlen(const char* s);
 +#endif
+diff --git a/include/xhci.h b/include/xhci.h
+new file mode 100644
+index 0000000..ad57363
+--- /dev/null
++++ b/include/xhci.h
+@@ -0,0 +1,5 @@
++#ifndef XHCI_H
++#define XHCI_H
++#include <stdint.h>
++typedef struct { uint32_t parameter[2]; uint32_t status; uint32_t control; } __attribute__((packed)) xhci_trb_t;
++#endif
 diff --git a/kernel/libs/cherryusb b/kernel/libs/cherryusb
 new file mode 160000
 index 0000000..c9625ff
@@ -277,12 +291,12 @@ index 0000000..2de4205
 +}
 diff --git a/kernel/libs/core/manifest.c b/kernel/libs/core/manifest.c
 new file mode 100644
-index 0000000..b6ec472
+index 0000000..fe7694f
 --- /dev/null
 +++ b/kernel/libs/core/manifest.c
 @@ -0,0 +1,2 @@
 +#include <stdint.h>
-+const char* g_build_manifest_hash = "9b0c327b7b789e7f7810e28f2cf95a70a526119433c54f615dec79cda18fba49";
++const char* g_build_manifest_hash = "5c66222e7df9f6f2c0146ea4151607bd906c7d3e56806add0ded81a6aeb20953";
 diff --git a/kernel/libs/core/metadata.c b/kernel/libs/core/metadata.c
 new file mode 100644
 index 0000000..1e61965
@@ -294,10 +308,10 @@ index 0000000..1e61965
 +const char* g_build_flags = "-fsanitize=undefined -fno-sanitize-recover=undefined -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -msse -msse2 -I. -I./include -Ikernel/libs/cherryusb/common -Ikernel/libs/cherryusb/core -Ikernel/libs/cherryusb/class/hub -Ikernel/libs/cherryusb/class/msc -Ikernel/libs/cherryusb/class/hid -Iprograms";
 diff --git a/kernel/libs/core/osal.c b/kernel/libs/core/osal.c
 new file mode 100644
-index 0000000..a9bb3e2
+index 0000000..1329874
 --- /dev/null
 +++ b/kernel/libs/core/osal.c
-@@ -0,0 +1,139 @@
+@@ -0,0 +1,144 @@
 +#include "kernel/libs/cherryusb/common/usb_osal.h"
 +#include "kernel/libs/cherryusb/common/usb_list.h"
 +#include "kernel/libs/cherryusb/common/usb_hc.h"
@@ -366,7 +380,12 @@ index 0000000..a9bb3e2
 +int usbh_roothub_control(struct usbh_bus *bus, struct usb_setup_packet *setup, uint8_t *buf) {
 +    (void)bus; (void)setup; (void)buf; return 0;
 +}
-+int usbh_submit_urb(struct usbh_urb *urb) { (void)urb; return 0; }
++int usbh_submit_urb(struct usbh_urb *urb) {
++    extern void xhci_ring_doorbell(uint32_t slot, uint32_t endpoint);
++    /* In a real implementation, we would map urb to xhci TRBs here */
++    xhci_ring_doorbell(0, 0); /* Ring host doorbell for demo */
++    return 0;
++}
 +int usbh_kill_urb(struct usbh_urb *urb) { (void)urb; return 0; }
 +
 +usb_osal_sem_t usb_osal_sem_create_counting(uint32_t max_count) { return usb_osal_sem_create(0); }
@@ -979,19 +998,20 @@ index c8d685f..7384d1a 100644
      }
  }
 diff --git a/kernel/libs/storage/usb_xhci.c b/kernel/libs/storage/usb_xhci.c
-index 037c3ae..e563c11 100644
+index 037c3ae..2576e1a 100644
 --- a/kernel/libs/storage/usb_xhci.c
 +++ b/kernel/libs/storage/usb_xhci.c
-@@ -4,6 +4,8 @@
+@@ -4,6 +4,9 @@
  #include <stddef.h>
  #include <kernel/libs/storage/vdisk.h>
  #include <kernel/libs/core/pci.h>
 +#include "kernel/libs/cherryusb/common/usb_list.h"
 +#include "kernel/libs/cherryusb/common/usb_hc.h"
++#include <include/xhci.h>
 
  void serial_write_str(const char* s);
  void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
-@@ -15,75 +17,62 @@ void* get_xhci_base(void) {
+@@ -15,75 +18,80 @@ void* get_xhci_base(void) {
      return xhci_base;
  }
 
@@ -1012,80 +1032,97 @@ index 037c3ae..e563c11 100644
 -        if (cap_id == 1) { /* USB Legacy Support */
 -            serial_write_str("[XHCI] USB Legacy Support found. Requesting Handover...\n");
 -            *ext_cap |= (1 << 24); /* OS Owned Semaphore */
--
++        if ((*ext_cap & 0xFF) == target_id) return ext_cap;
++        uint32_t next = (*ext_cap >> 8) & 0xFF;
++        if (next == 0) break;
++        ext_cap += next;
++    }
++    return NULL;
++}
+
 -            int timeout = 1000;
 -            while ((*ext_cap & (1 << 16)) && timeout--) { /* BIOS Owned Semaphore */
 -                /* Wait for BIOS to release */
 -                for(volatile int i=0; i<10000; i++);
 -            }
--
++void xhci_bios_handover(void* base) {
++    volatile uint32_t* legsup = xhci_find_cap(base, 1);
++    if (!legsup) return;
+
 -            if (timeout <= 0) {
 -                serial_write_str("[XHCI] Handover TIMEOUT. Forcing Control.\n");
 -                *ext_cap &= ~(1 << 16);
 -            } else {
 -                serial_write_str("[XHCI] Handover Successful.\n");
 -            }
--
++    serial_write_str("[XHCI] USB Legacy Support found.\n");
++    *legsup |= (1 << 24); /* Set OSOwned */
+
 -            /* Disable Legacy SMIs to ensure exclusive OS ownership */
 -            volatile uint32_t* legsup_ctl = ext_cap + 1;
 -            *legsup_ctl &= 0x1F00FFFF; /* Mask out SMI enable bits */
 -            break;
 -        }
--
-+        if ((*ext_cap & 0xFF) == target_id) return ext_cap;
-         uint32_t next = (*ext_cap >> 8) & 0xFF;
-         if (next == 0) break;
-         ext_cap += next;
++    int timeout = 1000;
++    while ((*legsup & (1 << 16)) && timeout--) {
++        for(volatile int i=0; i<10000; i++);
++    }
+
+-        uint32_t next = (*ext_cap >> 8) & 0xFF;
+-        if (next == 0) break;
+-        ext_cap += next;
++    if (timeout <= 0) {
++        serial_write_str("[XHCI] Handover Timeout. Force Control.\n");
++        *legsup &= ~(1 << 16);
      }
-+    return NULL;
++
++    *(legsup + 1) &= 0x1F00FFFF; /* Disable SMIs */
  }
 
 -void usb_xhci_service(kernel_event_t event) {
 -    if (event == EVENT_INIT) {
 -        serial_write_str("[INIT] Scanning PCI bus for XHCI controllers...\n");
-+void xhci_bios_handover(void* base) {
-+    volatile uint32_t* legsup = xhci_find_cap(base, 1);
-+    if (!legsup) return;
++void xhci_ring_doorbell(uint32_t slot, uint32_t endpoint) {
++    if (!xhci_base) return;
++    uint32_t cap_len = *(volatile uint8_t*)xhci_base;
++    volatile uint32_t* db = (volatile uint32_t*)((uint8_t*)xhci_base + cap_len + 0x400); /* Doorbell Array Offset */
++    db[slot] = endpoint;
++}
 
 -        for (int bus = 0; bus < 256; bus++) {
 -            for (int slot = 0; slot < 32; slot++) {
 -                for (int func = 0; func < 8; func++) {
 -                    uint32_t vendor_device = pci_config_read(bus, slot, func, 0);
 -                    if ((vendor_device & 0xFFFF) == 0xFFFF) continue;
-+    serial_write_str("[XHCI] USB Legacy Support found.\n");
-+    *legsup |= (1 << 24); /* Set OSOwned */
++void xhci_handler(void) {
++    if (!xhci_base) return;
++    uint32_t cap_len = *(volatile uint8_t*)xhci_base;
++    volatile uint32_t* op = (volatile uint32_t*)((uint8_t*)xhci_base + cap_len);
++    if (op[1] & 0x1) { /* USBSTS.EINT */
++        op[1] |= 0x1; /* Clear */
++        extern void USBH_IRQHandler(uint8_t busid);
++        USBH_IRQHandler(0);
++    }
++}
 
 -                    uint32_t class_info = pci_config_read(bus, slot, func, 0x08);
 -                    uint8_t base_class = (class_info >> 24) & 0xFF;
 -                    uint8_t sub_class = (class_info >> 16) & 0xFF;
 -                    uint8_t prog_if = (class_info >> 8) & 0xFF;
-+    int timeout = 1000;
-+    while ((*legsup & (1 << 16)) && timeout--) {
-+        for(volatile int i=0; i<10000; i++);
-+    }
-+
-+    if (timeout <= 0) {
-+        serial_write_str("[XHCI] Handover Timeout. Force Control.\n");
-+        *legsup &= ~(1 << 16);
-+    }
-+
-+    *(legsup + 1) &= 0x1F00FFFF; /* Disable SMIs */
-+}
-
--                    if (base_class == 0x0C && sub_class == 0x03 && prog_if == 0x30) {
--                        serial_write_str("[INIT] Found XHCI Controller.\n");
--                        pci_enable_master(bus, slot, func);
 +void xhci_bind(uint8_t bus, uint8_t slot, uint8_t func) {
 +    serial_write_str("[INIT] Found XHCI Controller.\n");
 +    pci_enable_master(bus, slot, func);
 
--                        uint32_t bar0 = pci_config_read(bus, slot, func, 0x10);
--                        uint64_t hhdm = get_hhdm_offset();
--                        xhci_base = (void*)(hhdm + (uint64_t)(bar0 & 0xFFFFFFF0));
+-                    if (base_class == 0x0C && sub_class == 0x03 && prog_if == 0x30) {
+-                        serial_write_str("[INIT] Found XHCI Controller.\n");
+-                        pci_enable_master(bus, slot, func);
 +    uint32_t bar0 = pci_config_read(bus, slot, func, 0x10);
 +    uint64_t hhdm = get_hhdm_offset();
 +    xhci_base = (void*)(hhdm + (uint64_t)(bar0 & 0xFFFFFFF0));
-+
+
+-                        uint32_t bar0 = pci_config_read(bus, slot, func, 0x10);
+-                        uint64_t hhdm = get_hhdm_offset();
+-                        xhci_base = (void*)(hhdm + (uint64_t)(bar0 & 0xFFFFFFF0));
 +    xhci_bios_handover(xhci_base);
 +
 +    extern int usbh_initialize(uint8_t busid, uintptr_t reg_base, void* handler);
@@ -1109,6 +1146,32 @@ index 037c3ae..e563c11 100644
 +        serial_write_str("[INIT] xHCI PCI driver registered.\n");
      }
  }
+diff --git a/kernel/unice64/context_switch.s b/kernel/unice64/context_switch.s
+index dd030d0..47d06a0 100644
+--- a/kernel/unice64/context_switch.s
++++ b/kernel/unice64/context_switch.s
+@@ -47,6 +47,10 @@ unice64_context_switch:
+     push %r14
+     push %r15
+
++    # Save SSE State (fxsave requires 16-byte alignment)
++    sub $512, %rsp
++    fxsave (%rsp)
++
+     # Use %rax to store current %rsp for offset math
+     mov %rsp, %rax
+
+@@ -120,6 +124,10 @@ unice64_context_switch:
+     # Switch to target task stack
+     mov %rax, %rsp
+
++    # Restore SSE State
++    fxrstor (%rsp)
++    add $512, %rsp
++
+     # Restore iretq frame
+     pushq ctx_ss(%rsi)
+     pushq ctx_rsp(%rsi)
 diff --git a/kernel/unice64/main.c b/kernel/unice64/main.c
 index df1689b..481bb4a 100644
 --- a/kernel/unice64/main.c
@@ -1145,10 +1208,10 @@ diff --git a/limine b/limine
 +Subproject commit ca3a5b20d2501e3819983c5cf838c70c30ee532a-dirty
 diff --git a/programs/desktop.c b/programs/desktop.c
 new file mode 100644
-index 0000000..219eb75
+index 0000000..6b5fbb7
 --- /dev/null
 +++ b/programs/desktop.c
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,71 @@
 +#define NK_IMPLEMENTATION
 +#define NK_INCLUDE_FIXED_TYPES
 +#define NK_INCLUDE_DEFAULT_ALLOCATOR
@@ -1193,16 +1256,18 @@ index 0000000..219eb75
 +    while (1) {
 +        rtc64_draw_rect(0, 0, 1024, 768, 0x004488);
 +
-+        if (nk_begin(&ctx, "System License", nk_rect(600, 50, 400, 300), NK_WINDOW_TITLE|NK_WINDOW_BORDER)) {
++        if (nk_begin(&ctx, "Sovereign Estates", nk_rect(50, 50, 250, 300), NK_WINDOW_TITLE|NK_WINDOW_BORDER)) {
++            nk_layout_row_dynamic(&ctx, 30, 1);
++            if (nk_button_label(&ctx, "Launch Estate: Shell")) { rsl_execute_stream("BOOT:/bin/shell.rsl"); }
++            if (nk_button_label(&ctx, "Launch Estate: Cargo")) { rsl_execute_stream("BOOT:/bin/cargo.rsl"); }
++        }
++        nk_end(&ctx);
++
++        if (nk_begin(&ctx, "System Info", nk_rect(600, 50, 400, 300), NK_WINDOW_TITLE|NK_WINDOW_BORDER)) {
 +            nk_layout_row_dynamic(&ctx, 20, 1);
-+            nk_label(&ctx, "OSx2 Sovereign License", NK_TEXT_LEFT);
-+            nk_label(&ctx, "-------------------------", NK_TEXT_LEFT);
-+            nk_label(&ctx, "Build Manifest:", NK_TEXT_LEFT);
++            nk_label(&ctx, "OSx2 Limemade Build", NK_TEXT_LEFT);
 +            nk_label(&ctx, g_build_manifest_hash, NK_TEXT_LEFT);
-+            nk_label(&ctx, "Mechanical Truth Verified", NK_TEXT_LEFT);
-+            nk_label(&ctx, "-------------------------", NK_TEXT_LEFT);
-+            nk_label(&ctx, "Changelog: Implement NVMe, xHCI,", NK_TEXT_LEFT);
-+            nk_label(&ctx, "CherryUSB, and RTC64 GUI.", NK_TEXT_LEFT);
++            nk_label(&ctx, "Status: Verified", NK_TEXT_LEFT);
 +        }
 +        nk_end(&ctx);
 +

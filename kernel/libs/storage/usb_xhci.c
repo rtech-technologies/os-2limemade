@@ -6,6 +6,7 @@
 #include <kernel/libs/core/pci.h>
 #include "kernel/libs/cherryusb/common/usb_list.h"
 #include "kernel/libs/cherryusb/common/usb_hc.h"
+#include <include/xhci.h>
 
 void serial_write_str(const char* s);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
@@ -49,6 +50,24 @@ void xhci_bios_handover(void* base) {
     }
 
     *(legsup + 1) &= 0x1F00FFFF; /* Disable SMIs */
+}
+
+void xhci_ring_doorbell(uint32_t slot, uint32_t endpoint) {
+    if (!xhci_base) return;
+    uint32_t cap_len = *(volatile uint8_t*)xhci_base;
+    volatile uint32_t* db = (volatile uint32_t*)((uint8_t*)xhci_base + cap_len + 0x400); /* Doorbell Array Offset */
+    db[slot] = endpoint;
+}
+
+void xhci_handler(void) {
+    if (!xhci_base) return;
+    uint32_t cap_len = *(volatile uint8_t*)xhci_base;
+    volatile uint32_t* op = (volatile uint32_t*)((uint8_t*)xhci_base + cap_len);
+    if (op[1] & 0x1) { /* USBSTS.EINT */
+        op[1] |= 0x1; /* Clear */
+        extern void USBH_IRQHandler(uint8_t busid);
+        USBH_IRQHandler(0);
+    }
 }
 
 void xhci_bind(uint8_t bus, uint8_t slot, uint8_t func) {

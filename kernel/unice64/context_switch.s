@@ -47,6 +47,10 @@ unice64_context_switch:
     push %r14
     push %r15
 
+    # Save SSE State (fxsave requires 16-byte alignment)
+    sub $512, %rsp
+    fxsave (%rsp)
+
     # Use %rax to store current %rsp for offset math
     mov %rsp, %rax
 
@@ -119,6 +123,10 @@ unice64_context_switch:
 
     # Switch to target task stack
     mov %rax, %rsp
+
+    # Restore SSE State
+    fxrstor (%rsp)
+    add $512, %rsp
 
     # Restore iretq frame
     pushq ctx_ss(%rsi)
