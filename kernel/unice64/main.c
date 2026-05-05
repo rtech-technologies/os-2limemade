@@ -44,6 +44,14 @@ void _start(void) {
     /* Pre-register IDT to catch early faults */
     idt_init();
 
+    /* License Validation Ritual */
+    #include <kernel/libs/core/license/manifest.h>
+    if (g_license.signature != 0xDEADC0DEDEADC0DE) {
+        serial_write_str("[!] LICENSE SIGNATURE INVALID. HALTING.\n");
+        while(1);
+    }
+    serial_write_str("[SNAP] LICENSE SIGNATURE VERIFIED\n");
+
     /* OSx2 Sovereign Welcome */
     serial_write_str("\n[ RTECH SOVEREIGN KERNEL ]\n");
     serial_write_str("[ BUILD 23:00 - MECHANICAL TRUTH ]\n\n");

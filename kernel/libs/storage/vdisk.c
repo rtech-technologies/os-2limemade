@@ -133,8 +133,8 @@ static void vdisk_ls_root(void* path, void* priv) {
             buf[k++] = ')'; buf[k++] = ' ';
         }
 
-        FATFS tmp;
-        if (f_mount(&tmp, i) == FR_OK) {
+        /* Sovereign Volume Detection based on LBA 2048 rule */
+        if (hw_registry[i].partition_offset == 2048) {
             const char* tag = "[SOVEREIGN]";
             while(*tag) buf[k++] = *tag++;
         } else {

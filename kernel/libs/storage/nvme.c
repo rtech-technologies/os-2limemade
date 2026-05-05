@@ -78,8 +78,50 @@ static nvme_sq_t io_sq;
 static nvme_cq_t io_cq;
 static uint32_t doorbell_stride;
 static uint64_t ns_size = 0;
+static uint64_t* prp_list_pool = NULL;
 
 static uint16_t nvme_submit_command(nvme_sq_t* sq, nvme_cq_t* cq, nvme_command_t cmd);
+int nvme_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer);
+int nvme_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer);
+
+static uint64_t nvme_build_prp(void* buffer, uint32_t sector_count, uint64_t* prp1) {
+    uint64_t phys = vmm_get_phys(buffer);
+    uint64_t page_off = phys & 0xFFF;
+    uint32_t page_count = (sector_count * 512 + page_off + 4095) / 4096;
+
+    *prp1 = phys;
+    if (page_count <= 1) return 0;
+
+    uint64_t first_page_phys = phys & ~0xFFFULL;
+
+    /* PRP2 is a direct address if page_count == 2 */
+    if (page_count == 2) return first_page_phys + 4096;
+
+    /* PRP2 is a pointer to a PRP list if page_count > 2 */
+    /* Implementation uses a pre-allocated pool to prevent leaks */
+    if (!prp_list_pool) prp_list_pool = slab_alloc_aligned(0, 4096, 4096);
+
+    for (uint32_t i = 1; i < page_count && i < 512; i++) {
+        prp_list_pool[i-1] = first_page_phys + (i * 4096);
+    }
+    return vmm_get_phys(prp_list_pool);
+}
+
+static void nvme_controller_reset(void) {
+    if (!nvme_base) return;
+    vga_print("[NVME] Resetting Controller...\n");
+    nvme_base->cc &= ~(1 << 0);
+    void pit_wait_ms(uint32_t ms);
+    for (int i = 0; i < 1000; i++) {
+        if (!(nvme_base->csts & 1)) break;
+        pit_wait_ms(1);
+    }
+    nvme_base->cc |= (1 << 0);
+    for (int i = 0; i < 1000; i++) {
+        if (nvme_base->csts & 1) break;
+        pit_wait_ms(1);
+    }
+}
 
 static int nvme_wait_csts_ready(bool ready, int timeout_ms) {
     void pit_wait_ms(uint32_t ms);
@@ -116,6 +158,11 @@ static void nvme_probe(uint8_t bus, uint8_t slot, uint8_t func, pci_id_t id) {
     admin_sq.cmds = slab_alloc_aligned(0, admin_sq.size * sizeof(nvme_command_t), 4096);
     admin_cq.cpls = slab_alloc_aligned(0, admin_cq.size * sizeof(nvme_completion_t), 4096);
 
+    /* Zero completion queue to prevent phase bit confusion */
+    for (int i = 0; i < admin_cq.size; i++) {
+        ((uint8_t*)admin_cq.cpls)[i * sizeof(nvme_completion_t)] = 0;
+    }
+
     nvme_base->aqa = ((admin_cq.size - 1) << 16) | (admin_sq.size - 1);
     nvme_base->asq = vmm_get_phys(admin_sq.cmds);
     nvme_base->acq = vmm_get_phys(admin_cq.cpls);
@@ -127,8 +174,8 @@ static void nvme_probe(uint8_t bus, uint8_t slot, uint8_t func, pci_id_t id) {
     admin_cq.head = 0;
     admin_cq.phase = 1;
 
-    /* 3. Enable Controller */
-    nvme_base->cc = (1 << 0) | (0 << 11) | (0 << 14) | (4 << 16) | (6 << 20);
+    /* 3. Enable Controller (Power of 2: SQ=2^6=64, CQ=2^4=16) */
+    nvme_base->cc = (1 << 0) | (0 << 11) | (0 << 14) | (6 << 16) | (4 << 20);
     if (nvme_wait_csts_ready(true, 1000) != 0) {
         vga_print("[NVME] Error: Controller ready timeout.\n");
         return;
@@ -139,6 +186,11 @@ static void nvme_probe(uint8_t bus, uint8_t slot, uint8_t func, pci_id_t id) {
     /* 4. Create I/O Completion Queue */
     io_cq.size = 256;
     io_cq.cpls = slab_alloc_aligned(0, io_cq.size * sizeof(nvme_completion_t), 4096);
+
+    for (int i = 0; i < io_cq.size; i++) {
+        ((uint8_t*)io_cq.cpls)[i * sizeof(nvme_completion_t)] = 0;
+    }
+
     io_cq.head = 0;
     io_cq.phase = 1;
     io_cq.doorbell = (uint32_t*)((uint8_t*)nvme_base + 0x1000 + (1 * 2 * doorbell_stride) + doorbell_stride);
@@ -185,8 +237,8 @@ static void nvme_probe(uint8_t bus, uint8_t slot, uint8_t func, pci_id_t id) {
             .sector_size = 512,
             .total_lba = ns_size,
             .partition_offset = 2048,
-            .read_lba = NULL, /* TODO: Implement */
-            .write_lba = NULL,
+            .read_lba = nvme_read_sectors,
+            .write_lba = nvme_write_sectors,
             .private_data = NULL,
             .is_atapi = false
         };
@@ -200,12 +252,13 @@ int nvme_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     nvme_command_t cmd = {0};
     cmd.cdw0 = 0x02; /* Read */
     cmd.nsid = 1;
-    cmd.dptr[0] = vmm_get_phys(buffer);
+    cmd.dptr[1] = nvme_build_prp(buffer, count, &cmd.dptr[0]);
     cmd.cdw10[0] = (uint32_t)lba;
     cmd.cdw10[1] = (uint32_t)(lba >> 32);
     cmd.cdw10[2] = (count - 1) & 0xFFFF;
 
     if (nvme_submit_command(&io_sq, &io_cq, cmd) == 0) return 0;
+    nvme_controller_reset();
     return -1;
 }
 
@@ -214,12 +267,13 @@ int nvme_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     nvme_command_t cmd = {0};
     cmd.cdw0 = 0x01; /* Write */
     cmd.nsid = 1;
-    cmd.dptr[0] = vmm_get_phys(buffer);
+    cmd.dptr[1] = nvme_build_prp(buffer, count, &cmd.dptr[0]);
     cmd.cdw10[0] = (uint32_t)lba;
     cmd.cdw10[1] = (uint32_t)(lba >> 32);
     cmd.cdw10[2] = (count - 1) & 0xFFFF;
 
     if (nvme_submit_command(&io_sq, &io_cq, cmd) == 0) return 0;
+    nvme_controller_reset();
     return -1;
 }
 

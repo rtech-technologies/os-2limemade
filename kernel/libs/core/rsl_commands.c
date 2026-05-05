@@ -250,6 +250,7 @@ void rsl_debug_dump(void) {
 void rsl_format(void* path) {
     const char* p = str_to_cstr(path);
     int drive = p[0] - '0';
+    FRESULT f_mkfs(int drive);
     if (f_mkfs(drive) == FR_OK) print("Format successful.\n");
 }
 
@@ -264,6 +265,27 @@ void rsl_cd(void* path) { vfs_cd(path); }
 void rsl_mkdir(void* path) { vfs_mkdir(path); }
 void rsl_rmdir(void* path) { vfs_rmdir(path); }
 bool rsl_exists(void* path) { return vfs_exists(path); }
-void rsl_mount(void* path) { (void)path; /* Simplified */ }
-void rsl_stamp(void* path) { (void)path; }
-void rsl_eject(void* path) { (void)path; }
+
+void rsl_mount(void* path) {
+    const char* p = str_to_cstr(path);
+    if (p[0] >= '0' && p[0] <= '9') {
+        int drive = p[0] - '0';
+        int vfs_mount_auto(int drive_id, const char* mount_point);
+        vfs_mount_auto(drive, "DISK_AUTO");
+    }
+}
+
+void rsl_stamp(void* path) {
+    void* content = str_create("SOVEREIGN_SEAL_VERIFIED\n");
+    vfs_write_dispatch(path, content);
+    release(content);
+}
+
+void rsl_eject(void* path) {
+    const char* p = str_to_cstr(path);
+    if (p[0] >= '0' && p[0] <= '9') {
+        int drive = p[0] - '0';
+        int vdisk_eject_hw(int hw_id);
+        vdisk_eject_hw(drive);
+    }
+}

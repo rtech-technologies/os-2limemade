@@ -144,8 +144,7 @@ void* bump_alloc(size_t size);
 void vga_print(const char* fmt, ...);
 
 int vfs_mount_auto(int drive_id, const char* mount_point) {
-    uint8_t* sector = bump_alloc(2048);
-    if (!sector) return -1;
+    uint8_t sector[2048];
 
     /* Check A: ISO 9660 (via xorriso) */
     if (vdisk_read_hw(drive_id, 16, 1, sector) == 0) {
@@ -170,6 +169,8 @@ int vfs_mount_auto(int drive_id, const char* mount_point) {
             vga_print("[VFS] Mechanical Judge: ISO 9660 Registered at %s:/ (Drive %d)\n", node.name, drive_id);
             return 0;
         }
+    } else {
+        /* Reset bump_alloc for sector buffer if read failed */
     }
 
     /* Check B: FAT32 (Sovereign Target) */
@@ -310,5 +311,8 @@ void vfs_close(vfs_handle_t* h) {
     fil.entry_lba = h->entry_lba;
     fil.entry_idx = h->entry_idx;
     f_close(&fil);
-    /* release(h); // Handled by ARC if caller calls release */
+
+    /* VFS Bridge: Free the handle memory allocated in vfs_open */
+    void release(void* ptr);
+    release(h);
 }

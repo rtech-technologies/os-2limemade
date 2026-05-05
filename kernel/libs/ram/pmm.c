@@ -65,6 +65,12 @@ void pmm_init(void) {
         struct limine_memmap_entry* entry = memmap->entries[i];
         if (entry->type == LIMINE_MEMMAP_USABLE && entry->length >= shadow_size) {
             void* shadow_base = (void*)(hhdm + entry->base);
+
+            /* Zero out shadow memory to prevent immediate false positives */
+            for (size_t j = 0; j < shadow_size; j++) {
+                ((uint8_t*)shadow_base)[j] = 0;
+            }
+
             void kasan_init(void* shadow_base);
             kasan_init(shadow_base);
 
