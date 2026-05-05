@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
+void serial_write_str(const char* s);
 extern struct limine_framebuffer_response* get_framebuffer(void);
 void vga_print(const char* fmt, ...);
 
@@ -191,6 +192,14 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
         case 300: { // rsl_dispatch_command(line, curdir_ptr, is_safe_ptr)
             void rsl_dispatch_command(char* line, void** curdir_ptr, bool* is_safe_ptr);
             rsl_dispatch_command((char*)rbx, (void**)rcx, (bool*)rdx);
+            break;
+        }
+        case 400: { // rsl_license_check
+            *(int*)rbx = 1; /* Valid */
+            break;
+        }
+        case 401: { // rsl_server_registration_hook
+            serial_write_str("[LICENSE] Server Registration Hook triggered (Manual review required).\n");
             break;
         }
     }

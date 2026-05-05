@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+void* slab_alloc_aligned(int id, size_t size, size_t align);
+
 /* I/O Port Helper */
 static inline void outb(uint16_t port, uint8_t val) {
     __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
@@ -173,13 +175,15 @@ static bool cursor_visible = true;
 #define SCALE 2
 
 static struct limine_framebuffer* global_fb = NULL;
+static uint32_t* virtual_buffer = NULL;
+static uint32_t* back_buffer = NULL;
 
 void draw_pixel(int x, int y, uint32_t color) {
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;
     if (x < 0 || (uint64_t)x >= fb->width || y < 0 || (uint64_t)y >= fb->height) return;
-    uint32_t* pixel = (uint32_t*)(fb->address + y * fb->pitch + x * 4);
-    *pixel = color;
+    uint32_t* target = virtual_buffer ? virtual_buffer : (uint32_t*)fb->address;
+    target[y * (fb->pitch / 4) + x] = color;
 }
 
 void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
@@ -196,10 +200,12 @@ void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
             /* 2x scaling: draw 2x2 blocks */
             for (int sy = 0; sy < SCALE; sy++) {
                 for (int sx = 0; sx < SCALE; sx++) {
-                    uint32_t* pixel = (uint32_t*)(fb->address +
-                        ((y * 8 * SCALE) + (i * SCALE) + sy) * fb->pitch +
-                        ((x * 8 * SCALE) + (j * SCALE) + sx) * 4);
-                    *pixel = color;
+                    int py = (y * 8 * SCALE) + (i * SCALE) + sy;
+                    int px = (x * 8 * SCALE) + (j * SCALE) + sx;
+                    if (px < 0 || (uint64_t)px >= fb->width || py < 0 || (uint64_t)py >= fb->height) continue;
+
+                    uint32_t* target = virtual_buffer ? virtual_buffer : (uint32_t*)fb->address;
+                    target[py * (fb->pitch / 4) + px] = color;
                 }
             }
         }
@@ -259,20 +265,20 @@ void vga_write_char(char c, uint8_t color_attr) {
 
     if (cursor_y >= max_rows) {
         /* Move all rows up by one char_height */
-        uint32_t* fb_ptr = (uint32_t*)fb->address;
+        uint32_t* target = virtual_buffer ? virtual_buffer : (uint32_t*)fb->address;
         size_t row_pixels = fb->pitch / 4;
         size_t scroll_size = (max_rows - 1) * char_height * row_pixels;
         size_t offset = char_height * row_pixels;
 
         for (size_t i = 0; i < scroll_size; i++) {
-            fb_ptr[i] = fb_ptr[i + offset];
+            target[i] = target[i + offset];
         }
 
         /* Clear the bottom row */
         size_t bottom_start = (max_rows - 1) * char_height * row_pixels;
         size_t bottom_size = char_height * row_pixels;
         for (size_t i = 0; i < bottom_size; i++) {
-            fb_ptr[bottom_start + i] = 0x000000;
+            target[bottom_start + i] = 0x000000;
         }
 
         cursor_y = max_rows - 1;
@@ -290,10 +296,10 @@ void telemetry_update(int task_id, const char* status) {
 
     /* Draw a separator line above telemetry */
     uint32_t sep_color = 0x555555;
-    uint32_t* fb_ptr = (uint32_t*)fb->address;
+    uint32_t* target = virtual_buffer ? virtual_buffer : (uint32_t*)fb->address;
     int line_y = bottom_row * char_height - 2;
     for (uint64_t x = 0; x < fb->width; x++) {
-        fb_ptr[line_y * (fb->pitch / 4) + x] = sep_color;
+        target[line_y * (fb->pitch / 4) + x] = sep_color;
     }
 
     /* Clear the telemetry row */
@@ -328,8 +334,9 @@ void vga_clear(void) {
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;
 
+    uint32_t* target = virtual_buffer ? virtual_buffer : (uint32_t*)fb->address;
     for (uint64_t i = 0; i < fb->height * fb->pitch / 4; i++) {
-        ((uint32_t*)fb->address)[i] = 0x000000;
+        target[i] = 0x000000;
     }
     cursor_x = 0;
     cursor_y = 0;
@@ -381,11 +388,105 @@ void vga_serial_service(kernel_event_t event) {
             global_fb = fb_resp->framebuffers[0];
             panic_cache_fb();
             serial_write_str("[INIT] GOP Framebuffer initialized and cached.\n");
+
+            /* Allocate Double Buffers (aligned to 64 bytes for cache efficiency) */
+            size_t fb_size = global_fb->height * global_fb->pitch;
+            virtual_buffer = slab_alloc_aligned(0, fb_size, 64);
+            back_buffer = slab_alloc_aligned(0, fb_size, 64);
+            if (virtual_buffer && back_buffer) {
+                for (size_t i = 0; i < fb_size / 4; i++) {
+                    virtual_buffer[i] = 0;
+                    back_buffer[i] = 0;
+                }
+                serial_write_str("[SNAP] GUI Double Buffers Allocated & Sanitized.\n");
+            }
         } else {
             serial_write_str("[WARN] GOP Framebuffer not found, console output disabled.\n");
         }
 
         serial_write_str("[INIT] Serial and VGA Mirroring active.\n");
         vga_clear();
+    }
+}
+
+void nk_rtc64_draw_line(int x0, int y0, int x1, int y1, uint32_t color) {
+    if (!virtual_buffer || !global_fb) return;
+    int dx = (x1 > x0) ? (x1 - x0) : (x0 - x1);
+    int dy = (y1 > y0) ? (y1 - y0) : (y0 - y1);
+    int sx = (x0 < x1) ? 1 : -1;
+    int sy = (y0 < y1) ? 1 : -1;
+    int err = dx - dy;
+
+    while (true) {
+        if (x0 >= 0 && (uint64_t)x0 < global_fb->width && y0 >= 0 && (uint64_t)y0 < global_fb->height) {
+            virtual_buffer[y0 * (global_fb->pitch / 4) + x0] = color;
+        }
+        if (x0 == x1 && y0 == y1) break;
+        int e2 = 2 * err;
+        if (e2 > -dy) { err -= dy; x0 += sx; }
+        if (e2 < dx) { err += dx; y0 += sy; }
+    }
+}
+
+void nk_rtc64_draw_rect(int x, int y, int w, int h, uint32_t color) {
+    if (!virtual_buffer || !global_fb) return;
+    for (int j = y; j < y + h; j++) {
+        if (j < 0 || (uint64_t)j >= global_fb->height) continue;
+        for (int i = x; i < x + w; i++) {
+            if (i < 0 || (uint64_t)i >= global_fb->width) continue;
+            virtual_buffer[j * (global_fb->pitch / 4) + i] = color;
+        }
+    }
+}
+
+void nk_rtc64_draw_text(int x, int y, const char* text, int len, uint32_t color) {
+    if (!virtual_buffer || !global_fb) return;
+    for (int k = 0; k < len; k++) {
+        uint8_t c = (uint8_t)text[k];
+        if (c >= 128) continue;
+        const uint8_t* glyph = font8x8_basic[c];
+        for (int i = 0; i < 8; i++) {
+            for (int j = 0; j < 8; j++) {
+                if (glyph[i] & (1 << (7 - j))) {
+                    int px = x + (k * 8) + j;
+                    int py = y + i;
+                    if (px >= 0 && (uint64_t)px < global_fb->width && py >= 0 && (uint64_t)py < global_fb->height) {
+                        virtual_buffer[py * (global_fb->pitch / 4) + px] = color;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void delta_move_flush(void) {
+    if (!global_fb || !virtual_buffer || !back_buffer) return;
+
+    size_t width = global_fb->width;
+    size_t height = global_fb->height;
+    size_t pitch = global_fb->pitch;
+    uint32_t* fb_addr = (uint32_t*)global_fb->address;
+
+    /* Block-based delta move to respect cachelines (64 bytes = 16 pixels) */
+    const int block_size = 16;
+    for (size_t y = 0; y < height; y++) {
+        for (size_t x = 0; x < width; x += block_size) {
+            size_t offset = (y * (pitch / 4)) + x;
+            bool changed = false;
+
+            for (int i = 0; i < block_size && (x + i) < width; i++) {
+                if (virtual_buffer[offset + i] != back_buffer[offset + i]) {
+                    changed = true;
+                    break;
+                }
+            }
+
+            if (changed) {
+                for (int i = 0; i < block_size && (x + i) < width; i++) {
+                    fb_addr[offset + i] = virtual_buffer[offset + i];
+                    back_buffer[offset + i] = virtual_buffer[offset + i];
+                }
+            }
+        }
     }
 }

@@ -19,6 +19,7 @@ void dispatch_event(kernel_event_t event);
 void vga_serial_service(kernel_event_t event);
 void usb_xhci_service(kernel_event_t event);
 void ahci_service(kernel_event_t event);
+void nvme_service(kernel_event_t event);
 void ahci_hardware_audit(int p);
 void arc_mem_service(kernel_event_t event);
 void vdisk_service(kernel_event_t event);

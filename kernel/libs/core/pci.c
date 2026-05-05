@@ -1,4 +1,9 @@
 #include "pci.h"
+#include <stdbool.h>
+
+#define MAX_PCI_DRIVERS 16
+static pci_driver_t pci_drivers[MAX_PCI_DRIVERS];
+static int pci_driver_count = 0;
 
 static inline void outl(uint16_t port, uint32_t val) {
     __asm__ volatile ("outl %0, %1" : : "a"(val), "Nd"(port));
@@ -37,4 +42,53 @@ void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func) {
     command |= (1 << 1); /* Bit 1: Memory Space */
     command |= (1 << 2); /* Bit 2: Bus Master */
     pci_config_write(bus, slot, func, 0x04, command);
+}
+
+void pci_register_driver(pci_driver_t driver) {
+    if (pci_driver_count < MAX_PCI_DRIVERS) {
+        pci_drivers[pci_driver_count++] = driver;
+    }
+}
+
+void pci_scan_bus(void) {
+    for (int bus = 0; bus < 256; bus++) {
+        for (int slot = 0; slot < 32; slot++) {
+            for (int func = 0; func < 8; func++) {
+                uint32_t vendor_device = pci_config_read(bus, slot, func, 0x00);
+                uint16_t vendor_id = vendor_device & 0xFFFF;
+                if (vendor_id == 0xFFFF) continue;
+
+                uint32_t class_info = pci_config_read(bus, slot, func, 0x08);
+                uint8_t base_class = (class_info >> 24) & 0xFF;
+                uint8_t sub_class = (class_info >> 16) & 0xFF;
+                uint8_t prog_if = (class_info >> 8) & 0xFF;
+                uint16_t device_id = (vendor_device >> 16) & 0xFFFF;
+
+                pci_id_t id = {vendor_id, device_id, base_class, sub_class, prog_if};
+
+                for (int i = 0; i < pci_driver_count; i++) {
+                    pci_driver_t* driver = &pci_drivers[i];
+                    for (int j = 0; j < driver->id_count; j++) {
+                        pci_id_t* target = &driver->id_table[j];
+                        bool match = true;
+                        if (target->vendor_id != 0xFFFF && target->vendor_id != id.vendor_id) match = false;
+                        if (target->device_id != 0xFFFF && target->device_id != id.device_id) match = false;
+                        if (target->class_code != 0xFF && target->class_code != id.class_code) match = false;
+                        if (target->subclass != 0xFF && target->subclass != id.subclass) match = false;
+                        if (target->prog_if != 0xFF && target->prog_if != id.prog_if) match = false;
+
+                        if (match) {
+                            driver->probe(bus, slot, func, id);
+                            break;
+                        }
+                    }
+                }
+
+                if (func == 0) {
+                    uint32_t header_type = pci_config_read(bus, slot, 0, 0x0C);
+                    if (!(header_type & 0x800000)) break;
+                }
+            }
+        }
+    }
 }
