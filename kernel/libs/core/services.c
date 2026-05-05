@@ -12,6 +12,8 @@ void register_service(service_func_t init_func) {
     }
 }
 
+void nvme_service(kernel_event_t event); /* Forward Decl */
+
 void dispatch_event(kernel_event_t event) {
     if (event == EVENT_INIT) {
         /* Standard order for INIT */
@@ -19,6 +21,8 @@ void dispatch_event(kernel_event_t event) {
         register_service(arc_mem_service);
         register_service(usb_xhci_service);
         register_service(ahci_service);
+        void nvme_service(kernel_event_t event);
+        register_service(nvme_service);
         register_service(vdisk_service);
     }
 

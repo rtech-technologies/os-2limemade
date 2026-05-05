@@ -49,6 +49,8 @@ void _start(void) {
 
     /* Initialize Hardware and Core Memory */
     dispatch_event(EVENT_INIT);
+    void pci_scan_bus(void);
+    pci_scan_bus();
     __asm__ volatile ("sti");
 
     /* Start the Shell and Main System Logic */
@@ -196,6 +198,14 @@ void _start(void) {
        Actually, tasking_init already registered the shell.
        We should just loop here and let the scheduler take over. */
     vga_print("[UNICE64] Kernel handover to Scheduler.\n");
+    extern bool g_vga_silent;
+    extern void vga_alloc_backbuffer(void);
+    vga_alloc_backbuffer();
+    g_vga_silent = true;
+
+    void desktop_main(void);
+    register_task(desktop_main, 1);
+
     dispatch_event(EVENT_CLEANUP);
     dispatch_event(EVENT_EXIT);
 
