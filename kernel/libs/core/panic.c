@@ -15,6 +15,11 @@ uint64_t get_hhdm_offset(void);
 void serial_print_hex(const char* label, uint16_t val);
 
 void forensic_panic(const char* message, cpu_state_t* state) {
+    extern bool g_vga_silent;
+    g_vga_silent = false;
+    extern void vga_clear(void);
+    vga_clear();
+
     /* Critical Alert: Red on Black */
     set_color(LIGHT_RED, BLACK);
 

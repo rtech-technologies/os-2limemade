@@ -1,7 +1,7 @@
 # OSx2 Limemade OS Makefile
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include
+CFLAGS = -fsanitize=undefined -fno-sanitize-recover=undefined -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -msse -msse2 -I. -I./include -Ikernel/libs/cherryusb/common -Ikernel/libs/cherryusb/core -Ikernel/libs/cherryusb/class/hub -Ikernel/libs/cherryusb/class/msc -Ikernel/libs/cherryusb/class/hid -Iprograms
 LDFLAGS = -Wl,-T,boot/linker.ld -static -nostdlib -Wl,-z,max-page-size=0x1000
 
 KERNEL_SRC = $(filter-out kernel/libs/signature_check.c, $(wildcard kernel/unice64/*.c) \
@@ -10,7 +10,13 @@ KERNEL_SRC = $(filter-out kernel/libs/signature_check.c, $(wildcard kernel/unice
              $(wildcard kernel/libs/storage/*.c) \
              $(wildcard kernel/libs/storage/fatfs/*.c) \
              $(wildcard kernel/libs/core/*.c) \
-             programs/shell.c)
+             $(wildcard kernel/libs/rtc64/*.c) \
+             kernel/libs/cherryusb/core/usbh_core.c \
+             kernel/libs/cherryusb/class/hub/usbh_hub.c \
+             kernel/libs/cherryusb/class/msc/usbh_msc.c \
+             kernel/libs/cherryusb/class/hid/usbh_hid.c \
+             programs/shell.c \
+             programs/desktop.c)
 AS_SRC = $(wildcard kernel/unice64/*.s)
 KERNEL_OBJ = $(KERNEL_SRC:.c=.o) $(AS_SRC:.s=.o)
 KERNEL_ELF = kernel.elf
@@ -20,13 +26,30 @@ SATA_DISK = sata_disk.img
 LIMINE_DIR = ./limine
 LIMINE_BIN = $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin $(LIMINE_DIR)/limine-uefi-cd.bin
 
-.PHONY: all menuconfig kernel iso run clean limine-setup
+.PHONY: all menuconfig kernel iso run clean limine-setup cherryusb-setup nuklear-setup manifest metadata ci-verify
 
 all:
 	$(MAKE) limine-setup
+	$(MAKE) cherryusb-setup
+	$(MAKE) nuklear-setup
+	$(MAKE) kernel
+	$(MAKE) manifest
+	$(MAKE) metadata
 	$(MAKE) kernel
 	$(MAKE) iso
 	$(MAKE) $(SATA_DISK)
+
+manifest:
+	python3 scripts/manifest.py $(KERNEL_ELF)
+
+metadata:
+	python3 scripts/metadata.py "$(CFLAGS)"
+
+ci-verify:
+	@echo "OSx2 CI Verification Ritual..."
+	@$(MAKE) clean
+	@$(MAKE) all
+	@sha256sum $(ISO_IMAGE)
 
 limine-setup:
 	@mkdir -p limine
@@ -86,6 +109,26 @@ iso: limine-setup kernel
 		echo "Warning: xorriso not found, created empty $(ISO_IMAGE) for source compliance."; \
 	fi
 	@echo "OSx2 Limemade ISO Created: $(ISO_IMAGE)"
+
+cherryusb-setup:
+	@mkdir -p kernel/libs/cherryusb
+	@if [ ! -d "kernel/libs/cherryusb/.git" ]; then \
+		echo "Fetching CherryUSB..."; \
+		git clone https://github.com/cherry-embedded/CherryUSB.git && cd kernel/libs/cherryusb_tmp && git checkout 0537fc4 && cd ../../.. kernel/libs/cherryusb_tmp; \
+		mv kernel/libs/cherryusb_tmp/* kernel/libs/cherryusb/ 2>/dev/null || true; \
+		mv kernel/libs/cherryusb_tmp/.* kernel/libs/cherryusb/ 2>/dev/null || true; \
+		rm -rf kernel/libs/cherryusb_tmp; \
+	fi
+
+nuklear-setup:
+	@mkdir -p programs/nuklear
+	@if [ ! -d "programs/nuklear/.git" ]; then \
+		echo "Fetching Nuklear..."; \
+		git clone https://github.com/Immediate-Mode-UI/Nuklear.git && cd programs/nuklear_tmp && git checkout 9f99723 && cd ../../.. programs/nuklear_tmp; \
+		mv programs/nuklear_tmp/* programs/nuklear/ 2>/dev/null || true; \
+		mv programs/nuklear_tmp/.* programs/nuklear/ 2>/dev/null || true; \
+		rm -rf programs/nuklear_tmp; \
+	fi
 
 clean:
 	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) $(SATA_DISK) ramdisk.img

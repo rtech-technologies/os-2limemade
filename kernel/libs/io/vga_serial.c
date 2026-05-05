@@ -167,13 +167,75 @@ static bool cursor_visible = true;
 #define SCALE 2
 
 static struct limine_framebuffer* global_fb = NULL;
+static uint32_t* backbuffer = NULL;
+static uint8_t* dirty_mask = NULL;
+bool g_vga_silent = false;
+
+void* slab_alloc_aligned(int id, size_t size, size_t align);
+
+void vga_alloc_backbuffer(void) {
+    if (!global_fb) return;
+    size_t sz = global_fb->height * global_fb->pitch;
+    backbuffer = (uint32_t*)slab_alloc_aligned(0, sz, 64);
+
+    int blocks_x = (global_fb->width + 63) / 64;
+    int blocks_y = global_fb->height;
+    dirty_mask = (uint8_t*)slab_alloc_aligned(0, blocks_x * blocks_y, 1);
+}
+
+static inline uint8_t inb(uint16_t port);
+
+void vga_wait_vsync(void) {
+    /* Simple PIT-based wait if hardware vsync unavailable */
+    while (!(inb(0x3DA) & 0x08));
+    while (inb(0x3DA) & 0x08);
+}
+
+void vga_flush_dirty(void) {
+    if (!backbuffer || !dirty_mask) return;
+    uint32_t* fb = (uint32_t*)global_fb->address;
+    int pitch_words = global_fb->pitch / 4;
+    int blocks_x = (global_fb->width + 63) / 64;
+
+    for (uint32_t y = 0; y < global_fb->height; y++) {
+        for (int bx = 0; blocks_x > 0 && bx < blocks_x; bx++) {
+            if (dirty_mask[y * blocks_x + bx]) {
+                for (int i = 0; i < 64 && (bx * 64 + i) < global_fb->width; i++) {
+                    fb[y * pitch_words + bx * 64 + i] = backbuffer[y * pitch_words + bx * 64 + i];
+                }
+            }
+        }
+    }
+}
+
+void vga_compute_dirty(void) {
+    if (!backbuffer || !dirty_mask) return;
+    uint32_t* fb = (uint32_t*)global_fb->address;
+    int pitch_words = global_fb->pitch / 4;
+    for (uint32_t y = 0; y < global_fb->height; y++) {
+        for (uint32_t x = 0; x < global_fb->width; x += 64) {
+            bool dirty = false;
+            for (int i = 0; i < 64 && (x + i) < global_fb->width; i++) {
+                if (backbuffer[y * pitch_words + x + i] != fb[y * pitch_words + x + i]) {
+                    dirty = true; break;
+                }
+            }
+            dirty_mask[y * ((global_fb->width + 63) / 64) + (x / 64)] = dirty;
+        }
+    }
+}
 
 void draw_pixel(int x, int y, uint32_t color) {
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;
     if (x < 0 || (uint64_t)x >= fb->width || y < 0 || (uint64_t)y >= fb->height) return;
-    uint32_t* pixel = (uint32_t*)(fb->address + y * fb->pitch + x * 4);
-    *pixel = color;
+
+    if (backbuffer) {
+        backbuffer[y * (fb->pitch / 4) + x] = color;
+    } else {
+        uint32_t* pixel = (uint32_t*)(fb->address + y * fb->pitch + x * 4);
+        *pixel = color;
+    }
 }
 
 void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
@@ -202,6 +264,7 @@ void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
 
 void vga_write_char(char c, uint8_t color_attr) {
     serial_write_char(c);
+    if (g_vga_silent) return;
 
     /* Ignore non-printable gibberish except for key control codes */
     if ((uint8_t)c < 32 && c != '\n' && c != '\r' && c != '\b' && c != '\t') return;
