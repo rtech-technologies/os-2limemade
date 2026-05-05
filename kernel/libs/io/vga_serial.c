@@ -1,5 +1,6 @@
 #include <kernel/libs/core/services.h>
 #include <include/config.h>
+#include <include/nuklear_rtc64.h>
 #include <limine.h>
 #include <stdint.h>
 #include <stddef.h>
@@ -167,6 +168,10 @@ static bool cursor_visible = true;
 #define SCALE 2
 
 static struct limine_framebuffer* global_fb = NULL;
+static uint32_t* virtual_buffer = NULL;
+static uint32_t* back_buffer = NULL;
+
+void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg);
 
 void draw_pixel(int x, int y, uint32_t color) {
     if (!global_fb) return;
@@ -175,6 +180,13 @@ void draw_pixel(int x, int y, uint32_t color) {
     uint32_t* pixel = (uint32_t*)(fb->address + y * fb->pitch + x * 4);
     *pixel = color;
 }
+
+void nk_rtc64_draw_rect(nk_rect_t r, nk_color_t c) { uint32_t col = (c.r << 16) | (c.g << 8) | c.b; for (int j = 0; j < r.h; j++) for (int i = 0; i < r.w; i++) draw_pixel(r.x + i, r.y + j, col); }
+
+void nk_rtc64_draw_line(int x0, int y0, int x1, int y1, nk_color_t c) { uint32_t col = (c.r << 16) | (c.g << 8) | c.b; int dx = (x1-x0)>0?(x1-x0):(x0-x1), sx = x0<x1?1:-1; int dy = (y1-y0)>0?(y0-y1):(y1-y0), sy = y0<y1?1:-1; int err = dx+dy, e2; while(1){ draw_pixel(x0,y0,col); if (x0==x1 && y0==y1) break; e2 = 2*err; if (e2 >= dy) { err += dy; x0 += sx; } if (e2 <= dx) { err += dx; y0 += sy; } } }
+void nk_rtc64_draw_text(int x, int y, const char* t, int l, nk_color_t c) { uint32_t col = (c.r << 16) | (c.g << 8) | c.b; for (int i = 0; i < l; i++) draw_char(t[i], x + i, y, col, 0); }
+
+void delta_move_flush(void) { if (!global_fb || !virtual_buffer || !back_buffer) return; for (uint64_t i = 0; i < global_fb->height * global_fb->width; i++) { if (virtual_buffer[i] != back_buffer[i]) { ((uint32_t*)global_fb->address)[i] = virtual_buffer[i]; back_buffer[i] = virtual_buffer[i]; } } }
 
 void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
     if (!global_fb) return;
@@ -372,7 +384,10 @@ void vga_serial_service(kernel_event_t event) {
         struct limine_framebuffer_response* fb_resp = get_framebuffer();
         if (fb_resp && fb_resp->framebuffer_count > 0) {
             global_fb = fb_resp->framebuffers[0];
-            serial_write_str("[INIT] GOP Framebuffer initialized.\n");
+            void* slab_alloc_aligned(int id, size_t size, size_t align);
+            virtual_buffer = slab_alloc_aligned(0, global_fb->width * global_fb->height * 4, 64);
+            back_buffer = slab_alloc_aligned(0, global_fb->width * global_fb->height * 4, 64);
+            serial_write_str("[INIT] GOP Framebuffer and Dual Buffers initialized.\n");
         } else {
             serial_write_str("[WARN] GOP Framebuffer not found, console output disabled.\n");
         }

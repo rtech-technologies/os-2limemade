@@ -1,7 +1,8 @@
 # OSx2 Limemade OS Makefile
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include
+GIT_HASH = $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+CFLAGS = -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include -DGIT_HASH=\"$(GIT_HASH)\"
 LDFLAGS = -Wl,-T,boot/linker.ld -static -nostdlib -Wl,-z,max-page-size=0x1000
 
 KERNEL_SRC = $(filter-out kernel/libs/signature_check.c, $(wildcard kernel/unice64/*.c) \
@@ -10,7 +11,8 @@ KERNEL_SRC = $(filter-out kernel/libs/signature_check.c, $(wildcard kernel/unice
              $(wildcard kernel/libs/storage/*.c) \
              $(wildcard kernel/libs/storage/fatfs/*.c) \
              $(wildcard kernel/libs/core/*.c) \
-             programs/shell.c)
+             programs/shell.c \
+             programs/desktop.c)
 AS_SRC = $(wildcard kernel/unice64/*.s)
 KERNEL_OBJ = $(KERNEL_SRC:.c=.o) $(AS_SRC:.s=.o)
 KERNEL_ELF = kernel.elf
