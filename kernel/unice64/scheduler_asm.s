@@ -62,7 +62,7 @@ unice64_context_switch:
 
     call get_current_task
     mov %rax, %rdi
-    add $16, %rdi # Skip id, uid, uaid, state
+    add $16, %rdi # Correct: id(4)+uid(4)+uaid(4)+state(4)=16
 
     # Store GPRs
     mov 0(%r12), %rbx;  mov %rbx, ctx_r15(%rdi)
@@ -98,22 +98,20 @@ unice64_context_switch:
     # 3. Load state of the task being switched IN
     call get_current_task
     mov %rax, %rsi
-    add $16, %rsi # Skip metadata
+    add $16, %rsi # Skip metadata (16 bytes)
 
     # RIP Safety Check
     mov ctx_rip(%rsi), %rdx
     test %rdx, %rdx
-    jz .invalid_rip
+    jz .handle_invalid_rip
 
     # Boundary Check
-    # Load symbols via RIP-relative addressing for position independence if needed,
-    # but here we just need the absolute address values.
     movabsq $__text_start, %rax
     cmp %rax, %rdx
-    jb .invalid_rip
+    jb .handle_invalid_rip
     movabsq $__text_end, %rax
     cmp %rax, %rdx
-    jae .invalid_rip
+    jae .handle_invalid_rip
 
     # RIP is valid, restore
     mov ctx_rsp(%rsi), %rax
@@ -143,12 +141,20 @@ unice64_context_switch:
 
     iretq
 
-.invalid_rip:
-    lea .msg_bad_rip(%rip), %rdi
-    mov ctx_rip(%rsi), %rsi
-    mov ctx_rsp(%rsi), %rdx
+.handle_invalid_rip:
+    # %rsi = &next->context, %rdx = invalid RIP
+    mov %rdx, %rax           # Save invalid RIP
+    mov 144(%rsi), %rdx      # RSP (Arg 3)
+    mov %rax, %rsi           # RIP (Arg 2)
+    lea .msg_bad_rip(%rip), %rdi # msg (Arg 1)
+
+    # Quartermaster: ABI alignment for diagnostic call
+    mov %rsp, %rbp
+    subq $32, %rsp
+    and $-16, %rsp
     call quartermaster_panic_regs
     call kernel_fallback_shell
+    mov %rbp, %rsp
     iretq
 
 .section .rodata

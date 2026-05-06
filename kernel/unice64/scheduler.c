@@ -39,6 +39,7 @@ void register_task(void (*entry_point)(void), uint32_t slab_id) {
         int idx = task_count;
         task_table[idx].id = idx;
         task_table[idx].uid = 0;
+        task_table[idx].uaid = 0;
         task_table[idx].state = TASK_READY;
         task_table[idx].slab_id = slab_id;
 
@@ -46,20 +47,20 @@ void register_task(void (*entry_point)(void), uint32_t slab_id) {
         stack_virt = (stack_virt + 15) & ~0xFULL;
         task_table[idx].kernel_stack_top = stack_virt + TASK_STACK_SIZE;
 
-        cpu_context_t* ctx = &task_table[idx].context;
-        uint8_t* p_ctx = (uint8_t*)ctx;
+        uint8_t* p_ctx = (uint8_t*)&task_table[idx].context;
         for (size_t i = 0; i < sizeof(cpu_context_t); i++) p_ctx[i] = 0;
 
         uint64_t ep = (uint64_t)(entry_point ? (uint64_t)entry_point : (uint64_t)idle_task);
         if (ep < 0x0000800000000000ULL) ep += 0xffffffff80000000ULL;
-        ctx->rip = ep;
-        ctx->cs = 0x08;
-        ctx->ss = 0x10;
-        ctx->rflags = 0x202;
-        ctx->rsp = task_table[idx].kernel_stack_top - 8;
+        task_table[idx].context.rip = ep;
+        task_table[idx].context.cs = 0x08;
+        task_table[idx].context.ss = 0x10;
+        task_table[idx].context.rflags = 0x202;
+        task_table[idx].context.rsp = task_table[idx].kernel_stack_top - 8;
 
         task_count++;
-        vga_print("[UNICE64] Task registered in Slab %d\n", slab_id);
+        vga_print("[UNICE64] Task registered in Slab %d (RIP=0x%llx, TCB=0x%llx)\n",
+                  slab_id, task_table[idx].context.rip, (uint64_t)&task_table[idx]);
     }
 }
 
@@ -157,7 +158,7 @@ void unice64_schedule(void) {
 }
 
 void quartermaster_panic_regs(const char* msg, uint64_t rip, uint64_t rsp) {
-    vga_print("[PANIC] %s RIP=0x%x RSP=0x%x\n", msg, rip, rsp);
+    vga_print("[PANIC] %s RIP=0x%llx RSP=0x%llx\n", msg, rip, rsp);
     quartermaster_panic(msg, NULL);
 }
 

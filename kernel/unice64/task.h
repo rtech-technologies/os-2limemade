@@ -26,7 +26,7 @@ typedef struct {
     cpu_context_t context;
     uint32_t slab_id;
     uint64_t kernel_stack_top;
-} task_t;
+} __attribute__((packed)) task_t;
 
 void unice64_schedule(void);
 void unice64_scheduler_init(void);
