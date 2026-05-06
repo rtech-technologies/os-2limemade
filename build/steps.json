@@ -7,27 +7,27 @@
   {
     "id": 2,
     "desc": "Implement PCI Driver Registration Subsystem",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "id": 3,
     "desc": "Refactor AHCI to PCI Driver Model",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "id": 4,
     "desc": "Resolve SATA Boot Loop & Install Logistics",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "id": 5,
     "desc": "Implement User Management Syscalls",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "id": 6,
     "desc": "Add OOBE User Creation to Cargo",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "id": 7,
@@ -42,21 +42,21 @@
   {
     "id": 9,
     "desc": "Implement xHCI Driver & BIOS Handover",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "id": 10,
     "desc": "Integrate Delta-Move Flush GUI Optimization",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "id": 11,
     "desc": "Build Mock Desktop & Sovereign Tutorial",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "id": 12,
     "desc": "Implement Forensic Reveal Logging",
-    "status": "pending"
+    "status": "completed"
   }
 ]

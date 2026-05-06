@@ -40,24 +40,34 @@ static void nvme_write_doorbell(nvme_ctrl_t* ctrl, int qid, int tail, bool is_cq
     *(volatile uint32_t*)(ctrl->bar + offset) = tail;
 }
 
-static int nvme_submit_admin(nvme_ctrl_t* ctrl, nvme_cmd_t* cmd, nvme_cqe_t* cqe) {
-    ctrl->asq[ctrl->asq_tail] = *cmd;
-    ctrl->asq_tail = (ctrl->asq_tail + 1) % QUEUE_SIZE;
-    nvme_write_doorbell(ctrl, 0, ctrl->asq_tail, false);
+static int nvme_submit_cmd(nvme_ctrl_t* ctrl, int qid, nvme_cmd_t* cmd, nvme_cqe_t* cqe) {
+    nvme_cmd_t* sq = (qid == 0) ? ctrl->asq : ctrl->sq;
+    nvme_cqe_t* cq = (qid == 0) ? ctrl->acq : ctrl->cq;
+    uint16_t* sq_tail = (qid == 0) ? &ctrl->asq_tail : &ctrl->sq_tail;
+    uint16_t* cq_head = (qid == 0) ? &ctrl->acq_head : &ctrl->cq_head;
+    uint16_t* cq_phase = (qid == 0) ? &ctrl->acq_phase : &ctrl->cq_phase;
+
+    sq[*sq_tail] = *cmd;
+    *sq_tail = (*sq_tail + 1) % QUEUE_SIZE;
+    nvme_write_doorbell(ctrl, qid, *sq_tail, false);
 
     int timeout = 1000;
     while (timeout--) {
-        nvme_cqe_t* check = &ctrl->acq[ctrl->acq_head];
-        if ((check->status & 1) == ctrl->acq_phase) {
-            *cqe = *check;
-            ctrl->acq_head = (ctrl->acq_head + 1) % QUEUE_SIZE;
-            if (ctrl->acq_head == 0) ctrl->acq_phase = !ctrl->acq_phase;
-            nvme_write_doorbell(ctrl, 0, ctrl->acq_head, true);
+        nvme_cqe_t* check = &cq[*cq_head];
+        if ((check->status & 1) == *cq_phase) {
+            if (cqe) *cqe = *check;
+            *cq_head = (*cq_head + 1) % QUEUE_SIZE;
+            if (*cq_head == 0) *cq_phase = !(*cq_phase);
+            nvme_write_doorbell(ctrl, qid, *cq_head, true);
             return 0;
         }
         pit_wait_ms(1);
     }
     return -1;
+}
+
+static int nvme_submit_admin(nvme_ctrl_t* ctrl, nvme_cmd_t* cmd, nvme_cqe_t* cqe) {
+    return nvme_submit_cmd(ctrl, 0, cmd, cqe);
 }
 
 void nvme_init_ctrl(uint8_t bus, uint8_t slot, uint8_t func) {
@@ -94,8 +104,9 @@ void nvme_init_ctrl(uint8_t bus, uint8_t slot, uint8_t func) {
     *(volatile uint64_t*)(virt_base + NVME_REG_ASQ) = vmm_get_phys(g_nvme->asq);
     *(volatile uint64_t*)(virt_base + NVME_REG_ACQ) = vmm_get_phys(g_nvme->acq);
 
-    /* Enable Controller with power-of-2 queue entry sizes */
-    uint32_t cc = (6 << 16) | (4 << 20) | (1 << 0); /* ASQS=6(64), ACQS=4(16 but we set entries elsewhere), EN=1 */
+    /* Enable Controller: CC.MPS=0 (4KB), CC.CSS=0 (NVM), CC.AMS=0 (Round Robin), CC.EN=1 */
+    /* IOSQES=6 (64 bytes), IOCQES=4 (16 bytes) */
+    uint32_t cc = (6 << 16) | (4 << 20) | (1 << 0);
     *(volatile uint32_t*)(virt_base + NVME_REG_CC) = cc;
 
     pit_wait_ms(100);
@@ -128,6 +139,63 @@ void nvme_init_ctrl(uint8_t bus, uint8_t slot, uint8_t func) {
     if (nvme_submit_admin(g_nvme, &create_sq, &res) != 0) return;
 
     vga_print("[SNAP] NVME I/O QUEUES INITIALIZED\n");
+
+    /* Register NVMe as a disk */
+    extern int nvme_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer);
+    extern int nvme_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer);
+
+    vdisk_node_t nvme_disk = {
+        .name = "NVME_SSD",
+        .sector_size = 512,
+        .total_lba = 1024 * 1024 * 20,
+        .partition_offset = 2048,
+        .read_lba = nvme_read_sectors,
+        .write_lba = nvme_write_sectors,
+        .private_data = g_nvme,
+        .is_atapi = false
+    };
+    register_hardware_disk(nvme_disk);
+}
+
+int nvme_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
+    nvme_ctrl_t* ctrl = (nvme_ctrl_t*)priv;
+    uint64_t phys_buffer = vmm_get_phys(buffer);
+
+    nvme_cmd_t cmd = {0};
+    cmd.cdw0 = NVME_NVM_OP_READ | (1 << 16); /* Opcode 2, CID 1 */
+    cmd.nsid = 1;
+    cmd.prp1 = phys_buffer;
+
+    /* PRP2 Handling for > 1 page */
+    if (count * 512 > 4096) {
+        cmd.prp2 = phys_buffer + 4096;
+    }
+
+    cmd.cdw10 = (uint32_t)lba;
+    cmd.cdw11 = (uint32_t)(lba >> 32);
+    cmd.cdw12 = (count - 1) & 0xFFFF;
+
+    return nvme_submit_cmd(ctrl, 1, &cmd, NULL);
+}
+
+int nvme_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
+    nvme_ctrl_t* ctrl = (nvme_ctrl_t*)priv;
+    uint64_t phys_buffer = vmm_get_phys(buffer);
+
+    nvme_cmd_t cmd = {0};
+    cmd.cdw0 = NVME_NVM_OP_WRITE | (2 << 16); /* Opcode 1, CID 2 */
+    cmd.nsid = 1;
+    cmd.prp1 = phys_buffer;
+
+    if (count * 512 > 4096) {
+        cmd.prp2 = phys_buffer + 4096;
+    }
+
+    cmd.cdw10 = (uint32_t)lba;
+    cmd.cdw11 = (uint32_t)(lba >> 32);
+    cmd.cdw12 = (count - 1) & 0xFFFF;
+
+    return nvme_submit_cmd(ctrl, 1, &cmd, NULL);
 }
 
 void nvme_service(kernel_event_t event) {
