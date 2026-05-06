@@ -13,8 +13,10 @@ SECTIONS
     . = 0xffffffff80000000;
 
     .text : ALIGN(0x1000) {
+        __text_start = .;
         *(.text .text.*)
         *(.scheduler)
+        __text_end = .;
     } :text
 
     .rodata : ALIGN(0x1000) {
