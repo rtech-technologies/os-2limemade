@@ -2,9 +2,6 @@
 #include <stdbool.h>
 #include <include/rsl.h>
 
-void rsl_input(const char* prompt, char* buffer) {
-    __asm__ volatile ("int $3" : : "a"((uint64_t)1), "b"((uint64_t)prompt), "c"((uint64_t)buffer) : "memory");
-}
 
 int list_disks(void) {
     volatile int count = 0;
@@ -91,6 +88,10 @@ void _start(void) {
     /* Proceed with actual installation logic in background/fallback */
     print("[CARGO] UI Loaded. Waiting for hardware handshake...\n");
 
+    /* License Enforcement */
+    gui_draw_rect(&fb, px + 50, py + 380, 500, 15, COLOR_PANEL);
+    gui_draw_text(&fb, px + 60, py + 382, "Licensed under Sovereign Estates Protocol - Build 2024-05-23", 0xAAAAAA);
+
     int disks = list_disks();
     if (disks <= 0) {
         gui_draw_text(&fb, px + 70, py + 370, "ERROR: NO DISKS FOUND", 0xFF5555);
@@ -99,10 +100,20 @@ void _start(void) {
 
     /* Auto-installer logic (Simplified for demo) */
     int target_disk = 0;
+    int res = -1;
     if (partition_disk(target_disk) == 0 && format_disk(target_disk) == 0) {
-        mkdir("BOOT:/users");
-        mkdir("BOOT:/bin");
-        write_file("BOOT:/CHANGELOG.txt", "SYSTEM INSTALLED VIA GUI\n");
+        /* Force mount the newly formatted SATA disk as DATA for OOBE */
+        __asm__ volatile ("int $3" : : "a"((uint64_t)301), "b"((uint64_t)target_disk), "c"((uint64_t)"DATA"), "d"((uint64_t)&res) : "memory");
+
+        mkdir("DATA:/users");
+        mkdir("DATA:/bin");
+        mkdir("DATA:/sys");
+        write_file("DATA:/CHANGELOG.txt", "SYSTEM INSTALLED VIA GUI\n");
+
+        /* Create default user 'sovereign' (Syscall 112) */
+        __asm__ volatile ("int $3" : : "a"((uint64_t)112), "b"((uint64_t)"sovereign"), "c"((uint64_t)"password"), "d"((uint64_t)&res) : "memory");
+
+        print("[CARGO] Installation payload delivered to SATA HDD.\n");
     }
 
     gui_draw_text(&fb, px + 350, py + 370, "[ PRESS ENTER TO REBOOT ]", COLOR_PRIMARY);

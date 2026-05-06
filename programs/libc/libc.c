@@ -94,6 +94,14 @@ int rsl_get_fb(rsl_fb_t* fb) {
     return res;
 }
 
+void sys_yield(void) {
+    __asm__ volatile ("int $3" : : "a"((uint64_t)2) : "memory");
+}
+
+void rsl_input(const char* prompt, char* buffer) {
+    __asm__ volatile ("int $3" : : "a"((uint64_t)1), "b"((uint64_t)prompt), "c"((uint64_t)buffer) : "memory");
+}
+
 void gui_draw_rect(rsl_fb_t* fb, int x, int y, int w, int h, uint32_t color) {
     if (!fb || !fb->address) return;
     for (int i = 0; i < h; i++) {

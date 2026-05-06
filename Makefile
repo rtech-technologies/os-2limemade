@@ -9,6 +9,7 @@ KERNEL_SRC = $(wildcard kernel/unice64/*.c) \
              $(wildcard kernel/libs/ram/*.c) \
              $(wildcard kernel/libs/storage/*.c) \
              $(wildcard kernel/libs/storage/fatfs/*.c) \
+             $(wildcard kernel/libs/rtc64/*.c) \
              $(wildcard kernel/libs/core/*.c)
 AS_SRC = $(wildcard kernel/unice64/*.s)
 KERNEL_OBJ = $(KERNEL_SRC:.c=.o) $(AS_SRC:.s=.o)

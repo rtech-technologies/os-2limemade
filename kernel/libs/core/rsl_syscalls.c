@@ -20,6 +20,7 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
     task_t* current = get_current_task();
     /* Guest Isolation: UID 2000+ cannot write to FS */
     bool guest_lock = (current && current->uid >= 2000);
+    void* arc_alloc(size_t size);
 
     switch(rax) {
         case 0: // print
@@ -130,6 +131,34 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
             if (current) *(uint32_t*)rbx = current->uid;
             break;
         }
+        case 112: { // rsl_user_create(name, pass, out_res)
+            const char* name = (const char*)rbx;
+            const char* pass = (const char*)rcx;
+            int* out_res = (int*)rdx;
+            /* In a Sovereign system, we store user metadata in BOOT:/sys/users.jsonl */
+            char path[128] = "BOOT:/sys/users.jsonl";
+            void* h = vfs_open(str_create(path), "a");
+            if (h) {
+                char entry[512];
+                /* JSONL entry: {"user": "name", "pass": "hash", "uid": 1000} */
+                int k = 0;
+                const char* head = "{\"user\":\"";
+                while(head[k]) { entry[k] = head[k]; k++; }
+                int nk = 0; while(name[nk]) { entry[k++] = name[nk++]; }
+                const char* mid = "\",\"pass\":\"";
+                int mk = 0; while(mid[mk]) { entry[k++] = mid[mk++]; }
+                int pk = 0; while(pass[pk]) { entry[k++] = pass[pk++]; }
+                const char* tail = "\",\"uid\":1000}\n";
+                int tk = 0; while(tail[tk]) { entry[k++] = tail[tk++]; }
+                entry[k] = '\0';
+                vfs_write(h, entry, k);
+                vfs_close(h);
+                if (out_res) *out_res = 0;
+            } else {
+                if (out_res) *out_res = -1;
+            }
+            break;
+        }
         case 120: { // rsl_write(path, content)
             if (!guest_lock) vfs_write_dispatch((void*)rbx, (void*)rcx);
             break;
@@ -163,7 +192,6 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
         }
         case 140: { // malloc
             void** out_ptr = (void**)rcx;
-            void* arc_alloc(size_t size);
             *out_ptr = arc_alloc((size_t)rbx);
             break;
         }
@@ -191,6 +219,35 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
         case 300: { // rsl_dispatch_command(line, curdir_ptr, is_safe_ptr)
             void rsl_dispatch_command(char* line, void** curdir_ptr, bool* is_safe_ptr);
             rsl_dispatch_command((char*)rbx, (void**)rcx, (bool*)rdx);
+            break;
+        }
+        case 301: { // rsl_mount_vfs(disk_id, name)
+            int drive = (int)rbx;
+            const char* name = (const char*)rcx;
+            void* internal_fs_ls(void* path, void* priv);
+            void* internal_fs_cat(void* path, void* priv);
+            void* internal_fs_write(void* path, void* content, void* priv);
+            void* internal_fs_mkdir(void* path, void* priv);
+            void* internal_fs_rmdir(void* path, void* priv);
+            bool internal_fs_exists(void* path, void* priv);
+
+            FATFS* fs = arc_alloc(sizeof(FATFS));
+            if (f_mount(fs, drive) == FR_OK) {
+                vfs_node_t node = {
+                    .private_data = fs,
+                    .ls = (void*)internal_fs_ls,
+                    .cat = (void*)internal_fs_cat,
+                    .write = (void*)internal_fs_write,
+                    .mkdir = (void*)internal_fs_mkdir,
+                    .rmdir = (void*)internal_fs_rmdir,
+                    .exists = (void*)internal_fs_exists
+                };
+                int k = 0; while(name[k] && k < 15) { node.name[k] = name[k]; k++; } node.name[k] = '\0';
+                vfs_register_node(node);
+                *(int*)rdx = 0;
+            } else {
+                *(int*)rdx = -1;
+            }
             break;
         }
     }

@@ -1,0 +1,62 @@
+[
+  {
+    "id": 1,
+    "desc": "Establish CI & Manifest Infrastructure",
+    "status": "completed"
+  },
+  {
+    "id": 2,
+    "desc": "Implement PCI Driver Registration Subsystem",
+    "status": "pending"
+  },
+  {
+    "id": 3,
+    "desc": "Refactor AHCI to PCI Driver Model",
+    "status": "pending"
+  },
+  {
+    "id": 4,
+    "desc": "Resolve SATA Boot Loop & Install Logistics",
+    "status": "pending"
+  },
+  {
+    "id": 5,
+    "desc": "Implement User Management Syscalls",
+    "status": "pending"
+  },
+  {
+    "id": 6,
+    "desc": "Add OOBE User Creation to Cargo",
+    "status": "pending"
+  },
+  {
+    "id": 7,
+    "desc": "Implement NVMe Admin Queue & Registration",
+    "status": "pending"
+  },
+  {
+    "id": 8,
+    "desc": "Implement NVMe I/O Queues & PRP Logic",
+    "status": "pending"
+  },
+  {
+    "id": 9,
+    "desc": "Implement xHCI Driver & BIOS Handover",
+    "status": "pending"
+  },
+  {
+    "id": 10,
+    "desc": "Integrate Delta-Move Flush GUI Optimization",
+    "status": "pending"
+  },
+  {
+    "id": 11,
+    "desc": "Build Mock Desktop & Sovereign Tutorial",
+    "status": "pending"
+  },
+  {
+    "id": 12,
+    "desc": "Implement Forensic Reveal Logging",
+    "status": "pending"
+  }
+]

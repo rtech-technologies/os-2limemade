@@ -169,6 +169,11 @@ static uint32_t vga_colors[] = {
 static int cursor_x = 0;
 static int cursor_y = 0;
 static bool cursor_visible = true;
+static bool force_verbose = false;
+
+void vga_force_verbose(void) {
+    force_verbose = true;
+}
 
 #define SCALE 2
 
@@ -208,6 +213,8 @@ void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
 
 void vga_write_char(char c, uint8_t color_attr) {
     serial_write_char(c);
+
+    if (force_verbose) color_attr = 0x07; /* Force light gray on black */
 
     /* Ignore non-printable gibberish except for key control codes */
     if ((uint8_t)c < 32 && c != '\n' && c != '\r' && c != '\b' && c != '\t') return;

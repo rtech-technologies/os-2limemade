@@ -1,0 +1,10 @@
+{
+  "nuklear_repo_path": "kernel/libs/rtc64/nuklear",
+  "nuklear_local_hash": "NONE",
+  "rtc64_local_hash": "NONE",
+  "build_toolchain": {
+    "cc": "gcc",
+    "ld": "ld"
+  },
+  "build_timestamp": "2024-05-23T00:00:00Z"
+}

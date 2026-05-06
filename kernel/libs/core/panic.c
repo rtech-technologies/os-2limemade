@@ -180,6 +180,10 @@ void quartermaster_panic(const char* message, void* state) {
     // 1. Absolute Silence
     __asm__ volatile ("cli");
 
+    /* Quartermaster: Forensic Reveal */
+    extern void vga_force_verbose(void);
+    vga_force_verbose();
+
     serial_write_str("\n\n!!! MECHANICAL FAILURE: SYSTEM HALTED !!!\n");
     if (message) {
         serial_write_str("DIAGNOSTIC MESSAGE: ");
