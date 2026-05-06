@@ -32,12 +32,12 @@
   {
     "id": 7,
     "desc": "Implement NVMe Admin Queue & Registration",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "id": 8,
     "desc": "Implement NVMe I/O Queues & PRP Logic",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "id": 9,

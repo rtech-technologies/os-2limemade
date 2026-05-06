@@ -50,7 +50,9 @@ void register_task(void (*entry_point)(void), uint32_t slab_id) {
         uint8_t* p_ctx = (uint8_t*)ctx;
         for (size_t i = 0; i < sizeof(cpu_context_t); i++) p_ctx[i] = 0;
 
-        ctx->rip = (uint64_t)entry_point ? (uint64_t)entry_point : (uint64_t)idle_task;
+        uint64_t ep = (uint64_t)(entry_point ? (uint64_t)entry_point : (uint64_t)idle_task);
+        if (ep < 0x0000800000000000ULL) ep += 0xffffffff80000000ULL;
+        ctx->rip = ep;
         ctx->cs = 0x08;
         ctx->ss = 0x10;
         ctx->rflags = 0x202;
