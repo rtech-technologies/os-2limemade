@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <limine.h>
 
+struct limine_memmap_response* get_memmap(void);
+
 static inline void outb(uint16_t port, uint8_t val) {
     __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
 }
@@ -229,34 +231,174 @@ void quartermaster_panic(const char* message, void* state) {
         draw_string(50, 210, "FORENSIC REGISTER DUMP:", 0xFFFFFF00);
         serial_write_str("FORENSIC REGISTER DUMP:\n");
 
-        // RIP (Where the crash happened)
-        int_to_hex(regs->rip, buf);
-        draw_string(70, 230, "RIP: ", 0xFFFFFFFF); draw_string(120, 230, buf, 0xFFFFFFFF);
-        serial_write_str("  RIP: "); serial_write_str(buf); serial_write_str("\n");
+        int x1 = 70, x2 = 300, y = 230, step = 20;
 
-        // RSP (The Stack Pointer - Current suspect)
-        int_to_hex(regs->rsp, buf);
-        draw_string(70, 250, "RSP: ", 0xFFFFFFFF); draw_string(120, 250, buf, 0xFFFFFFFF);
-        serial_write_str("  RSP: "); serial_write_str(buf); serial_write_str("\n");
+        // Row 1
+        int_to_hex(regs->rax, buf); draw_string(x1, y, "RAX:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
+        int_to_hex(regs->rbx, buf); draw_string(x2, y, "RBX:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
+        y += step;
 
-        // RAX/RBX
-        int_to_hex(regs->rax, buf);
-        draw_string(70, 270, "RAX: ", 0xFFFFFFFF); draw_string(120, 270, buf, 0xFFFFFFFF);
-        serial_write_str("  RAX: "); serial_write_str(buf); serial_write_str("\n");
+        // Row 2
+        int_to_hex(regs->rcx, buf); draw_string(x1, y, "RCX:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
+        int_to_hex(regs->rdx, buf); draw_string(x2, y, "RDX:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
+        y += step;
 
-        // Error Code (From the CPU)
-        int_to_hex(regs->error_code, buf);
-        draw_string(70, 290, "ERR: ", 0xFFFFFFFF); draw_string(120, 290, buf, 0xFFFFFFFF);
-        serial_write_str("  ERR: "); serial_write_str(buf); serial_write_str("\n");
+        // Row 3
+        int_to_hex(regs->rsi, buf); draw_string(x1, y, "RSI:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
+        int_to_hex(regs->rdi, buf); draw_string(x2, y, "RDI:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
+        y += step;
 
-        // Analysis
-        uint64_t hhdm = get_hhdm_offset();
-        bool in_kernel = (regs->rsp >= 0xffffffff80000000);
-        bool in_hhdm = (hhdm != 0 && regs->rsp >= hhdm && regs->rsp < hhdm + 0x400000000000);
+        // Row 4
+        int_to_hex(regs->rbp, buf); draw_string(x1, y, "RBP:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
+        int_to_hex(regs->rsp, buf); draw_string(x2, y, "RSP:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
+        y += step;
 
-        if (!in_kernel && !in_hhdm) {
-            draw_string(50, 330, "QUARTERMASTER ANALYSIS: RSP OUT OF KERNEL BOUNDS", 0xFF00FF00); // Green analysis
+        // Row 5
+        int_to_hex(regs->r8, buf);  draw_string(x1, y, "R8: ", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
+        int_to_hex(regs->r9, buf);  draw_string(x2, y, "R9: ", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
+        y += step;
+
+        // Row 6
+        int_to_hex(regs->r10, buf); draw_string(x1, y, "R10:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
+        int_to_hex(regs->r11, buf); draw_string(x2, y, "R11:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
+        y += step;
+
+        // Row 7
+        int_to_hex(regs->r12, buf); draw_string(x1, y, "R12:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
+        int_to_hex(regs->r13, buf); draw_string(x2, y, "R13:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
+        y += step;
+
+        // Row 8
+        int_to_hex(regs->r14, buf); draw_string(x1, y, "R14:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
+        int_to_hex(regs->r15, buf); draw_string(x2, y, "R15:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
+        y += step;
+
+        // Row 9 (Segments)
+        uint16_t ds, es, fs, gs;
+        __asm__ volatile ("mov %%ds, %0" : "=r"(ds));
+        __asm__ volatile ("mov %%es, %0" : "=r"(es));
+        __asm__ volatile ("mov %%fs, %0" : "=r"(fs));
+        __asm__ volatile ("mov %%gs, %0" : "=r"(gs));
+        int_to_hex(regs->cs, buf); draw_string(x1, y, "CS:", 0xAAAAAA); draw_string(x1+30, y, buf, 0xFFFFFFFF);
+        int_to_hex(regs->ss, buf); draw_string(x1+200, y, "SS:", 0xAAAAAA); draw_string(x1+230, y, buf, 0xFFFFFFFF);
+        int_to_hex(ds, buf);       draw_string(x2, y, "DS:", 0xAAAAAA); draw_string(x2+30, y, buf, 0xFFFFFFFF);
+        int_to_hex(es, buf);       draw_string(x2+200, y, "ES:", 0xAAAAAA); draw_string(x2+230, y, buf, 0xFFFFFFFF);
+        y += step;
+        int_to_hex(fs, buf);       draw_string(x1, y, "FS:", 0xAAAAAA); draw_string(x1+30, y, buf, 0xFFFFFFFF);
+        int_to_hex(gs, buf);       draw_string(x1+200, y, "GS:", 0xAAAAAA); draw_string(x1+230, y, buf, 0xFFFFFFFF);
+        y += step * 1.5;
+
+        // Row 11 (Control)
+        int_to_hex(regs->rip, buf); draw_string(x1, y, "RIP:", 0x55FF55); draw_string(x1+40, y, buf, 0xFFFFFFFF);
+        int_to_hex(regs->rflags, buf); draw_string(x2, y, "FLG:", 0x55FF55); draw_string(x2+40, y, buf, 0xFFFFFFFF);
+        y += step;
+
+        // Row 12 (Fault Info)
+        int_to_hex(regs->interrupt_number, buf); draw_string(x1, y, "INT:", 0xFF5555); draw_string(x1+40, y, buf, 0xFFFFFFFF);
+        int_to_hex(regs->error_code, buf); draw_string(x2, y, "ERR:", 0xFF5555); draw_string(x2+40, y, buf, 0xFFFFFFFF);
+        y += step * 1.5;
+
+        // Task Information
+        #include <kernel/unice64/task.h>
+        extern task_t* get_current_task(void);
+        task_t* curr = get_current_task();
+        if (curr) {
+            draw_string(x1, y, "CURRENT TASK:", 0xFFFFFF00);
+            y += step;
+            int_to_hex(curr->id, buf);      draw_string(x1, y, "ID: ", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
+            int_to_hex(curr->uid, buf);     draw_string(x1+200, y, "UID:", 0xAAAAAA); draw_string(x1+240, y, buf, 0xFFFFFFFF);
+            int_to_hex(curr->slab_id, buf); draw_string(x2+100, y, "SLAB:", 0xAAAAAA); draw_string(x2+140, y, buf, 0xFFFFFFFF);
+            y += step * 1.5;
         }
+
+        // System Inventory
+        draw_string(x1, y, "SYSTEM INVENTORY:", 0xFFFFFF00);
+        y += step;
+
+        extern int get_hw_disk_count(void);
+        int disks = get_hw_disk_count();
+        draw_string(x1, y, "DISKS: ", 0xAAAAAA);
+        buf[0] = (disks % 10) + '0'; buf[1] = '\0';
+        draw_string(x1+60, y, buf, 0xFFFFFFFF);
+
+        struct limine_memmap_response* mmap = get_memmap();
+        if (mmap) {
+            uint64_t usable = 0;
+            for (uint64_t i = 0; i < mmap->entry_count; i++) {
+                if (mmap->entries[i]->type == LIMINE_MEMMAP_USABLE) usable += mmap->entries[i]->length;
+            }
+            draw_string(x2, y, "RAM USABLE (MB):", 0xAAAAAA);
+            int_to_hex(usable / 1024 / 1024, buf);
+            draw_string(x2+120, y, buf, 0xFFFFFFFF);
+        }
+        y += step * 1.5;
+
+        // Build Metadata
+        draw_string(x1, y, "BUILD METADATA:", 0xFFFFFF00);
+        y += step;
+        draw_string(x1, y, "OSx2 LIMEMADE - MECHANICAL TRUTH - 2024-05-23", 0xAAAAAA);
+        y += step;
+        draw_string(x1, y, "GIT HASH: ffffffff8000d398-RELEASE-STABLE", 0xAAAAAA);
+
+        serial_write_str("  RIP: "); int_to_hex(regs->rip, buf); serial_write_str(buf); serial_write_str("\n");
+        serial_write_str("  RSP: "); int_to_hex(regs->rsp, buf); serial_write_str(buf); serial_write_str("\n");
+
+        y += step;
+        draw_string(x1, y, "CONTROL REGISTERS:", 0xFFFFFF00);
+        y += step;
+
+        uint64_t cr0, cr2, cr3, cr4;
+        __asm__ volatile ("mov %%cr0, %0" : "=r"(cr0));
+        __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+        __asm__ volatile ("mov %%cr3, %0" : "=r"(cr3));
+        __asm__ volatile ("mov %%cr4, %0" : "=r"(cr4));
+
+        int_to_hex(cr0, buf); draw_string(x1, y, "CR0:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
+        int_to_hex(cr2, buf); draw_string(x2, y, "CR2:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
+        y += step;
+        int_to_hex(cr3, buf); draw_string(x1, y, "CR3:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
+        int_to_hex(cr4, buf); draw_string(x2, y, "CR4:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
+        y += step;
+
+        if (regs->interrupt_number == 14) {
+             draw_string(x1, y, "PF ANALYSIS: ", 0xFF5555);
+             if (cr2 < 0x1000) draw_string(x1+100, y, "NULL POINTER DEREFERENCE", 0xFFFFFFFF);
+             else draw_string(x1+100, y, "PAGE PRIVILEGE OR PROTECTION VIOLATION", 0xFFFFFFFF);
+             y += step;
+        }
+        y += step * 0.5;
+
+        // Stack Trace (Top 16 values)
+        draw_string(x1, y, "STACK DUMP (RSP):", 0xFFFFFF00);
+        y += step;
+        uint64_t* stack = (uint64_t*)regs->rsp;
+        for (int i = 0; i < 8; i++) {
+            int_to_hex(stack[i], buf);
+            draw_string(x1, y, buf, 0x55FFFF);
+            int_to_hex(stack[i+8], buf);
+            draw_string(x2, y, buf, 0x55FFFF);
+            y += step;
+        }
+
+        y += step * 0.5;
+        draw_string(x1, y, "CPU FLAGS STATE:", 0xFFFFFF00);
+        y += step;
+
+        /* Expanded Flags Decode */
+        const char* flags_desc = (regs->rflags & (1 << 9)) ? "IF:1 (Interrupts ON)" : "IF:0 (Interrupts OFF)";
+        draw_string(x1, y, flags_desc, 0xAAAAAA);
+        y += step;
+        flags_desc = (regs->rflags & (1 << 10)) ? "DF:1 (Direction DOWN)" : "DF:0 (Direction UP)";
+        draw_string(x1, y, flags_desc, 0xAAAAAA);
+        y += step;
+
+        /* IDT/GDT Audit */
+        uint64_t idtr[2], gdtr[2];
+        __asm__ volatile ("sidt %0" : "=m"(idtr));
+        __asm__ volatile ("sgdt %0" : "=m"(gdtr));
+        draw_string(x1, y, "IDTR:", 0xAAAAAA); int_to_hex(idtr[1], buf); draw_string(x1+50, y, buf, 0xFFFFFFFF);
+        draw_string(x2, y, "GDTR:", 0xAAAAAA); int_to_hex(gdtr[1], buf); draw_string(x2+50, y, buf, 0xFFFFFFFF);
+        y += step;
     }
 
     // 6. Eternal Halt
