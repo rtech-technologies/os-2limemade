@@ -346,6 +346,10 @@ void quartermaster_panic(const char* message, void* state) {
         serial_write_str("  RCX: "); int_to_hex(regs->rcx, buf); serial_write_str(buf); serial_write_str("  RDX: "); int_to_hex(regs->rdx, buf); serial_write_str(buf); serial_write_str("\n");
         serial_write_str("  RSI: "); int_to_hex(regs->rsi, buf); serial_write_str(buf); serial_write_str("  RDI: "); int_to_hex(regs->rdi, buf); serial_write_str(buf); serial_write_str("\n");
         serial_write_str("  RBP: "); int_to_hex(regs->rbp, buf); serial_write_str(buf); serial_write_str("  RSP: "); int_to_hex(regs->rsp, buf); serial_write_str(buf); serial_write_str("\n");
+        serial_write_str("  R8 : "); int_to_hex(regs->r8, buf);  serial_write_str(buf); serial_write_str("  R9 : "); int_to_hex(regs->r9, buf);  serial_write_str(buf); serial_write_str("\n");
+        serial_write_str("  R10: "); int_to_hex(regs->r10, buf); serial_write_str(buf); serial_write_str("  R11: "); int_to_hex(regs->r11, buf); serial_write_str(buf); serial_write_str("\n");
+        serial_write_str("  R12: "); int_to_hex(regs->r12, buf); serial_write_str(buf); serial_write_str("  R13: "); int_to_hex(regs->r13, buf); serial_write_str(buf); serial_write_str("\n");
+        serial_write_str("  R14: "); int_to_hex(regs->r14, buf); serial_write_str(buf); serial_write_str("  R15: "); int_to_hex(regs->r15, buf); serial_write_str(buf); serial_write_str("\n");
         serial_write_str("  RIP: "); int_to_hex(regs->rip, buf); serial_write_str(buf); serial_write_str("  FLG: "); int_to_hex(regs->rflags, buf); serial_write_str(buf); serial_write_str("\n");
         serial_write_str("  INT: "); int_to_hex(regs->interrupt_number, buf); serial_write_str(buf); serial_write_str("  ERR: "); int_to_hex(regs->error_code, buf); serial_write_str(buf); serial_write_str("\n");
 
@@ -390,6 +394,7 @@ void quartermaster_panic(const char* message, void* state) {
 
         y += step;
         draw_string(x1, y, "CONTROL REGISTERS:", 0xFFFFFF00);
+        serial_write_str("CONTROL REGISTERS:\n");
         y += step;
 
         uint64_t cr0, cr2, cr3, cr4;
@@ -399,10 +404,14 @@ void quartermaster_panic(const char* message, void* state) {
         __asm__ volatile ("mov %%cr4, %0" : "=r"(cr4));
 
         int_to_hex(cr0, buf); draw_string(x1, y, "CR0:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
+        serial_write_str("  CR0: "); serial_write_str(buf);
         int_to_hex(cr2, buf); draw_string(x2, y, "CR2:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
+        serial_write_str("  CR2: "); serial_write_str(buf); serial_write_str("\n");
         y += step;
         int_to_hex(cr3, buf); draw_string(x1, y, "CR3:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
+        serial_write_str("  CR3: "); serial_write_str(buf);
         int_to_hex(cr4, buf); draw_string(x2, y, "CR4:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
+        serial_write_str("  CR4: "); serial_write_str(buf); serial_write_str("\n");
         y += step;
 
         if (regs->interrupt_number == 14) {
@@ -415,13 +424,16 @@ void quartermaster_panic(const char* message, void* state) {
 
         // Stack Trace (Top 16 values)
         draw_string(x1, y, "STACK DUMP (RSP):", 0xFFFFFF00);
+        serial_write_str("STACK DUMP (RSP):\n");
         y += step;
         uint64_t* stack = (uint64_t*)regs->rsp;
         for (int i = 0; i < 8; i++) {
             int_to_hex(stack[i], buf);
             draw_string(x1, y, buf, 0x55FFFF);
+            serial_write_str("  "); serial_write_str(buf);
             int_to_hex(stack[i+8], buf);
             draw_string(x2, y, buf, 0x55FFFF);
+            serial_write_str("  "); serial_write_str(buf); serial_write_str("\n");
             y += step;
         }
 
@@ -442,7 +454,9 @@ void quartermaster_panic(const char* message, void* state) {
         __asm__ volatile ("sidt %0" : "=m"(idtr));
         __asm__ volatile ("sgdt %0" : "=m"(gdtr));
         draw_string(x1, y, "IDTR:", 0xAAAAAA); int_to_hex(idtr[1], buf); draw_string(x1+50, y, buf, 0xFFFFFFFF);
+        serial_write_str("  IDTR: "); serial_write_str(buf);
         draw_string(x2, y, "GDTR:", 0xAAAAAA); int_to_hex(gdtr[1], buf); draw_string(x2+50, y, buf, 0xFFFFFFFF);
+        serial_write_str("  GDTR: "); serial_write_str(buf); serial_write_str("\n");
         y += step;
     }
 
