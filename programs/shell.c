@@ -88,6 +88,46 @@ void _start(void) {
              break;
         }
 
+        /* Real OS Login Handshake: JSONL Audit */
+        char jsonl_path[128] = "BOOT:/sys/users.jsonl";
+        if (rsl_exists(str_create(jsonl_path))) {
+            void* pass_input = input("Password: ");
+            if (pass_input) {
+                const char* pass = str_to_cstr(pass_input);
+                vfs_handle_t h = open_file(jsonl_path, "r");
+                if (h) {
+                    char buffer[4096];
+                    int br = read_file(h, buffer, 4095);
+                    buffer[br] = '\0';
+                    close_file(h);
+
+                    /* Primitive JSONL scan: {"user":"uname","pass":"pass" ... */
+                    char user_key[128] = "\"user\":\"";
+                    int uk = 8; int rk = 0; while(uname[rk]) user_key[uk++] = uname[rk++];
+                    user_key[uk++] = '\"'; user_key[uk] = '\0';
+
+                    char pass_key[128] = "\"pass\":\"";
+                    uk = 8; rk = 0; while(pass[rk]) pass_key[uk++] = pass[rk++];
+                    pass_key[uk++] = '\"'; pass_key[uk] = '\0';
+
+                    if (strstr(buffer, user_key) && strstr(buffer, pass_key)) {
+                        set_color(GREEN, BLACK);
+                        print("Access Granted. Welcome, "); print(uname); print(".\n");
+                        set_uid(1000);
+                        release(pass_input);
+                        release(user_input);
+                        break;
+                    }
+                }
+                set_color(RED, BLACK);
+                print("Mechanical Error: Credentials rejected.\n");
+                set_color(CYAN, BLACK);
+                release(pass_input);
+                release(user_input);
+                continue;
+            }
+        }
+
         char inf_path[128] = "BOOT:/users/";
         int uk = 12; int rk = 0;
         while(uname[rk]) inf_path[uk++] = uname[rk++];

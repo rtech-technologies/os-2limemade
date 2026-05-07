@@ -65,6 +65,7 @@ typedef struct {
 int rsl_get_fb(rsl_fb_t* fb);
 void rsl_input(const char* prompt, char* buffer);
 void sys_yield(void);
+char* strstr(const char* haystack, const char* needle);
 
 /* GUI Helpers */
 void gui_draw_rect(rsl_fb_t* fb, int x, int y, int w, int h, uint32_t color);

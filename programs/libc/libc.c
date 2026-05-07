@@ -242,3 +242,15 @@ bool rsl_exists(void* path) {
 void rsl_dispatch_command(char* line, void** curdir_ptr, bool* is_safe_ptr) {
     __asm__ volatile ("int $3" : : "a"((uint64_t)300), "b"((uint64_t)line), "c"((uint64_t)curdir_ptr), "d"((uint64_t)is_safe_ptr) : "memory");
 }
+
+char* strstr(const char* haystack, const char* needle) {
+    if (!*needle) return (char*)haystack;
+    for (; *haystack; haystack++) {
+        if (*haystack == *needle) {
+            const char *h, *n;
+            for (h = haystack, n = needle; *h && *n && *h == *n; h++, n++);
+            if (!*n) return (char*)haystack;
+        }
+    }
+    return NULL;
+}

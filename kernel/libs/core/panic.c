@@ -3,6 +3,10 @@
 #include <stdbool.h>
 #include <limine.h>
 
+static inline void outb(uint16_t port, uint8_t val) {
+    __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
+}
+
 // External Handshakes
 extern struct limine_framebuffer_response* get_framebuffer(void);
 uint64_t get_hhdm_offset(void);
@@ -256,5 +260,11 @@ void quartermaster_panic(const char* message, void* state) {
     }
 
     // 6. Eternal Halt
+    for (;;) { __asm__ volatile ("hlt"); }
+}
+
+void quartermaster_panic_reset(void) {
+    /* Hard reset via Keyboard Controller (legacy but effective in QEMU) */
+    outb(0x64, 0xFE);
     for (;;) { __asm__ volatile ("hlt"); }
 }
