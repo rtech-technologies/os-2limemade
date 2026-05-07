@@ -183,22 +183,28 @@ void _start(void) {
 
     /* Quartermaster Logistics: Cargo First */
     if (mount_success) {
-        if (!vfs_exists(str_create("BOOT:/users/"))) {
+        void* inst_path = str_create("BOOT:/sys/.installed");
+        if (!vfs_exists(inst_path)) {
             vga_print("[SNAP] Sovereign Installation not found. Engaging Cargo...\n");
             void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid);
             tasking_spawn_module(1, 3, 0); /* cargo.bin is typically module 1, Slab 3, UID 0 */
+        } else {
+            vga_print("[SNAP] Sovereign Installation verified.\n");
         }
+        release(inst_path);
     }
 
     /* Automated Sovereignty: Try to execute BOOT.RSL */
     void rsl_execute_stream(const char* path);
     if (mount_success) {
         const char* script_path = vdisk_is_atapi(boot_drive) ? "INITRD:/BOOT.RSL" : "BOOT:/BOOT.RSL";
-        if (vfs_exists(str_create(script_path))) {
+        void* s_path = str_create(script_path);
+        if (vfs_exists(s_path)) {
             serial_write_str("CHECKPOINT A: Executing stream...\n");
             rsl_execute_stream(script_path);
             serial_write_str("CHECKPOINT B: Stream finished.\n");
         }
+        release(s_path);
     }
 
     /* The main thread becomes an observer or a task.

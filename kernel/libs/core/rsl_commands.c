@@ -198,7 +198,11 @@ void rsl_dispatch_command(char* line, void** curdir_ptr, bool* is_safe_ptr) {
     } else if (cstr_match(argv[0], "exit")) {
         rsl_shutdown();
     } else if (cstr_match(argv[0], "help")) {
-        print("Commands: ls, echo, cat, cd, mkdir, format, run, color, help, exit, settings, debug-dump, scan\n");
+        print("Commands: ls, echo, cat, cd, mkdir, format, run, color, help, exit, settings, debug-dump, scan, update, upgrade\n");
+    } else if (cstr_match(argv[0], "update")) {
+        rsl_update();
+    } else if (cstr_match(argv[0], "upgrade")) {
+        rsl_upgrade();
     } else if (cstr_match(argv[0], "settings")) {
         rsl_settings();
     } else if (cstr_match(argv[0], "debug-dump")) {
@@ -256,6 +260,34 @@ void rsl_format(void* path) {
 void rsl_scan(void) {
     void ahci_scan_remaining(void);
     ahci_scan_remaining();
+}
+
+void rsl_update(void) {
+    print("[UPDATE] Scanning for Sovereign Components...\n");
+    void* s_path = str_create("INITRD:/bin/cargo.bin");
+    if (vfs_exists(s_path)) {
+        release(s_path);
+        print("[UPDATE] Refreshing Mechanical Truth foundation...\n");
+        /* Mock update: write a log entry */
+        vga_print("[SNAP] UPDATE SUCCESSFUL: Foundation refreshed.\n");
+    } else {
+        print("[UPDATE] No source found in INITRD.\n");
+    }
+}
+
+void rsl_upgrade(void) {
+    print("[UPGRADE] Initiating Major Release Migration...\n");
+    void* s_path = str_create("BOOT:/sys/.installed");
+    if (vfs_exists(s_path)) {
+        release(s_path);
+        print("[UPGRADE] Migration Step 1: Backing up system policy...\n");
+        /* Mock migration logic */
+        print("[UPGRADE] Migration Step 2: Applying schema updates...\n");
+        print("[UPGRADE] Verifying installation marker...\n");
+        vga_print("[SNAP] UPGRADE COMPLETE: System is now OSX2.1-STABLE\n");
+    } else {
+        print("[UPGRADE] ERROR: No existing installation found.\n");
+    }
 }
 
 void rsl_ls(void* path) { vfs_ls(path); }

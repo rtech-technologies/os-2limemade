@@ -2,6 +2,8 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <limine.h>
+#include <include/vfs.h>
+#include <include/rsl.h>
 
 struct limine_memmap_response* get_memmap(void);
 
@@ -340,8 +342,51 @@ void quartermaster_panic(const char* message, void* state) {
         y += step;
         draw_string(x1, y, "GIT HASH: ffffffff8000d398-RELEASE-STABLE", 0xAAAAAA);
 
-        serial_write_str("  RIP: "); int_to_hex(regs->rip, buf); serial_write_str(buf); serial_write_str("\n");
-        serial_write_str("  RSP: "); int_to_hex(regs->rsp, buf); serial_write_str(buf); serial_write_str("\n");
+        serial_write_str("  RAX: "); int_to_hex(regs->rax, buf); serial_write_str(buf); serial_write_str("  RBX: "); int_to_hex(regs->rbx, buf); serial_write_str(buf); serial_write_str("\n");
+        serial_write_str("  RCX: "); int_to_hex(regs->rcx, buf); serial_write_str(buf); serial_write_str("  RDX: "); int_to_hex(regs->rdx, buf); serial_write_str(buf); serial_write_str("\n");
+        serial_write_str("  RSI: "); int_to_hex(regs->rsi, buf); serial_write_str(buf); serial_write_str("  RDI: "); int_to_hex(regs->rdi, buf); serial_write_str(buf); serial_write_str("\n");
+        serial_write_str("  RBP: "); int_to_hex(regs->rbp, buf); serial_write_str(buf); serial_write_str("  RSP: "); int_to_hex(regs->rsp, buf); serial_write_str(buf); serial_write_str("\n");
+        serial_write_str("  RIP: "); int_to_hex(regs->rip, buf); serial_write_str(buf); serial_write_str("  FLG: "); int_to_hex(regs->rflags, buf); serial_write_str(buf); serial_write_str("\n");
+        serial_write_str("  INT: "); int_to_hex(regs->interrupt_number, buf); serial_write_str(buf); serial_write_str("  ERR: "); int_to_hex(regs->error_code, buf); serial_write_str(buf); serial_write_str("\n");
+
+        // Machine-parsable JSON dump to serial
+        serial_write_str("\n--- BEGIN PANIC JSON ---\n");
+        serial_write_str("{\"panic\":{\"message\":\"");
+        serial_write_str(message ? message : "NONE");
+        serial_write_str("\",\"regs\":{\"rax\":\""); int_to_hex(regs->rax, buf); serial_write_str(buf);
+        serial_write_str("\",\"rbx\":\""); int_to_hex(regs->rbx, buf); serial_write_str(buf);
+        serial_write_str("\",\"rip\":\""); int_to_hex(regs->rip, buf); serial_write_str(buf);
+        serial_write_str("\",\"rsp\":\""); int_to_hex(regs->rsp, buf); serial_write_str(buf);
+        serial_write_str("\"},\"interrupt\":");
+        int_to_hex(regs->interrupt_number, buf); serial_write_str(buf);
+        serial_write_str(",\"error\":");
+        int_to_hex(regs->error_code, buf); serial_write_str(buf);
+        serial_write_str("}}\n");
+        serial_write_str("--- END PANIC JSON ---\n\n");
+
+        // Attempt to write to disk if FS is mounted and not in safe mode
+        extern bool vfs_is_safe_mode(void);
+        if (!vfs_is_safe_mode()) {
+            void* path = str_create("BOOT:/var/crash/panic.log");
+            vfs_handle_t* h = vfs_open(path, "w");
+            if (h) {
+                char crash_buf[1024];
+                int len = 0;
+                const char* head = "{\"panic\":{\"message\":\"";
+                while(head[len]) { crash_buf[len] = head[len]; len++; }
+                int ml = 0; while(message && message[ml] && len < 1000) { crash_buf[len++] = message[ml++]; }
+                const char* mid = "\",\"rip\":\"";
+                int midl = 0; while(mid[midl]) { crash_buf[len++] = mid[midl++]; }
+                int_to_hex(regs->rip, buf);
+                for(int i=0; i<18; i++) crash_buf[len++] = buf[i];
+                const char* tail = "\"}}\n";
+                int tl = 0; while(tail[tl]) { crash_buf[len++] = tail[tl++]; }
+                vfs_write(h, crash_buf, len);
+                vfs_close(h);
+                serial_write_str("[SNAP] Crash log written to BOOT:/var/crash/panic.log\n");
+            }
+            release(path);
+        }
 
         y += step;
         draw_string(x1, y, "CONTROL REGISTERS:", 0xFFFFFF00);

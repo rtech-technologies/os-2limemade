@@ -98,20 +98,58 @@ void _start(void) {
         while(1) __asm__ volatile ("pause");
     }
 
+    /* Selection Logic */
+    int target_disk = -1;
+    for (int i = 0; i < disks; i++) {
+        char name[32];
+        uint64_t size;
+        get_disk_info(i, name, &size);
+
+        char info[64];
+        /* Simple manual int-to-string for size */
+        int size_mb = (int)(size / 1024 / 1024);
+        // Using a fake sprintf-like construct
+        const char* type = "SATA";
+        if (name[0] == 'N' && name[1] == 'V') type = "NVMe";
+
+        gui_draw_text(&fb, px + 100, py + 250 + (i * 20), name, COLOR_TEXT);
+        if (target_disk == -1 && size_mb > 0) target_disk = i;
+    }
+
+    if (target_disk == -1) target_disk = 0;
+
     /* Auto-installer logic (Simplified for demo) */
-    int target_disk = 0;
     int res = -1;
+    print("[CARGO] Selected target disk index: ");
+    /* Simple integer print would be nice here but keeping it minimal */
+
+    gui_draw_text(&fb, px + 50, py + 370, "PREPARING DISK...", COLOR_PRIMARY);
     if (partition_disk(target_disk) == 0 && format_disk(target_disk) == 0) {
-        /* Force mount the newly formatted SATA disk as DATA for OOBE */
+        /* Force mount the newly formatted disk as DATA for OOBE */
         __asm__ volatile ("int $3" : : "a"((uint64_t)301), "b"((uint64_t)target_disk), "c"((uint64_t)"DATA"), "d"((uint64_t)&res) : "memory");
 
+        gui_draw_text(&fb, px + 50, py + 370, "DEPLOYING SOVEREIGN ROOT...          ", COLOR_PRIMARY);
+        mkdir("DATA:/sys");
+        mkdir("DATA:/var");
+        mkdir("DATA:/var/log");
+        mkdir("DATA:/var/crash");
         mkdir("DATA:/users");
         mkdir("DATA:/bin");
-        mkdir("DATA:/sys");
-        write_file("DATA:/CHANGELOG.txt", "SYSTEM INSTALLED VIA GUI\n");
+
+        write_file("DATA:/var/log/install.log", "[CARGO] Sovereign Installation Started\n");
+        write_file("DATA:/CHANGELOG.txt", "SYSTEM INSTALLED VIA GUI - OSX2 UPDATE UPGRADE EDITION\n");
 
         /* Create default user 'sovereign' (Syscall 112) */
         __asm__ volatile ("int $3" : : "a"((uint64_t)112), "b"((uint64_t)"sovereign"), "c"((uint64_t)"password"), "d"((uint64_t)&res) : "memory");
+
+        /* Create guest user for default isolation (UID 2000+) */
+        __asm__ volatile ("int $3" : : "a"((uint64_t)112), "b"((uint64_t)"guest"), "c"((uint64_t)"guest"), "d"((uint64_t)&res) : "memory");
+
+        /* Initialize Security Policy: UID 2000+ are Guest isolated */
+        write_file("DATA:/sys/policy.conf", "GUEST_MIN_UID=2000\nWRITE_PROTECT=/sys,/bin\n");
+
+        /* Write persistent install marker */
+        write_file("DATA:/sys/.installed", "OSX2_VERSION=1.0\nSTATUS=SUCCESS\nCHECKSUM=DEADBEEF\n");
 
         print("[CARGO] Installation payload delivered to SATA HDD.\n");
     }

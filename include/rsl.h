@@ -46,6 +46,8 @@ void rsl_copy(void* str);
 void* rsl_paste(void);
 void rsl_settings(void);
 void rsl_debug_dump(void);
+void rsl_update(void);
+void rsl_upgrade(void);
 
 /* Storage and Partitioning Syscalls */
 int rsl_list_disks(void);

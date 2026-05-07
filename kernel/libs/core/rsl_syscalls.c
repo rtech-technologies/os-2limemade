@@ -135,9 +135,22 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
             const char* name = (const char*)rbx;
             const char* pass = (const char*)rcx;
             int* out_res = (int*)rdx;
-            /* In a Sovereign system, we store user metadata in BOOT:/sys/users.jsonl */
-            char path[128] = "BOOT:/sys/users.jsonl";
-            void* h = vfs_open(str_create(path), "a");
+
+            /* Check if name is 'guest' to assign guest UID */
+            int uid = 1000;
+            if (name[0] == 'g' && name[1] == 'u' && name[2] == 'e' && name[3] == 's' && name[4] == 't' && name[5] == '\0') {
+                uid = 2000;
+            }
+
+            /* In a Sovereign system, we store user metadata in DATA:/sys/users.jsonl or BOOT:/sys/users.jsonl */
+            void* dsys = str_create("DATA:/sys");
+            const char* path_to_try = vfs_exists(dsys) ? "DATA:/sys/users.jsonl" : "BOOT:/sys/users.jsonl";
+            release(dsys);
+
+            void* s_path = str_create(path_to_try);
+            void* h = vfs_open(s_path, "a");
+            release(s_path);
+
             if (h) {
                 char entry[512];
                 /* JSONL entry: {"user": "name", "pass": "hash", "uid": 1000} */
@@ -148,9 +161,14 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
                 const char* mid = "\",\"pass\":\"";
                 int mk = 0; while(mid[mk]) { entry[k++] = mid[mk++]; }
                 int pk = 0; while(pass[pk]) { entry[k++] = pass[pk++]; }
-                const char* tail = "\",\"uid\":1000}\n";
-                int tk = 0; while(tail[tk]) { entry[k++] = tail[tk++]; }
-                entry[k] = '\0';
+                const char* tail_head = "\",\"uid\":";
+                int thk = 0; while(tail_head[thk]) { entry[k++] = tail_head[thk++]; }
+
+                // Manual int to string for UID
+                if (uid == 2000) { entry[k++] = '2'; entry[k++] = '0'; entry[k++] = '0'; entry[k++] = '0'; }
+                else { entry[k++] = '1'; entry[k++] = '0'; entry[k++] = '0'; entry[k++] = '0'; }
+
+                entry[k++] = '}'; entry[k++] = '\n'; entry[k] = '\0';
                 vfs_write(h, entry, k);
                 vfs_close(h);
                 if (out_res) *out_res = 0;
