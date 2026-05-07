@@ -25,8 +25,9 @@ typedef struct {
     task_state_t state;
     cpu_context_t context;
     uint32_t slab_id;
+    uint32_t padding;
     uint64_t kernel_stack_top;
-} __attribute__((packed)) task_t;
+} task_t; /* 192 Bytes total, naturally aligned */
 
 void unice64_schedule(void);
 void unice64_scheduler_init(void);

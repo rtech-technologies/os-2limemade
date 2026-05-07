@@ -51,7 +51,11 @@ void register_task(void (*entry_point)(void), uint32_t slab_id) {
         for (size_t i = 0; i < sizeof(cpu_context_t); i++) p_ctx[i] = 0;
 
         uint64_t ep = (uint64_t)(entry_point ? (uint64_t)entry_point : (uint64_t)idle_task);
-        if (ep < 0x0000800000000000ULL) ep += 0xffffffff80000000ULL;
+        /* If physical/low-half address, add HHDM offset */
+        if (ep < 0x0000800000000000ULL) {
+            uint64_t get_hhdm_offset(void);
+            ep += get_hhdm_offset();
+        }
         task_table[idx].context.rip = ep;
         task_table[idx].context.cs = 0x08;
         task_table[idx].context.ss = 0x10;

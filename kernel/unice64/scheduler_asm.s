@@ -8,7 +8,17 @@
 .extern __text_start
 .extern __text_end
 
-# cpu_context_t layout (8 bytes each)
+# task_t layout offsets (Based on packed/aligned size)
+.set task_t_id, 0
+.set task_t_uid, 4
+.set task_t_uaid, 8
+.set task_t_state, 12
+.set task_t_context, 16
+.set task_t_slab_id, 168
+.set task_t_padding, 172
+.set task_t_kernel_stack_top, 176
+
+# cpu_context_t layout (8 bytes each, starting at task_t_context)
 .set ctx_r15, 0
 .set ctx_r14, 8
 .set ctx_r13, 16
@@ -62,7 +72,7 @@ unice64_context_switch:
 
     call get_current_task
     mov %rax, %rdi
-    add $16, %rdi # Correct: id(4)+uid(4)+uaid(4)+state(4)=16
+    add $task_t_context, %rdi
 
     # Store GPRs
     mov 0(%r12), %rbx;  mov %rbx, ctx_r15(%rdi)
@@ -98,20 +108,17 @@ unice64_context_switch:
     # 3. Load state of the task being switched IN
     call get_current_task
     mov %rax, %rsi
-    add $16, %rsi # Skip metadata (16 bytes)
+    add $task_t_context, %rsi
 
     # RIP Safety Check
     mov ctx_rip(%rsi), %rdx
     test %rdx, %rdx
     jz .handle_invalid_rip
 
-    # Boundary Check
-    movabsq $__text_start, %rax
-    cmp %rax, %rdx
-    jb .handle_invalid_rip
-    movabsq $__text_end, %rax
-    cmp %rax, %rdx
-    jae .handle_invalid_rip
+    # Boundary Check (Canonical Higher-Half: Bit 63 must be set)
+    movabsq $0x8000000000000000, %rax
+    test %rax, %rdx
+    jz .handle_invalid_rip
 
     # RIP is valid, restore
     mov ctx_rsp(%rsi), %rax
@@ -142,9 +149,9 @@ unice64_context_switch:
     iretq
 
 .handle_invalid_rip:
-    # %rsi = &next->context, %rdx = invalid RIP
-    mov %rdx, %rax           # Save invalid RIP
-    mov 144(%rsi), %rdx      # RSP (Arg 3)
+    # Save context for panic diagnostic
+    mov %rdx, %rax           # invalid RIP
+    mov ctx_rsp(%rsi), %rdx  # RSP (Arg 3)
     mov %rax, %rsi           # RIP (Arg 2)
     lea .msg_bad_rip(%rip), %rdi # msg (Arg 1)
 
