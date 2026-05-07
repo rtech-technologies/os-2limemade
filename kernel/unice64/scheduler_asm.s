@@ -149,11 +149,15 @@ unice64_context_switch:
     iretq
 
 .handle_invalid_rip:
-    # Save context for panic diagnostic
-    mov %rdx, %rax           # invalid RIP
-    mov ctx_rsp(%rsi), %rdx  # RSP (Arg 3)
-    mov %rax, %rsi           # RIP (Arg 2)
-    lea .msg_bad_rip(%rip), %rdi # msg (Arg 1)
+    # Save parameters for C call (Arg 2: RIP, Arg 3: RSP)
+    # At entry: %rsi = &next->context, %rdx = invalid RIP
+    mov %rdx, %rax           # Save invalid RIP
+    mov 144(%rsi), %rdx      # Load next->context.rsp into %rdx (Arg 3)
+    mov %rax, %rsi           # Move invalid RIP into %rsi (Arg 2)
+    lea .msg_bad_rip(%rip), %rdi # Arg 1: Message
+
+    /* Quartermaster: Mechanical Truth Lock */
+    cli
 
     # Quartermaster: ABI alignment for diagnostic call
     mov %rsp, %rbp

@@ -41,6 +41,10 @@ void _start(void) {
     pmm_init();
     slab_init();
 
+    /* Initialize Active-Relay Multitasking early to provide TCB fallback */
+    void unice64_scheduler_init(void);
+    unice64_scheduler_init();
+
     /* Pre-register IDT to catch early faults */
     idt_init();
 
@@ -171,7 +175,7 @@ void _start(void) {
 
     dispatch_event(EVENT_MAIN);
 
-    /* Initialize Active-Relay Multitasking */
+    /* Initialize High-level Tasks */
     tasking_init();
     /* Initialize APIC for system_ticks (One-Shot Mode) */
     apic_init();

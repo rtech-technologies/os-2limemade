@@ -30,8 +30,8 @@ void print(const char* s) {
     sys_yield(); /* Sovereign Active-Relay Rule: Yield after print */
 }
 
-static void print_num(uint32_t n, int base) {
-    char buf[32];
+static void print_num(uint64_t n, int base) {
+    char buf[64];
     int i = 0;
     if (n == 0) {
         vga_write_char('0', current_color_val);
@@ -56,9 +56,12 @@ void vga_print(const char* fmt, ...) {
             i++;
             if (fmt[i] == 'd') {
                 int n = __builtin_va_arg(args, int);
-                print_num(n, 10);
+                print_num((uint64_t)n, 10);
             } else if (fmt[i] == 'x') {
-                uint32_t n = __builtin_va_arg(args, uint32_t);
+                uint64_t n = __builtin_va_arg(args, uint64_t);
+                print_num(n, 16);
+            } else if (fmt[i] == 'p') {
+                uint64_t n = (uint64_t)__builtin_va_arg(args, void*);
                 print_num(n, 16);
             } else if (fmt[i] == 's') {
                 char* s = __builtin_va_arg(args, char*);

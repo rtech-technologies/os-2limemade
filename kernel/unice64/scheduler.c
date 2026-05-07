@@ -30,6 +30,10 @@ void unice64_scheduler_init(void) {
     task_count = 0;
     current_task_idx = 0;
     scheduler_active = false;
+
+    /* Ensure Task 0 is always the Idle Task for fallback safety */
+    void idle_task(void);
+    register_task(idle_task, 0);
 }
 
 void idle_task(void);
@@ -111,12 +115,11 @@ void system_task(void) {
 }
 
 void tasking_init(void) {
-    unice64_scheduler_init();
-    register_task(idle_task, 0);
+    /* Idle task is already registered as Task 0 in scheduler_init */
     register_task(task_shell, 1);
     register_task(system_task, 2);
     scheduler_active = true;
-    vga_print("[UNICE64] Multitasking initialized (3 tasks).\n");
+    vga_print("[UNICE64] Multitasking core active (%d tasks).\n", task_count);
 }
 
 void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid) {

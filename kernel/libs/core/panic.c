@@ -265,6 +265,7 @@ void quartermaster_panic(const char* message, void* state) {
 
 void quartermaster_panic_reset(void) {
     /* Hard reset via Keyboard Controller (legacy but effective in QEMU) */
+    serial_write_str("[SNAP] INITIATING MECHANICAL RESET\n");
     outb(0x64, 0xFE);
     for (;;) { __asm__ volatile ("hlt"); }
 }
