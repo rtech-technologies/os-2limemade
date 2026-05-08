@@ -101,16 +101,35 @@ void _start(void) {
                     buffer[br] = '\0';
                     close_file(h);
 
-                    /* Primitive JSONL scan: {"user":"uname","pass":"pass" ... */
+                    /* Robust JSONL scan: Ensure "user":"uname" followed by "," or "}" */
                     char user_key[128] = "\"user\":\"";
                     int uk = 8; int rk = 0; while(uname[rk]) user_key[uk++] = uname[rk++];
                     user_key[uk++] = '\"'; user_key[uk] = '\0';
 
                     char pass_key[128] = "\"pass\":\"";
-                    uk = 8; rk = 0; while(pass[rk]) pass_key[uk++] = pass[rk++];
-                    pass_key[uk++] = '\"'; pass_key[uk] = '\0';
+                    int pk = 8; rk = 0; while(pass[rk]) pass_key[pk++] = pass[rk++];
+                    pass_key[pk++] = '\"'; pass_key[pk] = '\0';
 
-                    if (strstr(buffer, user_key) && strstr(buffer, pass_key)) {
+                    bool found = false;
+                    char* line = buffer;
+                    while (line && *line) {
+                        char* next_line = strstr(line, "\n");
+                        if (next_line) *next_line = '\0';
+
+                        if (strstr(line, user_key) && strstr(line, pass_key)) {
+                            /* Basic delimiter check to prevent substring user match */
+                            char* p = strstr(line, user_key);
+                            if (p && (p[uk] == ',' || p[uk] == '}')) {
+                                found = true;
+                                break;
+                            }
+                        }
+
+                        if (!next_line) break;
+                        line = next_line + 1;
+                    }
+
+                    if (found) {
                         set_color(GREEN, BLACK);
                         print("Access Granted. Welcome, "); print(uname); print(".\n");
                         set_uid(1000);

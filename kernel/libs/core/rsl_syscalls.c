@@ -64,6 +64,8 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
         case 31: { // str_concat(s1, s2, out_ptr)
             void* res = str_concat((void*)rbx, (void*)rcx);
             *(void**)rdx = res;
+            release((void*)rbx);
+            release((void*)rcx);
             break;
         }
         case 32: { // str_is_empty(str, out_bool_ptr)
@@ -76,18 +78,23 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
         }
         case 50: // rsl_ls
             vfs_ls((void*)rbx);
+            release((void*)rbx);
             break;
         case 51: // rsl_cat
             vfs_cat((void*)rbx);
+            release((void*)rbx);
             break;
         case 52: // rsl_cd
             vfs_cd((void*)rbx);
+            release((void*)rbx);
             break;
         case 53: // rsl_mkdir
             if (!guest_lock) vfs_mkdir((void*)rbx);
+            release((void*)rbx);
             break;
         case 15: // rsl_exists
             *(bool*)rsi = vfs_exists((void*)rbx);
+            release((void*)rbx);
             break;
         case 101: // rsl_list_disks
             *(int*)rbx = get_hw_disk_count();
@@ -156,19 +163,19 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
                 /* JSONL entry: {"user": "name", "pass": "hash", "uid": 1000} */
                 int k = 0;
                 const char* head = "{\"user\":\"";
-                while(head[k]) { entry[k] = head[k]; k++; }
-                int nk = 0; while(name[nk]) { entry[k++] = name[nk++]; }
+                while(head[k] && k < 510) { entry[k] = head[k]; k++; }
+                int nk = 0; while(name[nk] && k < 510) { entry[k++] = name[nk++]; }
                 const char* mid = "\",\"pass\":\"";
-                int mk = 0; while(mid[mk]) { entry[k++] = mid[mk++]; }
-                int pk = 0; while(pass[pk]) { entry[k++] = pass[pk++]; }
+                int mk = 0; while(mid[mk] && k < 510) { entry[k++] = mid[mk++]; }
+                int pk = 0; while(pass[pk] && k < 510) { entry[k++] = pass[pk++]; }
                 const char* tail_head = "\",\"uid\":";
-                int thk = 0; while(tail_head[thk]) { entry[k++] = tail_head[thk++]; }
+                int thk = 0; while(tail_head[thk] && k < 510) { entry[k++] = tail_head[thk++]; }
 
                 // Manual int to string for UID
-                if (uid == 2000) { entry[k++] = '2'; entry[k++] = '0'; entry[k++] = '0'; entry[k++] = '0'; }
-                else { entry[k++] = '1'; entry[k++] = '0'; entry[k++] = '0'; entry[k++] = '0'; }
+                if (uid == 2000 && k < 508) { entry[k++] = '2'; entry[k++] = '0'; entry[k++] = '0'; entry[k++] = '0'; }
+                else if (k < 508) { entry[k++] = '1'; entry[k++] = '0'; entry[k++] = '0'; entry[k++] = '0'; }
 
-                entry[k++] = '}'; entry[k++] = '\n'; entry[k] = '\0';
+                if (k < 510) { entry[k++] = '}'; entry[k++] = '\n'; entry[k] = '\0'; }
                 vfs_write(h, entry, k);
                 vfs_close(h);
                 if (out_res) *out_res = 0;
@@ -179,17 +186,25 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
         }
         case 120: { // rsl_write(path, content)
             if (!guest_lock) vfs_write_dispatch((void*)rbx, (void*)rcx);
+            release((void*)rbx);
+            release((void*)rcx);
             break;
         }
         case 121: { // rsl_mkdir(path)
             if (!guest_lock) vfs_mkdir((void*)rbx);
+            release((void*)rbx);
             break;
         }
         case 122: { // rsl_open(path, mode)
             /* mode FA_WRITE check */
             const char* m = (const char*)rcx;
-            if (guest_lock && m[0] == 'w') { *(vfs_handle_t**)rdx = NULL; break; }
+            if (guest_lock && m[0] == 'w') {
+                release((void*)rbx);
+                *(vfs_handle_t**)rdx = NULL;
+                break;
+            }
             *(vfs_handle_t**)rdx = vfs_open((void*)rbx, (const char*)rcx);
+            release((void*)rbx);
             break;
         }
         case 123: { // rsl_read(handle, buf, len)
@@ -264,6 +279,8 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
                 vfs_register_node(node);
                 *(int*)rdx = 0;
             } else {
+                void release(void* ptr);
+                release(fs);
                 *(int*)rdx = -1;
             }
             break;

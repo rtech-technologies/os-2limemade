@@ -143,8 +143,13 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     while ((port->tfd & (0x80 | 0x08)) && timeout--) {
         __asm__ volatile ("pause");
     }
+    if (timeout <= 0) {
+        vga_print("[AHCI] Port %d READ BUSY TIMEOUT\n", p);
+        return -1;
+    }
 
     port->ci = (1 << 0);
+    timeout = 1000000; /* Reset timeout for execution phase */
     while ((port->ci & (1 << 0)) && timeout--) {
         if (port->tfd & (1 << 0)) { /* ERR bit */
             vga_print("[AHCI] Port %d READ ERROR: TFD 0x%x\n", p, port->tfd);
@@ -208,8 +213,13 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     while ((port->tfd & (0x80 | 0x08)) && timeout--) {
         __asm__ volatile ("pause");
     }
+    if (timeout <= 0) {
+        vga_print("[AHCI] Port %d WRITE BUSY TIMEOUT\n", p);
+        return -1;
+    }
 
     port->ci = (1 << 0);
+    timeout = 1000000; /* Reset timeout for execution phase */
     while ((port->ci & (1 << 0)) && timeout--) {
         if (port->tfd & (1 << 0)) {
             vga_print("[AHCI] Port %d WRITE ERROR: TFD 0x%x\n", p, port->tfd);

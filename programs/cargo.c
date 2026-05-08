@@ -124,6 +124,7 @@ void _start(void) {
 
         /* Simple manual int-to-string for size */
         int size_mb = (int)(size / 1024 / 1024);
+        (void)size_mb;
 
         gui_draw_text(&fb, px + 100, py + 250 + (i * 20), name, COLOR_TEXT);
         /* Target priority: NVMe > SATA > Other */
@@ -135,6 +136,7 @@ void _start(void) {
 
     /* Auto-installer logic (Simplified for demo) */
     int res = -1;
+    (void)res;
     print("[CARGO] Selected target disk index: ");
     /* Simple integer print would be nice here but keeping it minimal */
 
