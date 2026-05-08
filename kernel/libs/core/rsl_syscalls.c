@@ -178,6 +178,7 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
                 if (k < 510) { entry[k++] = '}'; entry[k++] = '\n'; entry[k] = '\0'; }
                 vfs_write(h, entry, k);
                 vfs_close(h);
+                release(h);
                 if (out_res) *out_res = 0;
             } else {
                 if (out_res) *out_res = -1;
@@ -200,19 +201,20 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
             const char* m = (const char*)rcx;
             if (guest_lock && m[0] == 'w') {
                 release((void*)rbx);
-                *(vfs_handle_t**)rdx = NULL;
+                *(vfs_handle_internal_t**)rdx = NULL;
                 break;
             }
-            *(vfs_handle_t**)rdx = vfs_open((void*)rbx, (const char*)rcx);
+            *(vfs_handle_internal_t**)rdx = vfs_open((void*)rbx, (const char*)rcx);
             release((void*)rbx);
             break;
         }
         case 123: { // rsl_read(handle, buf, len)
-            *(int*)rdx = vfs_read((vfs_handle_t*)rbx, (void*)rcx, (int)rsi);
+            *(int*)rdx = vfs_read((vfs_handle_internal_t*)rbx, (void*)rcx, (int)rsi);
             break;
         }
         case 124: { // rsl_close(handle)
-            vfs_close((vfs_handle_t*)rbx);
+            vfs_close((vfs_handle_internal_t*)rbx);
+            release((void*)rbx);
             break;
         }
         case 130: { // rsl_hash(string, out_u64)

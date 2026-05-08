@@ -21,7 +21,7 @@ LIMINE_DIR = ./limine
 LIMINE_BIN = $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin $(LIMINE_DIR)/limine-uefi-cd.bin
 
 # Standalone RSL Programs
-PROGRAMS = bin/cargo.bin bin/shell.bin
+PROGRAMS = bin/cargo.bin bin/shell.bin bin/desktop.bin
 
 .PHONY: all menuconfig kernel iso run clean limine-setup cargo shell
 
@@ -83,6 +83,7 @@ iso: limine-setup kernel programs
 	@cp $(KERNEL_ELF) iso_root/boot/
 	@cp bin/cargo.bin iso_root/bin/
 	@cp bin/shell.bin iso_root/bin/
+	@cp bin/desktop.bin iso_root/bin/
 	@cp boot/installer_limine.cfg iso_root/limine.cfg
 	@cp $(LIMINE_DIR)/limine-uefi-cd.bin iso_root/EFI/BOOT/BOOTX64.EFI
 	@python3 scripts/fat_tool.py ramdisk.img

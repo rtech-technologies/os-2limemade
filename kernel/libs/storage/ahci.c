@@ -151,6 +151,12 @@ int ahci_read_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     port->ci = (1 << 0);
     timeout = 1000000; /* Reset timeout for execution phase */
     while ((port->ci & (1 << 0)) && timeout--) {
+        if (port->is & (1 << 30)) { /* TFES bit (Task File Error Status) */
+            vga_print("[AHCI] Port %d FATAL ERROR: IS=0x%x TFD=0x%x\n", p, port->is, port->tfd);
+            /* Reset port on fatal error */
+            ahci_force_port_reset(port, p);
+            return -1;
+        }
         if (port->tfd & (1 << 0)) { /* ERR bit */
             vga_print("[AHCI] Port %d READ ERROR: TFD 0x%x\n", p, port->tfd);
             return -1;
@@ -221,6 +227,11 @@ int ahci_write_sectors(void* priv, uint64_t lba, uint32_t count, void* buffer) {
     port->ci = (1 << 0);
     timeout = 1000000; /* Reset timeout for execution phase */
     while ((port->ci & (1 << 0)) && timeout--) {
+        if (port->is & (1 << 30)) { /* TFES */
+            vga_print("[AHCI] Port %d FATAL ERROR: IS=0x%x TFD=0x%x\n", p, port->is, port->tfd);
+            ahci_force_port_reset(port, p);
+            return -1;
+        }
         if (port->tfd & (1 << 0)) {
             vga_print("[AHCI] Port %d WRITE ERROR: TFD 0x%x\n", p, port->tfd);
             return -1;

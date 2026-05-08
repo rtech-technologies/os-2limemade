@@ -177,6 +177,19 @@ void vga_force_verbose(void) {
 
 #define SCALE 2
 
+#define LOG_BUFFER_SIZE 4096
+static char kernel_log_buffer[LOG_BUFFER_SIZE];
+static uint32_t log_ptr = 0;
+
+void get_kernel_log_snapshot(char* out, uint32_t max) {
+    uint32_t start = (log_ptr >= max) ? log_ptr - max : 0;
+    uint32_t count = (log_ptr < max) ? log_ptr : max;
+    for (uint32_t i = 0; i < count; i++) {
+        out[i] = kernel_log_buffer[(start + i) % LOG_BUFFER_SIZE];
+    }
+    out[count] = '\0';
+}
+
 static struct limine_framebuffer* global_fb = NULL;
 
 void draw_pixel(int x, int y, uint32_t color) {
@@ -213,6 +226,10 @@ void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
 
 void vga_write_char(char c, uint8_t color_attr) {
     serial_write_char(c);
+
+    /* Mirror to kernel log buffer */
+    kernel_log_buffer[log_ptr % LOG_BUFFER_SIZE] = c;
+    log_ptr++;
 
     if (force_verbose) color_attr = 0x07; /* Force light gray on black */
 

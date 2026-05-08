@@ -2,53 +2,16 @@
 #include <stdbool.h>
 #include <include/rsl.h>
 
-typedef void* vfs_handle_t;
+#define list_disks rsl_list_disks
+#define partition_disk rsl_partition_disk
+#define format_disk rsl_format_disk
+#define mkdir(p) rsl_mkdir(str_create(p))
+#define write_file(p, c) rsl_write(str_create(p), str_create(c))
+#define open_file(p, m) rsl_open(str_create(p), m)
+#define read_file rsl_read
+#define close_file rsl_close
 
-vfs_handle_t open_file(const char* path, const char* mode) {
-    vfs_handle_t h = NULL;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)122), "b"((uint64_t)path), "c"((uint64_t)mode), "d"((uint64_t)&h) : "memory");
-    return h;
-}
-
-int read_file(vfs_handle_t h, void* buf, int len) {
-    volatile int br = -1;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)123), "b"((uint64_t)h), "c"((uint64_t)buf), "d"((uint64_t)&br), "S"((uint64_t)len) : "memory");
-    return br;
-}
-
-void close_file(vfs_handle_t h) {
-    __asm__ volatile ("int $3" : : "a"((uint64_t)124), "b"((uint64_t)h) : "memory");
-}
-
-int list_disks(void) {
-    volatile int count = 0;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)101), "b"((uint64_t)&count) : "memory");
-    return count;
-}
-
-void get_disk_info(int id, char* name, uint64_t* size) {
-    __asm__ volatile ("int $3" : : "a"((uint64_t)103), "b"((uint64_t)id), "c"((uint64_t)name), "d"((uint64_t)size) : "memory");
-}
-
-int partition_disk(int id) {
-    volatile int res = -1;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)105), "b"((uint64_t)id), "c"((uint64_t)&res) : "memory");
-    return res;
-}
-
-int format_disk(int id) {
-    volatile int res = -1;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)104), "b"((uint64_t)id), "c"((uint64_t)&res) : "memory");
-    return res;
-}
-
-void mkdir(const char* path) {
-    __asm__ volatile ("int $3" : : "a"((uint64_t)121), "b"((uint64_t)path) : "memory");
-}
-
-void write_file(const char* path, const char* content) {
-    __asm__ volatile ("int $3" : : "a"((uint64_t)120), "b"((uint64_t)path), "c"((uint64_t)content) : "memory");
-}
+typedef vfs_handle_user_t vfs_handle_t;
 
 uint64_t hash_password(const char* pass) {
     volatile uint64_t h = 0;
@@ -120,16 +83,12 @@ void _start(void) {
     for (int i = 0; i < disks; i++) {
         char name[32];
         uint64_t size;
-        get_disk_info(i, name, &size);
-
-        /* Simple manual int-to-string for size */
-        int size_mb = (int)(size / 1024 / 1024);
-        (void)size_mb;
+        rsl_get_disk_info(i, name, &size);
 
         gui_draw_text(&fb, px + 100, py + 250 + (i * 20), name, COLOR_TEXT);
         /* Target priority: NVMe > SATA > Other */
-        if (target_disk == -1 && size_mb > 0) target_disk = i;
-        if (name[0] == 'N' && name[1] == 'V' && size_mb > 0) target_disk = i;
+        if (target_disk == -1 && size > 0) target_disk = i;
+        if (name[0] == 'N' && name[1] == 'V' && size > 0) target_disk = i;
     }
 
     if (target_disk == -1) target_disk = 0;

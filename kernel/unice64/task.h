@@ -24,10 +24,10 @@ typedef struct {
     uint32_t uaid; /* Unique App ID */
     task_state_t state;
     cpu_context_t context;
-    uint32_t slab_id;
-    uint32_t padding;
+    uint64_t slab_id;
     uint64_t kernel_stack_top;
-} task_t; /* 192 Bytes total, naturally aligned */
+    uint64_t last_rax; /* For syscall tracking */
+} task_t; /* 200 Bytes total, naturally aligned */
 
 void unice64_schedule(void);
 void unice64_scheduler_init(void);

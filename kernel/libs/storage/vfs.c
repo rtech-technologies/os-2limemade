@@ -143,9 +143,14 @@ bool vfs_exists(void* path) {
 void* bump_alloc(size_t size);
 void vga_print(const char* fmt, ...);
 
+void* malloc(size_t size);
+void free(void* ptr);
+
 int vfs_mount_auto(int drive_id, const char* mount_point) {
-    uint8_t* sector = bump_alloc(2048);
+    uint8_t* sector = (uint8_t*)malloc(2048);
     if (!sector) return -1;
+
+    int res = -1;
 
     /* Check A: ISO 9660 (via xorriso) */
     if (vdisk_read_hw(drive_id, 16, 1, sector) == 0) {
@@ -168,7 +173,8 @@ int vfs_mount_auto(int drive_id, const char* mount_point) {
 
             vfs_register_node(node);
             vga_print("[VFS] Mechanical Judge: ISO 9660 Registered at %s:/ (Drive %d)\n", node.name, drive_id);
-            return 0;
+            res = 0;
+            goto cleanup;
         }
     }
 
@@ -176,14 +182,19 @@ int vfs_mount_auto(int drive_id, const char* mount_point) {
     if (vdisk_read_hw(drive_id, 0, 1, sector) == 0) {
         if (sector[82] == 'F' && sector[83] == 'A' && sector[84] == 'T' && sector[85] == '3' && sector[86] == '2') {
             vga_print("[VFS] Mechanical Judge: FAT32 Detected on Drive %d.\n", drive_id);
-            return 0;
+            res = 0;
+            goto cleanup;
         }
     }
 
-    return -1;
+cleanup:
+    free(sector);
+    return res;
 }
 
-vfs_handle_t* vfs_open(void* path, const char* mode) {
+void* arc_alloc(size_t size);
+
+vfs_handle_internal_t* vfs_open(void* path, const char* mode) {
     const char* p = str_to_cstr(path);
     int drive = -1;
     const char* subpath_cstr = p;
@@ -222,8 +233,8 @@ vfs_handle_t* vfs_open(void* path, const char* mode) {
     FIL fil;
     BYTE m = (mode[0] == 'w') ? (FA_WRITE | FA_CREATE_ALWAYS) : FA_READ;
     if (f_open(fs, &fil, subpath_cstr, m) == FR_OK) {
-        vfs_handle_t* h = bump_alloc(sizeof(vfs_handle_t));
-        if (!h) return NULL;
+        vfs_handle_internal_t* h = (vfs_handle_internal_t*)arc_alloc(sizeof(vfs_handle_internal_t));
+        if (!h) { f_close(&fil); return NULL; }
         h->obj = fs;
         h->sclust = fil.sclust;
         h->clust = fil.clust;
@@ -236,7 +247,7 @@ vfs_handle_t* vfs_open(void* path, const char* mode) {
     return NULL;
 }
 
-int vfs_read(vfs_handle_t* h, void* buf, int len) {
+int vfs_read(vfs_handle_internal_t* h, void* buf, int len) {
     if (!h || !h->obj) return -1;
     FATFS* fs = (FATFS*)h->obj;
     uint32_t cluster_size = fs->sector_size * fs->sectors_per_cluster;
@@ -271,11 +282,11 @@ int vfs_read(vfs_handle_t* h, void* buf, int len) {
     return -1;
 }
 
-uint32_t vfs_tell(vfs_handle_t* h) {
+uint32_t vfs_tell(vfs_handle_internal_t* h) {
     return h->pos;
 }
 
-int vfs_write(vfs_handle_t* h, const void* buf, int len) {
+int vfs_write(vfs_handle_internal_t* h, const void* buf, int len) {
     if (!h || !h->obj) return -1;
     FATFS* fs = (FATFS*)h->obj;
     if (fs->ro) return -1;
@@ -299,7 +310,7 @@ int vfs_write(vfs_handle_t* h, const void* buf, int len) {
     return -1;
 }
 
-void vfs_close(vfs_handle_t* h) {
+void vfs_close(vfs_handle_internal_t* h) {
     if (!h) return;
     FIL fil;
     fil.obj = (FATFS*)h->obj;

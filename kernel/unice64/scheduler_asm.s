@@ -8,15 +8,15 @@
 .extern __text_start
 .extern __text_end
 
-# task_t layout offsets (Based on packed/aligned size)
+# task_t layout offsets (Based on C struct task_t in task.h)
 .set task_t_id, 0
 .set task_t_uid, 4
 .set task_t_uaid, 8
 .set task_t_state, 12
 .set task_t_context, 16
-.set task_t_slab_id, 168
-.set task_t_padding, 172
-.set task_t_kernel_stack_top, 176
+.set task_t_slab_id, 176
+.set task_t_kernel_stack_top, 184
+.set task_t_last_rax, 192
 
 # cpu_context_t layout (8 bytes each, starting at task_t_context)
 .set ctx_r15, 0

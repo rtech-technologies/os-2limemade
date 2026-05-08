@@ -183,6 +183,7 @@ void int_to_hex(uint64_t val, char* out) {
  * @param state: The CPU registers captured during the crash (can be NULL)
  */
 void serial_write_str(const char* s);
+void serial_write_char(char c);
 
 void quartermaster_panic(const char* message, void* state) {
     // 1. Absolute Silence
@@ -379,6 +380,18 @@ void quartermaster_panic(const char* message, void* state) {
         }
         serial_write_str("]");
 
+        /* Log Buffer Snapshot */
+        serial_write_str(",\"log\":\"");
+        extern void get_kernel_log_snapshot(char* out, uint32_t max);
+        char log_snap[512];
+        get_kernel_log_snapshot(log_snap, 511);
+        for(int i=0; log_snap[i]; i++) {
+            if (log_snap[i] == '\"') serial_write_str("\\\"");
+            else if (log_snap[i] == '\n') serial_write_str("\\n");
+            else serial_write_char(log_snap[i]);
+        }
+        serial_write_str("\"");
+
         serial_write_str("}}\n");
         serial_write_str("--- END PANIC JSON ---\n\n");
 
@@ -386,7 +399,7 @@ void quartermaster_panic(const char* message, void* state) {
         extern bool vfs_is_safe_mode(void);
         if (!vfs_is_safe_mode()) {
             void* path = str_create("BOOT:/var/crash/panic.log");
-            vfs_handle_t* h = vfs_open(path, "w");
+            vfs_handle_internal_t* h = vfs_open(path, "w");
             if (h) {
                 char crash_buf[1024];
                 int len = 0;
@@ -401,6 +414,7 @@ void quartermaster_panic(const char* message, void* state) {
                 int tl = 0; while(tail[tl]) { crash_buf[len++] = tail[tl++]; }
                 vfs_write(h, crash_buf, len);
                 vfs_close(h);
+                release(h);
                 serial_write_str("[SNAP] Crash log written to BOOT:/var/crash/panic.log\n");
             }
             release(path);

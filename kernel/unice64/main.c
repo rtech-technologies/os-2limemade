@@ -54,6 +54,11 @@ void _start(void) {
 
     /* Initialize Hardware and Core Memory */
     dispatch_event(EVENT_INIT);
+
+    /* Ensure PCI Scan is completed and block devices registered before FS mount */
+    void pci_scan_bus(void);
+    pci_scan_bus();
+
     __asm__ volatile ("sti");
 
     /* Start the Shell and Main System Logic */
@@ -207,13 +212,14 @@ void _start(void) {
             void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid);
             tasking_spawn_module(1, 3, 0); /* cargo.bin is typically module 1, Slab 3, UID 0 */
         } else {
-            vfs_handle_t* h = vfs_open(inst_path, "r");
+            vfs_handle_internal_t* h = vfs_open(inst_path, "r");
             if (h) {
                 char meta[128];
                 int br = vfs_read(h, meta, 127);
                 meta[br] = '\0';
                 vga_print("[SNAP] Sovereign Installation verified: %s\n", meta);
                 vfs_close(h);
+                release(h);
             } else {
                 vga_print("[!] Warning: Marker exists but is unreadable.\n");
             }
