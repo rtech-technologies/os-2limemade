@@ -75,6 +75,15 @@ void _start(void) {
         if (vdisk_is_atapi(i)) continue;
 
         vga_print("[BOOT] Attempting SATA Mount (Drive %d)...\n", i);
+
+        /* Diagnostic: Check for GPT signature */
+        uint8_t sector[512];
+        if (vdisk_read_hw(i, 1, 1, sector) == 0) {
+            if (sector[0] == 'E' && sector[1] == 'F' && sector[2] == 'I' && sector[3] == ' ' && sector[4] == 'P' && sector[5] == 'A' && sector[6] == 'R' && sector[7] == 'T') {
+                vga_print("[BOOT] GPT Signature detected on Drive %d.\n", i);
+            }
+        }
+
         /* Simple polling mount for timeout logic */
         FRESULT res = f_mount(&boot_fs, i);
         if (res == FR_OK) {
@@ -184,12 +193,30 @@ void _start(void) {
     /* Quartermaster Logistics: Cargo First */
     if (mount_success) {
         void* inst_path = str_create("BOOT:/sys/.installed");
+        vga_print("[BOOT] Verifying installation at %s...\n", vdisk_is_atapi(boot_drive) ? "INITRD" : "BOOT");
+
+        /* Diagnostic: Check for Limine stage */
+        void* limine_path = str_create("BOOT:/limine-bios.sys");
+        if (vfs_exists(limine_path)) {
+            vga_print("[BOOT] Limine stage detected.\n");
+        }
+        release(limine_path);
+
         if (!vfs_exists(inst_path)) {
-            vga_print("[SNAP] Sovereign Installation not found. Engaging Cargo...\n");
+            vga_print("[SNAP] Sovereign Installation not found (Marker missing). Engaging Cargo...\n");
             void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid);
             tasking_spawn_module(1, 3, 0); /* cargo.bin is typically module 1, Slab 3, UID 0 */
         } else {
-            vga_print("[SNAP] Sovereign Installation verified.\n");
+            vfs_handle_t* h = vfs_open(inst_path, "r");
+            if (h) {
+                char meta[128];
+                int br = vfs_read(h, meta, 127);
+                meta[br] = '\0';
+                vga_print("[SNAP] Sovereign Installation verified: %s\n", meta);
+                vfs_close(h);
+            } else {
+                vga_print("[!] Warning: Marker exists but is unreadable.\n");
+            }
         }
         release(inst_path);
     }

@@ -51,15 +51,31 @@ void register_task(void (*entry_point)(void), uint32_t slab_id) {
         stack_virt = (stack_virt + 15) & ~0xFULL;
         task_table[idx].kernel_stack_top = stack_virt + TASK_STACK_SIZE;
 
+        /* Defensive Check: Stack must be 16-byte aligned */
+        if (task_table[idx].kernel_stack_top & 0xF) {
+            vga_print("[UNICE64] ERROR: Stack alignment failure for task %d\n", idx);
+        }
+
         uint8_t* p_ctx = (uint8_t*)&task_table[idx].context;
         for (size_t i = 0; i < sizeof(cpu_context_t); i++) p_ctx[i] = 0;
 
         uint64_t ep = (uint64_t)(entry_point ? (uint64_t)entry_point : (uint64_t)idle_task);
+        uint64_t ep_raw = ep;
         /* If physical/low-half address, add HHDM offset */
         if (ep < 0x0000800000000000ULL) {
             uint64_t get_hhdm_offset(void);
             ep += get_hhdm_offset();
         }
+
+        /* Boundary Check: Entry point must be within text segment */
+        extern char __text_start[], __text_end[];
+        uint64_t ts = (uint64_t)__text_start;
+        uint64_t te = (uint64_t)__text_end;
+        if (ep < ts || ep >= te) {
+            vga_print("[UNICE64] WARNING: Task %d RIP=0x%llx is outside text segment (0x%llx-0x%llx)\n",
+                      idx, ep, ts, te);
+        }
+
         task_table[idx].context.rip = ep;
         task_table[idx].context.cs = 0x08;
         task_table[idx].context.ss = 0x10;
@@ -67,8 +83,8 @@ void register_task(void (*entry_point)(void), uint32_t slab_id) {
         task_table[idx].context.rsp = task_table[idx].kernel_stack_top - 8;
 
         task_count++;
-        vga_print("[UNICE64] Task registered in Slab %d (RIP=0x%llx, TCB=0x%llx)\n",
-                  slab_id, task_table[idx].context.rip, (uint64_t)&task_table[idx]);
+        vga_print("[UNICE64] Task %d registered: entry_raw=0x%llx final=0x%llx stack_top=0x%llx\n",
+                  idx, ep_raw, task_table[idx].context.rip, task_table[idx].kernel_stack_top);
     }
 }
 
@@ -124,15 +140,28 @@ void tasking_init(void) {
 
 void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid) {
     struct limine_module_response* resp = get_modules();
-    if (!resp || (uint64_t)module_index >= resp->module_count) return;
+    if (!resp || (uint64_t)module_index >= resp->module_count) {
+        vga_print("[UNICE64] ERROR: Cannot spawn module %d (Out of range)\n", module_index);
+        return;
+    }
     struct limine_file* mod = resp->modules[module_index];
-    if (!mod->address) return;
+    if (!mod->address) {
+        vga_print("[UNICE64] ERROR: Module %d has NULL address\n", module_index);
+        return;
+    }
     uint8_t* ptr = (uint8_t*)mod->address;
     void (*entry)(void) = (void (*)(void))mod->address;
+    uint64_t entry_offset = 0;
+
     if (ptr[0] == 'R' && ptr[1] == 'T' && ptr[2] == 'E' && ptr[3] == 'C' && ptr[4] == 'H') {
         rtech_header_t* header = (rtech_header_t*)mod->address;
-        entry = (void (*)(void))((uintptr_t)mod->address + header->entry_offset);
+        entry_offset = header->entry_offset;
+        entry = (void (*)(void))((uintptr_t)mod->address + entry_offset);
     }
+
+    vga_print("[UNICE64] Spawning module %d: addr=0x%llx offset=0x%llx entry=0x%llx\n",
+              module_index, (uint64_t)mod->address, entry_offset, (uint64_t)entry);
+
     register_task(entry, slab_id);
     task_t* t = get_task_by_idx(get_task_count() - 1);
     if (t) t->uaid = uaid;
@@ -165,7 +194,18 @@ void unice64_schedule(void) {
 }
 
 void quartermaster_panic_regs(const char* msg, uint64_t rip, uint64_t rsp) {
-    vga_print("[PANIC] %s RIP=0x%llx RSP=0x%llx\n", msg, rip, rsp);
+    task_t* curr = get_current_task();
+    vga_print("[PANIC] %s\n", msg);
+    vga_print("  CURRENT TASK IDX: %d / %d\n", current_task_idx, task_count);
+    vga_print("  OFFENDING TCB: 0x%llx\n", (uint64_t)curr);
+    vga_print("  OFFENDING RIP: 0x%llx\n", rip);
+    vga_print("  OFFENDING RSP: 0x%llx\n", rsp);
+
+    /* Mirror to serial */
+    void serial_write_str(const char* s);
+    serial_write_str("\n!!! MECHANICAL FAILURE: SCHEDULER INVALID STATE !!!\n");
+    serial_write_str(msg); serial_write_str("\n");
+
     quartermaster_panic(msg, NULL);
 }
 

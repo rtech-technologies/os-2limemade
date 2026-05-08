@@ -2,6 +2,23 @@
 #include <stdbool.h>
 #include <include/rsl.h>
 
+typedef void* vfs_handle_t;
+
+vfs_handle_t open_file(const char* path, const char* mode) {
+    vfs_handle_t h = NULL;
+    __asm__ volatile ("int $3" : : "a"((uint64_t)122), "b"((uint64_t)path), "c"((uint64_t)mode), "d"((uint64_t)&h) : "memory");
+    return h;
+}
+
+int read_file(vfs_handle_t h, void* buf, int len) {
+    volatile int br = -1;
+    __asm__ volatile ("int $3" : : "a"((uint64_t)123), "b"((uint64_t)h), "c"((uint64_t)buf), "d"((uint64_t)&br), "S"((uint64_t)len) : "memory");
+    return br;
+}
+
+void close_file(vfs_handle_t h) {
+    __asm__ volatile ("int $3" : : "a"((uint64_t)124), "b"((uint64_t)h) : "memory");
+}
 
 int list_disks(void) {
     volatile int count = 0;
@@ -105,15 +122,13 @@ void _start(void) {
         uint64_t size;
         get_disk_info(i, name, &size);
 
-        char info[64];
         /* Simple manual int-to-string for size */
         int size_mb = (int)(size / 1024 / 1024);
-        // Using a fake sprintf-like construct
-        const char* type = "SATA";
-        if (name[0] == 'N' && name[1] == 'V') type = "NVMe";
 
         gui_draw_text(&fb, px + 100, py + 250 + (i * 20), name, COLOR_TEXT);
+        /* Target priority: NVMe > SATA > Other */
         if (target_disk == -1 && size_mb > 0) target_disk = i;
+        if (name[0] == 'N' && name[1] == 'V' && size_mb > 0) target_disk = i;
     }
 
     if (target_disk == -1) target_disk = 0;
@@ -149,7 +164,22 @@ void _start(void) {
         write_file("DATA:/sys/policy.conf", "GUEST_MIN_UID=2000\nWRITE_PROTECT=/sys,/bin\n");
 
         /* Write persistent install marker */
-        write_file("DATA:/sys/.installed", "OSX2_VERSION=1.0\nSTATUS=SUCCESS\nCHECKSUM=DEADBEEF\n");
+        const char* metadata = "{\"version\":\"1.0\",\"status\":\"success\",\"build\":\"23:00\",\"checksum\":\"DEADBEEF\"}\n";
+        write_file("DATA:/sys/.installed", metadata);
+
+        /* Redundant Signed Marker at Fixed LBA (LBA 1 of the partition) */
+        /* Note: Syscall 120 is high-level VFS write. We need a low-level block write for the marker. */
+        /* For this edition, we use a file-based marker as the primary, and log verification. */
+
+        print("[CARGO] Verifying installation marker...\n");
+        vfs_handle_t vh = open_file("DATA:/sys/.installed", "r");
+        if (vh) {
+            char verify_buf[128];
+            int br = read_file(vh, verify_buf, 127);
+            verify_buf[br] = '\0';
+            close_file(vh);
+            print("[CARGO] Marker reread: "); print(verify_buf);
+        }
 
         print("[CARGO] Installation payload delivered to SATA HDD.\n");
     }

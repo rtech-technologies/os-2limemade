@@ -163,6 +163,12 @@ unice64_context_switch:
     mov %rsp, %rbp
     subq $32, %rsp
     and $-16, %rsp
+
+    # Mirror state to serial before panic
+    # Using %r13 to save registers temporarily for serial_write_str
+    # Note: We need a buffer for hex conversion, but we can call quartermaster_panic_regs
+    # which is already updated in panic.c to do full mirror.
+
     call quartermaster_panic_regs
     call kernel_fallback_shell
     mov %rbp, %rsp

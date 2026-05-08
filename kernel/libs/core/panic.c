@@ -365,6 +365,20 @@ void quartermaster_panic(const char* message, void* state) {
         int_to_hex(regs->interrupt_number, buf); serial_write_str(buf);
         serial_write_str(",\"error\":");
         int_to_hex(regs->error_code, buf); serial_write_str(buf);
+
+        serial_write_str(",\"tasks\":[");
+        for (int i = 0; i < get_task_count(); i++) {
+            uint32_t tid, tslab;
+            const char* tstate;
+            get_task_info(i, &tid, &tstate, &tslab);
+            serial_write_str("{\"id\":"); int_to_hex(tid, buf); serial_write_str(buf);
+            serial_write_str(",\"state\":\""); serial_write_str(tstate);
+            serial_write_str("\",\"slab\":"); int_to_hex(tslab, buf); serial_write_str(buf);
+            serial_write_str("}");
+            if (i < get_task_count() - 1) serial_write_str(",");
+        }
+        serial_write_str("]");
+
         serial_write_str("}}\n");
         serial_write_str("--- END PANIC JSON ---\n\n");
 
