@@ -9,6 +9,7 @@ void serial_write_str(const char* s);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
 uint64_t get_hhdm_offset(void);
 void pit_wait_ms(uint32_t ms);
+void usb_audit_log(const char* event, const char* details);
 
 static void* xhci_base = NULL;
 
@@ -27,7 +28,7 @@ void xhci_bios_handover(void* base) {
     while (1) {
         uint32_t cap_id = *ext_cap & 0xFF;
         if (cap_id == 1) { /* USB Legacy Support */
-            serial_write_str("[XHCI] USB Legacy Support found. Requesting Handover...\n");
+            usb_audit_log("XHCI-HANDOVER", "Requesting Legacy Support Handover");
             *ext_cap |= (1 << 24); /* OS Owned Semaphore */
 
             int timeout = 1000;
@@ -36,15 +37,14 @@ void xhci_bios_handover(void* base) {
             }
 
             if (timeout <= 0) {
-                serial_write_str("[XHCI] Handover TIMEOUT. Forcing Control.\n");
+                usb_audit_log("XHCI-HANDOVER", "TIMEOUT - Forcing Control");
                 *ext_cap &= ~(1 << 16);
             } else {
-                serial_write_str("[SNAP] XHCI BIOS/OS HANDOVER COMPLETE\n");
+                usb_audit_log("XHCI-HANDOVER", "SUCCESS - BIOS Released Controller");
             }
 
-            /* Disable Legacy SMIs to ensure exclusive OS ownership */
             volatile uint32_t* legsup_ctl = (volatile uint32_t*)ext_cap + 1;
-            *legsup_ctl &= 0x1F00FFFF; /* Mask out SMI enable bits */
+            *legsup_ctl &= 0x1F00FFFF;
             break;
         }
 
@@ -55,7 +55,7 @@ void xhci_bios_handover(void* base) {
 }
 
 void xhci_init(uint8_t bus, uint8_t slot, uint8_t func) {
-    serial_write_str("[INIT] Found XHCI Controller.\n");
+    usb_audit_log("XHCI-INIT", "Found Controller");
     pci_enable_master(bus, slot, func);
 
     uint32_t bar0 = pci_config_read(bus, slot, func, 0x10);
@@ -65,14 +65,13 @@ void xhci_init(uint8_t bus, uint8_t slot, uint8_t func) {
 
     xhci_bios_handover(xhci_base);
 
-    /* Host Controller Reset */
     uint32_t cap_len = *(volatile uint8_t*)xhci_base;
     volatile uint32_t* usbcmd = (volatile uint32_t*)((uint8_t*)xhci_base + cap_len);
     *usbcmd |= (1 << 1); /* HCRST */
     int timeout = 1000;
     while ((*usbcmd & (1 << 1)) && timeout--) pit_wait_ms(1);
 
-    serial_write_str("[SNAP] XHCI CONTROLLER RESET COMPLETE\n");
+    usb_audit_log("XHCI-RESET", "Controller Reset Complete");
 }
 
 void usb_xhci_service(kernel_event_t event) {

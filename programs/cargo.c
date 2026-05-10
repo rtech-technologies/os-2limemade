@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <include/rsl.h>
+#include <include/stdlib.h>
 
 #define list_disks rsl_list_disks
 #define partition_disk rsl_partition_disk
@@ -10,19 +11,28 @@
 #define open_file(p, m) rsl_open(str_create(p), m)
 #define read_file rsl_read
 #define close_file rsl_close
+#define exists(p) rsl_exists(str_create(p))
 
 typedef vfs_handle_user_t vfs_handle_t;
-
-uint64_t hash_password(const char* pass) {
-    volatile uint64_t h = 0;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)130), "b"((uint64_t)pass), "c"((uint64_t)&h) : "memory");
-    return h;
-}
 
 #define COLOR_BG      0x222222
 #define COLOR_PANEL   0x444444
 #define COLOR_TEXT    0xFFFFFF
 #define COLOR_PRIMARY 0x00FF88
+#define COLOR_WARNING 0xFF5555
+
+const char* art[] = {
+    "  /\\_/\\  \n ( o.o ) \n  > ^ <  ",
+    "  _____  \n |     | \n |_____| ",
+    "  S O V  \n  E R N  \n  E I G  "
+};
+int current_art = 0;
+bool debug_overlay = false;
+
+void draw_cargo_icon(rsl_fb_t* fb, int x, int y) {
+    gui_draw_rect(fb, x, y, 10, 10, COLOR_PRIMARY);
+    gui_draw_rect(fb, x+2, y+2, 6, 6, COLOR_BG);
+}
 
 void _start(void) {
     rsl_fb_t fb;
@@ -31,126 +41,76 @@ void _start(void) {
         while(1) __asm__ volatile ("pause");
     }
 
-    /* Background */
-    gui_draw_rect(&fb, 0, 0, fb.width, fb.height, COLOR_BG);
+    int panel_w = 600, panel_h = 450;
+    int px = (fb.width - panel_w) / 2, py = (fb.height - panel_h) / 2;
 
-    /* Main Panel (Rounded-ish via offset) */
-    int panel_w = 600;
-    int panel_h = 400;
-    int px = (fb.width - panel_w) / 2;
-    int py = (fb.height - panel_h) / 2;
-    gui_draw_rect(&fb, px, py, panel_w, panel_h, COLOR_PANEL);
+    while (1) {
+        gui_draw_rect(&fb, 0, 0, fb.width, fb.height, COLOR_BG);
+        gui_draw_rect(&fb, px, py, panel_w, panel_h, COLOR_PANEL);
+        gui_draw_text(&fb, px + 100, py + 30, "[ SOVEREIGN CARGO: INSTALLER & MANAGER ]", COLOR_PRIMARY);
+        gui_draw_text(&fb, px + 520, py + 10, "v2.0", 0xAAAAAA);
 
-    /* Text from installer.png */
-    gui_draw_text(&fb, px + 100, py + 50, "Have you used os*2? before?", COLOR_TEXT);
+        if (current_art > 0)
+            gui_draw_text(&fb, px + 450, py + 50, art[current_art-1], COLOR_TEXT);
 
-    const char* options[] = {
-        "yes but I don't want a tutorial",
-        "yes but I'd like a tutorial",
-        "No  but I don't want a tutorial",
-        "no  but I'd like a tutorial"
-    };
+        gui_draw_text(&fb, px + 80, py + 100, "1. FRESH INSTALL (WIPES DISK)", COLOR_TEXT);
+        gui_draw_text(&fb, px + 80, py + 130, "2. UPDATE/UPGRADE (PRESERVES USERS)", COLOR_TEXT);
+        gui_draw_text(&fb, px + 80, py + 160, "3. RESTORE (FROM /recovery/)", COLOR_TEXT);
 
-    for (int i = 0; i < 4; i++) {
-        /* Radio Button */
-        gui_draw_rect(&fb, px + 80, py + 100 + (i * 30), 16, 16, COLOR_TEXT);
-        if (i == 0) gui_draw_rect(&fb, px + 82, py + 102 + (i * 30), 12, 12, COLOR_BG);
-
-        gui_draw_text(&fb, px + 110, py + 105 + (i * 30), options[i], COLOR_TEXT);
-    }
-
-    /* Note box */
-    gui_draw_rect(&fb, px + 60, py + 300, 480, 80, 0x333333);
-    gui_draw_text(&fb, px + 70, py + 310, "note:", COLOR_TEXT);
-    gui_draw_text(&fb, px + 70, py + 330, "this tutorial will teach you how to use", COLOR_TEXT);
-    gui_draw_text(&fb, px + 70, py + 350, "this os to its fullest", COLOR_TEXT);
-
-    /* Proceed with actual installation logic in background/fallback */
-    print("[CARGO] UI Loaded. Waiting for hardware handshake...\n");
-
-    /* License Enforcement */
-    gui_draw_rect(&fb, px + 50, py + 380, 500, 15, COLOR_PANEL);
-    gui_draw_text(&fb, px + 60, py + 382, "Licensed under Sovereign Estates Protocol - Build 2024-05-23", 0xAAAAAA);
-
-    int disks = list_disks();
-    if (disks <= 0) {
-        gui_draw_text(&fb, px + 70, py + 370, "ERROR: NO DISKS FOUND", 0xFF5555);
-        while(1) __asm__ volatile ("pause");
-    }
-
-    /* Selection Logic */
-    int target_disk = -1;
-    for (int i = 0; i < disks; i++) {
-        char name[32];
-        uint64_t size;
-        rsl_get_disk_info(i, name, &size);
-
-        gui_draw_text(&fb, px + 100, py + 250 + (i * 20), name, COLOR_TEXT);
-        /* Target priority: NVMe > SATA > Other */
-        if (target_disk == -1 && size > 0) target_disk = i;
-        if (name[0] == 'N' && name[1] == 'V' && size > 0) target_disk = i;
-    }
-
-    if (target_disk == -1) target_disk = 0;
-
-    /* Auto-installer logic (Simplified for demo) */
-    int res = -1;
-    (void)res;
-    print("[CARGO] Selected target disk index: ");
-    /* Simple integer print would be nice here but keeping it minimal */
-
-    gui_draw_text(&fb, px + 50, py + 370, "PREPARING DISK...", COLOR_PRIMARY);
-    if (partition_disk(target_disk) == 0 && format_disk(target_disk) == 0) {
-        /* Force mount the newly formatted disk as DATA for OOBE */
-        __asm__ volatile ("int $3" : : "a"((uint64_t)301), "b"((uint64_t)target_disk), "c"((uint64_t)"DATA"), "d"((uint64_t)&res) : "memory");
-
-        gui_draw_text(&fb, px + 50, py + 370, "DEPLOYING SOVEREIGN ROOT...          ", COLOR_PRIMARY);
-        mkdir("DATA:/sys");
-        mkdir("DATA:/var");
-        mkdir("DATA:/var/log");
-        mkdir("DATA:/var/crash");
-        mkdir("DATA:/users");
-        mkdir("DATA:/bin");
-
-        write_file("DATA:/var/log/install.log", "[CARGO] Sovereign Installation Started\n");
-        write_file("DATA:/CHANGELOG.txt", "SYSTEM INSTALLED VIA GUI - OSX2 UPDATE UPGRADE EDITION\n");
-
-        /* Create default user 'sovereign' (Syscall 112) */
-        __asm__ volatile ("int $3" : : "a"((uint64_t)112), "b"((uint64_t)"sovereign"), "c"((uint64_t)"password"), "d"((uint64_t)&res) : "memory");
-
-        /* Create guest user for default isolation (UID 2000+) */
-        __asm__ volatile ("int $3" : : "a"((uint64_t)112), "b"((uint64_t)"guest"), "c"((uint64_t)"guest"), "d"((uint64_t)&res) : "memory");
-
-        /* Initialize Security Policy: UID 2000+ are Guest isolated */
-        write_file("DATA:/sys/policy.conf", "GUEST_MIN_UID=2000\nWRITE_PROTECT=/sys,/bin\n");
-
-        /* Write persistent install marker */
-        const char* metadata = "{\"version\":\"1.0\",\"status\":\"success\",\"build\":\"23:00\",\"checksum\":\"DEADBEEF\"}\n";
-        write_file("DATA:/sys/.installed", metadata);
-
-        /* Redundant Signed Marker at Fixed LBA (LBA 1 of the partition) */
-        /* Note: Syscall 120 is high-level VFS write. We need a low-level block write for the marker. */
-        /* For this edition, we use a file-based marker as the primary, and log verification. */
-
-        print("[CARGO] Verifying installation marker...\n");
-        vfs_handle_t vh = open_file("DATA:/sys/.installed", "r");
-        if (vh) {
-            char verify_buf[128];
-            int br = read_file(vh, verify_buf, 127);
-            verify_buf[br] = '\0';
-            close_file(vh);
-            print("[CARGO] Marker reread: "); print(verify_buf);
+        if (debug_overlay) {
+            gui_draw_rect(&fb, 10, 10, 200, 100, 0x000000);
+            gui_draw_text(&fb, 20, 20, "DEBUG MODE ACTIVE", 0xFFFF00);
+            gui_draw_text(&fb, 20, 40, "Handover: OK", 0x00FF00);
         }
 
-        print("[CARGO] Installation payload delivered to SATA HDD.\n");
-    }
+        char cmd_buf[16];
+        /* Prompt is clean, 'a' and 'd' are hidden options */
+        rsl_input("Selection: ", cmd_buf);
+        char c = cmd_buf[0];
 
-    gui_draw_text(&fb, px + 350, py + 370, "[ PRESS ENTER TO REBOOT ]", COLOR_PRIMARY);
+        if (c == 'a') { current_art = (current_art + 1) % 4; continue; }
+        if (c == 'd') { debug_overlay = !debug_overlay; continue; }
 
-    char dummy[16];
-    rsl_input("", dummy);
+        int mode = c - '0';
+        if (mode < 1 || mode > 3) continue;
 
-    for (;;) {
-        __asm__ volatile ("int $0x81");
+        int disks = list_disks();
+        for (int i = 0; i < disks; i++) {
+            char name[32]; uint64_t size;
+            rsl_get_disk_info(i, name, &size);
+            gui_draw_text(&fb, px + 100, py + 220 + (i * 20), name, COLOR_TEXT);
+        }
+
+        rsl_input("Disk Index: ", cmd_buf);
+        int target_disk = cmd_buf[0] - '0';
+
+        if (mode == 1) {
+            gui_draw_text(&fb, px + 50, py + 400, "INSTALLING... ", COLOR_PRIMARY);
+            /* Progress Animation */
+            for (int p = 0; p < 20; p++) {
+                gui_draw_rect(&fb, px + 150 + (p * 15), py + 400, 10, 10, COLOR_PRIMARY);
+                draw_cargo_icon(&fb, px + 150 + (p * 15), py + 415);
+                for(int j=0; j<50; j++) sys_yield();
+            }
+
+            if (partition_disk(target_disk) == 0 && format_disk(target_disk) == 0) {
+                int res;
+                __asm__ volatile ("int $3" : : "a"((uint64_t)301), "b"((uint64_t)target_disk), "c"((uint64_t)"DATA"), "d"((uint64_t)&res) : "memory");
+                mkdir("DATA:/sys");
+                mkdir("DATA:/users");
+                mkdir("DATA:/recovery");
+                mkdir("DATA:/var");
+                mkdir("DATA:/var/log");
+
+                /* Create SYSTEM user with UUID */
+                write_file("DATA:/sys/users.jsonl", "{\"user\":\"system\",\"uid\":0,\"uuid\":\"550e8400-e29b-41d4-a716-446655440000\"}\n");
+
+                write_file("DATA:/sys/.installed", "{\"version\":\"2.0\",\"type\":\"fresh\",\"uuid\":\"550e8400-e29b-41d4-a716-446655440000\"}");
+                gui_draw_text(&fb, px + 50, py + 400, "SUCCESS. PRESS ENTER TO REBOOT.          ", COLOR_PRIMARY);
+            }
+        }
+
+        rsl_input("", cmd_buf);
+        for (;;) __asm__ volatile ("int $0x81");
     }
 }

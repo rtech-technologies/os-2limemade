@@ -18,6 +18,8 @@ size_t str_len(void* str);
 
 void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx, uint64_t rsi) {
     task_t* current = get_current_task();
+    if (current) current->last_rax = rax;
+
     /* Guest Isolation: UID 2000+ cannot write to FS */
     bool guest_lock = (current && current->uid >= 2000);
     void* arc_alloc(size_t size);

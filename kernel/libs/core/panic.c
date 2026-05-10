@@ -304,6 +304,7 @@ void quartermaster_panic(const char* message, void* state) {
         // Task Information
         #include <kernel/unice64/task.h>
         extern task_t* get_current_task(void);
+        extern task_t* get_task_by_idx(int idx);
         task_t* curr = get_current_task();
         if (curr) {
             draw_string(x1, y, "CURRENT TASK:", 0xFFFFFF00);
@@ -375,8 +376,32 @@ void quartermaster_panic(const char* message, void* state) {
             serial_write_str("{\"id\":"); int_to_hex(tid, buf); serial_write_str(buf);
             serial_write_str(",\"state\":\""); serial_write_str(tstate);
             serial_write_str("\",\"slab\":"); int_to_hex(tslab, buf); serial_write_str(buf);
+
+            task_t* t = get_task_by_idx(i);
+            if (t) {
+                serial_write_str(",\"last_rax\":"); int_to_hex(t->last_rax, buf); serial_write_str(buf);
+            }
+
             serial_write_str("}");
             if (i < get_task_count() - 1) serial_write_str(",");
+        }
+        serial_write_str("]");
+
+        /* AHCI State Audit */
+        #include <include/ahci.h>
+        extern hba_mem_t* get_hba_base(void);
+        serial_write_str(",\"ahci\":[");
+        hba_mem_t* hba = get_hba_base();
+        if (hba) {
+            for (int p = 0; p < 8; p++) {
+                if (hba->pi & (1 << p)) {
+                    serial_write_str("{\"port\":"); int_to_hex(p, buf); serial_write_str(buf);
+                    serial_write_str(",\"ssts\":"); int_to_hex(hba->ports[p].ssts, buf); serial_write_str(buf);
+                    serial_write_str(",\"tfd\":"); int_to_hex(hba->ports[p].tfd, buf); serial_write_str(buf);
+                    serial_write_str("}");
+                    if (p < 7) serial_write_str(",");
+                }
+            }
         }
         serial_write_str("]");
 

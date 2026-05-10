@@ -94,3 +94,55 @@ void* str_concat(void* s1, void* s2) {
 
     return (void*)r_str;
 }
+
+void* memset(void* s, int c, size_t n) {
+    uint8_t* p = (uint8_t*)s;
+    for (size_t i = 0; i < n; i++) p[i] = (uint8_t)c;
+    return s;
+}
+
+int strcmp(const char* s1, const char* s2) {
+    while (*s1 && (*s1 == *s2)) {
+        s1++; s2++;
+    }
+    return *(uint8_t*)s1 - *(uint8_t*)s2;
+}
+
+int strncmp(const char* s1, const char* s2, size_t n) {
+    while (n && *s1 && (*s1 == *s2)) {
+        s1++; s2++; n--;
+    }
+    if (n == 0) return 0;
+    return *(uint8_t*)s1 - *(uint8_t*)s2;
+}
+
+char* strchr(const char* s, int c) {
+    while (*s) {
+        if (*s == (char)c) return (char*)s;
+        s++;
+    }
+    return NULL;
+}
+
+size_t strlen(const char* s) {
+    size_t len = 0;
+    while (s[len]) len++;
+    return len;
+}
+
+int snprintf(char *str, size_t size, const char *format, ...) {
+    (void)format;
+    if (size > 0) str[0] = '\0';
+    return 0;
+}
+
+long int strtol(const char *nptr, char **endptr, int base) {
+    long int res = 0;
+    int k = 0;
+    while (nptr[k] >= '0' && nptr[k] <= '9') {
+        res = res * base + (nptr[k] - '0');
+        k++;
+    }
+    if (endptr) *endptr = (char*)&nptr[k];
+    return res;
+}
