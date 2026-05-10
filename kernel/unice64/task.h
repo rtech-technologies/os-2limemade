@@ -36,5 +36,6 @@ void sys_yield(void);
 task_t* get_current_task(void);
 int get_task_count(void);
 void get_task_info(int idx, uint32_t* id, const char** state, uint32_t* slab);
+task_t* get_task_by_idx(int idx);
 
 #endif

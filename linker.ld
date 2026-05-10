@@ -28,6 +28,10 @@ SECTIONS
         . = ALIGN(8);
         *(.limine_requests)
         *(.data .data.*)
+        . = ALIGN(8);
+        __usbh_class_info_start__ = .;
+        *(.usbh_class_info)
+        __usbh_class_info_end__ = .;
     } :data
 
     .bss : {

@@ -227,4 +227,12 @@ void get_task_info(int idx, uint32_t* id, const char** state, uint32_t* slab) {
     }
 }
 
+void unice64_kill_all_tasks(void) {
+    for (int i = 0; i < task_count; i++) {
+        task_table[i].state = TASK_ZOMBIE;
+    }
+    /* We don't mark current as zombie if we are in panic?
+       Actually, panic stops the world anyway. */
+}
+
 void sovereign_yield(void) { sys_yield(); }

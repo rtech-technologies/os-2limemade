@@ -64,7 +64,6 @@ void _start(void) {
         }
 
         char cmd_buf[16];
-        /* Prompt is clean, 'a' and 'd' are hidden options */
         rsl_input("Selection: ", cmd_buf);
         char c = cmd_buf[0];
 
@@ -86,7 +85,6 @@ void _start(void) {
 
         if (mode == 1) {
             gui_draw_text(&fb, px + 50, py + 400, "INSTALLING... ", COLOR_PRIMARY);
-            /* Progress Animation */
             for (int p = 0; p < 20; p++) {
                 gui_draw_rect(&fb, px + 150 + (p * 15), py + 400, 10, 10, COLOR_PRIMARY);
                 draw_cargo_icon(&fb, px + 150 + (p * 15), py + 415);
@@ -102,10 +100,10 @@ void _start(void) {
                 mkdir("DATA:/var");
                 mkdir("DATA:/var/log");
 
-                /* Create SYSTEM user with UUID */
-                write_file("DATA:/sys/users.jsonl", "{\"user\":\"system\",\"uid\":0,\"uuid\":\"550e8400-e29b-41d4-a716-446655440000\"}\n");
+                /* Create SYSTEM user: UUID 0, no user folder */
+                write_file("DATA:/sys/users.jsonl", "{\"user\":\"system\",\"uid\":0,\"uuid\":\"0\"}\n");
 
-                write_file("DATA:/sys/.installed", "{\"version\":\"2.0\",\"type\":\"fresh\",\"uuid\":\"550e8400-e29b-41d4-a716-446655440000\"}");
+                write_file("DATA:/sys/.installed", "{\"version\":\"2.0\",\"type\":\"fresh\",\"uuid\":\"0\"}");
                 gui_draw_text(&fb, px + 50, py + 400, "SUCCESS. PRESS ENTER TO REBOOT.          ", COLOR_PRIMARY);
             }
         }

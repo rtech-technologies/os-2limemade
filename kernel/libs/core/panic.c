@@ -4,16 +4,29 @@
 #include <limine.h>
 #include <include/vfs.h>
 #include <include/rsl.h>
+#include <include/ahci.h>
+#include <kernel/unice64/task.h>
 
+/* Forward Declarations */
 struct limine_memmap_response* get_memmap(void);
+extern struct limine_framebuffer_response* get_framebuffer(void);
+extern uint64_t get_hhdm_offset(void);
+extern void vga_force_verbose(void);
+extern void unice64_kill_all_tasks(void);
+extern int get_task_count(void);
+extern void get_task_info(int idx, uint32_t* id, const char** state, uint32_t* slab);
+extern task_t* get_task_by_idx(int idx);
+extern task_t* get_current_task(void);
+extern int get_hw_disk_count(void);
+extern hba_mem_t* get_hba_base(void);
+extern void get_kernel_log_snapshot(char* out, uint32_t max);
+extern bool vfs_is_safe_mode(void);
+extern void serial_write_str(const char* s);
+extern void serial_write_char(char c);
 
 static inline void outb(uint16_t port, uint8_t val) {
     __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
 }
-
-// External Handshakes
-extern struct limine_framebuffer_response* get_framebuffer(void);
-uint64_t get_hhdm_offset(void);
 
 // Cached Framebuffer Manifest
 static struct {
@@ -38,7 +51,7 @@ void panic_cache_fb(void) {
     }
 }
 
-// The CPU State Structure (Matches your context_switch.s / idt.c push order)
+// The CPU State Structure
 struct cpu_state {
     uint64_t r15, r14, r13, r12, r11, r10, r9, r8;
     uint64_t rbp, rdi, rsi, rdx, rcx, rbx, rax;
@@ -177,20 +190,11 @@ void int_to_hex(uint64_t val, char* out) {
     out[18] = '\0';
 }
 
-/**
- * @brief The Full Forensic Panic
- * @param message: A custom error string (can be NULL)
- * @param state: The CPU registers captured during the crash (can be NULL)
- */
-void serial_write_str(const char* s);
-void serial_write_char(char c);
-
 void quartermaster_panic(const char* message, void* state) {
-    // 1. Absolute Silence
     __asm__ volatile ("cli");
 
-    /* Quartermaster: Forensic Reveal */
-    extern void vga_force_verbose(void);
+    unice64_kill_all_tasks();
+
     vga_force_verbose();
 
     serial_write_str("\n\n!!! MECHANICAL FAILURE: SYSTEM HALTED !!!\n");
@@ -201,34 +205,28 @@ void quartermaster_panic(const char* message, void* state) {
     }
 
     if (!fb_manifest.valid) {
-        // Fallback to simple infinite loop if no cached manifest
         for (;;) { __asm__ volatile ("hlt"); }
     }
 
     uint32_t* fb_ptr = (uint32_t*)fb_manifest.address;
     struct cpu_state* regs = (struct cpu_state*)state;
 
-    // 2. Paint the Sovereign Canvas RED
-    // One step = one line: Mechanical clear
     for (uint64_t i = 0; i < (fb_manifest.pitch / 4) * fb_manifest.height; i++) {
-        fb_ptr[i] = 0x00AA0000; // Deep Crimson
+        fb_ptr[i] = 0x00AA0000;
     }
 
-    // 3. The Header
     draw_string(50, 50,  "********************************************", 0xFFFFFFFF);
     draw_string(50, 70,  "* MECHANICAL FAILURE: SYSTEM HALTED        *", 0xFFFFFFFF);
     draw_string(50, 90,  "* ALL CARGO HAS BEEN LOST OR CORRUPTED     *", 0xFFFFFFFF);
     draw_string(50, 110, "********************************************", 0xFFFFFFFF);
 
-    // 4. Error Description
-    draw_string(50, 150, "DIAGNOSTIC MESSAGE:", 0xFFFFFF00); // Yellow
+    draw_string(50, 150, "DIAGNOSTIC MESSAGE:", 0xFFFFFF00);
     if (message) {
         draw_string(70, 170, message, 0xFFFFFFFF);
     } else {
         draw_string(70, 170, "CRITICAL EXCEPTION: NO MESSAGE PROVIDED", 0xFFFFFFFF);
     }
 
-    // 5. Register Forensic Dump
     if (regs) {
         char buf[32];
         draw_string(50, 210, "FORENSIC REGISTER DUMP:", 0xFFFFFF00);
@@ -236,47 +234,38 @@ void quartermaster_panic(const char* message, void* state) {
 
         int x1 = 70, x2 = 300, y = 230, step = 20;
 
-        // Row 1
         int_to_hex(regs->rax, buf); draw_string(x1, y, "RAX:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
         int_to_hex(regs->rbx, buf); draw_string(x2, y, "RBX:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
         y += step;
 
-        // Row 2
         int_to_hex(regs->rcx, buf); draw_string(x1, y, "RCX:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
         int_to_hex(regs->rdx, buf); draw_string(x2, y, "RDX:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
         y += step;
 
-        // Row 3
         int_to_hex(regs->rsi, buf); draw_string(x1, y, "RSI:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
         int_to_hex(regs->rdi, buf); draw_string(x2, y, "RDI:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
         y += step;
 
-        // Row 4
         int_to_hex(regs->rbp, buf); draw_string(x1, y, "RBP:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
         int_to_hex(regs->rsp, buf); draw_string(x2, y, "RSP:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
         y += step;
 
-        // Row 5
         int_to_hex(regs->r8, buf);  draw_string(x1, y, "R8: ", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
         int_to_hex(regs->r9, buf);  draw_string(x2, y, "R9: ", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
         y += step;
 
-        // Row 6
         int_to_hex(regs->r10, buf); draw_string(x1, y, "R10:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
         int_to_hex(regs->r11, buf); draw_string(x2, y, "R11:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
         y += step;
 
-        // Row 7
         int_to_hex(regs->r12, buf); draw_string(x1, y, "R12:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
         int_to_hex(regs->r13, buf); draw_string(x2, y, "R13:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
         y += step;
 
-        // Row 8
         int_to_hex(regs->r14, buf); draw_string(x1, y, "R14:", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
         int_to_hex(regs->r15, buf); draw_string(x2, y, "R15:", 0xAAAAAA); draw_string(x2+40, y, buf, 0xFFFFFFFF);
         y += step;
 
-        // Row 9 (Segments)
         uint16_t ds, es, fs, gs;
         __asm__ volatile ("mov %%ds, %0" : "=r"(ds));
         __asm__ volatile ("mov %%es, %0" : "=r"(es));
@@ -291,35 +280,27 @@ void quartermaster_panic(const char* message, void* state) {
         int_to_hex(gs, buf);       draw_string(x1+200, y, "GS:", 0xAAAAAA); draw_string(x1+230, y, buf, 0xFFFFFFFF);
         y += step * 1.5;
 
-        // Row 11 (Control)
         int_to_hex(regs->rip, buf); draw_string(x1, y, "RIP:", 0x55FF55); draw_string(x1+40, y, buf, 0xFFFFFFFF);
         int_to_hex(regs->rflags, buf); draw_string(x2, y, "FLG:", 0x55FF55); draw_string(x2+40, y, buf, 0xFFFFFFFF);
         y += step;
 
-        // Row 12 (Fault Info)
         int_to_hex(regs->interrupt_number, buf); draw_string(x1, y, "INT:", 0xFF5555); draw_string(x1+40, y, buf, 0xFFFFFFFF);
         int_to_hex(regs->error_code, buf); draw_string(x2, y, "ERR:", 0xFF5555); draw_string(x2+40, y, buf, 0xFFFFFFFF);
         y += step * 1.5;
 
-        // Task Information
-        #include <kernel/unice64/task.h>
-        extern task_t* get_current_task(void);
-        extern task_t* get_task_by_idx(int idx);
-        task_t* curr = get_current_task();
-        if (curr) {
+        task_t* curr_t = get_current_task();
+        if (curr_t) {
             draw_string(x1, y, "CURRENT TASK:", 0xFFFFFF00);
             y += step;
-            int_to_hex(curr->id, buf);      draw_string(x1, y, "ID: ", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
-            int_to_hex(curr->uid, buf);     draw_string(x1+200, y, "UID:", 0xAAAAAA); draw_string(x1+240, y, buf, 0xFFFFFFFF);
-            int_to_hex(curr->slab_id, buf); draw_string(x2+100, y, "SLAB:", 0xAAAAAA); draw_string(x2+140, y, buf, 0xFFFFFFFF);
+            int_to_hex(curr_t->id, buf);      draw_string(x1, y, "ID: ", 0xAAAAAA); draw_string(x1+40, y, buf, 0xFFFFFFFF);
+            int_to_hex(curr_t->uid, buf);     draw_string(x1+200, y, "UID:", 0xAAAAAA); draw_string(x1+240, y, buf, 0xFFFFFFFF);
+            int_to_hex(curr_t->slab_id, buf); draw_string(x2+100, y, "SLAB:", 0xAAAAAA); draw_string(x2+140, y, buf, 0xFFFFFFFF);
             y += step * 1.5;
         }
 
-        // System Inventory
         draw_string(x1, y, "SYSTEM INVENTORY:", 0xFFFFFF00);
         y += step;
 
-        extern int get_hw_disk_count(void);
         int disks = get_hw_disk_count();
         draw_string(x1, y, "DISKS: ", 0xAAAAAA);
         buf[0] = (disks % 10) + '0'; buf[1] = '\0';
@@ -337,7 +318,6 @@ void quartermaster_panic(const char* message, void* state) {
         }
         y += step * 1.5;
 
-        // Build Metadata
         draw_string(x1, y, "BUILD METADATA:", 0xFFFFFF00);
         y += step;
         draw_string(x1, y, "OSx2 LIMEMADE - MECHANICAL TRUTH - 2024-05-23", 0xAAAAAA);
@@ -355,7 +335,6 @@ void quartermaster_panic(const char* message, void* state) {
         serial_write_str("  RIP: "); int_to_hex(regs->rip, buf); serial_write_str(buf); serial_write_str("  FLG: "); int_to_hex(regs->rflags, buf); serial_write_str(buf); serial_write_str("\n");
         serial_write_str("  INT: "); int_to_hex(regs->interrupt_number, buf); serial_write_str(buf); serial_write_str("  ERR: "); int_to_hex(regs->error_code, buf); serial_write_str(buf); serial_write_str("\n");
 
-        // Machine-parsable JSON dump to serial
         serial_write_str("\n--- BEGIN PANIC JSON ---\n");
         serial_write_str("{\"panic\":{\"message\":\"");
         serial_write_str(message ? message : "NONE");
@@ -387,9 +366,6 @@ void quartermaster_panic(const char* message, void* state) {
         }
         serial_write_str("]");
 
-        /* AHCI State Audit */
-        #include <include/ahci.h>
-        extern hba_mem_t* get_hba_base(void);
         serial_write_str(",\"ahci\":[");
         hba_mem_t* hba = get_hba_base();
         if (hba) {
@@ -405,9 +381,7 @@ void quartermaster_panic(const char* message, void* state) {
         }
         serial_write_str("]");
 
-        /* Log Buffer Snapshot */
         serial_write_str(",\"log\":\"");
-        extern void get_kernel_log_snapshot(char* out, uint32_t max);
         char log_snap[512];
         get_kernel_log_snapshot(log_snap, 511);
         for(int i=0; log_snap[i]; i++) {
@@ -420,8 +394,6 @@ void quartermaster_panic(const char* message, void* state) {
         serial_write_str("}}\n");
         serial_write_str("--- END PANIC JSON ---\n\n");
 
-        // Attempt to write to disk if FS is mounted and not in safe mode
-        extern bool vfs_is_safe_mode(void);
         if (!vfs_is_safe_mode()) {
             void* path = str_create("BOOT:/var/crash/panic.log");
             vfs_handle_internal_t* h = vfs_open(path, "w");
@@ -475,7 +447,6 @@ void quartermaster_panic(const char* message, void* state) {
         }
         y += step * 0.5;
 
-        // Stack Trace (Top 16 values)
         draw_string(x1, y, "STACK DUMP (RSP):", 0xFFFFFF00);
         serial_write_str("STACK DUMP (RSP):\n");
         y += step;
@@ -494,7 +465,6 @@ void quartermaster_panic(const char* message, void* state) {
         draw_string(x1, y, "CPU FLAGS STATE:", 0xFFFFFF00);
         y += step;
 
-        /* Expanded Flags Decode */
         const char* flags_desc = (regs->rflags & (1 << 9)) ? "IF:1 (Interrupts ON)" : "IF:0 (Interrupts OFF)";
         draw_string(x1, y, flags_desc, 0xAAAAAA);
         y += step;
@@ -502,7 +472,6 @@ void quartermaster_panic(const char* message, void* state) {
         draw_string(x1, y, flags_desc, 0xAAAAAA);
         y += step;
 
-        /* IDT/GDT Audit */
         uint64_t idtr[2], gdtr[2];
         __asm__ volatile ("sidt %0" : "=m"(idtr));
         __asm__ volatile ("sgdt %0" : "=m"(gdtr));
@@ -513,12 +482,10 @@ void quartermaster_panic(const char* message, void* state) {
         y += step;
     }
 
-    // 6. Eternal Halt
     for (;;) { __asm__ volatile ("hlt"); }
 }
 
 void quartermaster_panic_reset(void) {
-    /* Hard reset via Keyboard Controller (legacy but effective in QEMU) */
     serial_write_str("[SNAP] INITIATING MECHANICAL RESET\n");
     outb(0x64, 0xFE);
     for (;;) { __asm__ volatile ("hlt"); }
