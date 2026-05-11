@@ -60,7 +60,6 @@ void _start(void) {
         if (debug_overlay) {
             gui_draw_rect(&fb, 10, 10, 200, 100, 0x000000);
             gui_draw_text(&fb, 20, 20, "DEBUG MODE ACTIVE", 0xFFFF00);
-            gui_draw_text(&fb, 20, 40, "Handover: OK", 0x00FF00);
         }
 
         char cmd_buf[16];
@@ -77,6 +76,8 @@ void _start(void) {
         for (int i = 0; i < disks; i++) {
             char name[32]; uint64_t size;
             rsl_get_disk_info(i, name, &size);
+
+            /* Identify RAW or FAT volumes for display */
             gui_draw_text(&fb, px + 100, py + 220 + (i * 20), name, COLOR_TEXT);
         }
 
@@ -97,10 +98,8 @@ void _start(void) {
                 mkdir("DATA:/sys");
                 mkdir("DATA:/users");
                 mkdir("DATA:/recovery");
-                mkdir("DATA:/var");
-                mkdir("DATA:/var/log");
 
-                /* Create SYSTEM user: UUID 0, no user folder */
+                /* Create SYSTEM user: UUID 0, UID 0, NO FOLDER */
                 write_file("DATA:/sys/users.jsonl", "{\"user\":\"system\",\"uid\":0,\"uuid\":\"0\"}\n");
 
                 write_file("DATA:/sys/.installed", "{\"version\":\"2.0\",\"type\":\"fresh\",\"uuid\":\"0\"}");

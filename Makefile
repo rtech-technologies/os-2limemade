@@ -11,7 +11,7 @@ KERNEL_SRC = $(wildcard kernel/unice64/*.c) \
              $(wildcard kernel/libs/storage/fatfs/*.c) \
              $(wildcard kernel/libs/rtc64/*.c) \
              $(wildcard kernel/libs/rtc64/nuklear/*.c) \
-             $(wildcard kernel/libs/core/*.c) \
+             $(filter-out kernel/libs/core/malloc.c,$(wildcard kernel/libs/core/*.c)) \
              $(wildcard kernel/libs/usb/*.c)
 
 AS_SRC = $(wildcard kernel/unice64/*.s)
