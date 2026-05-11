@@ -199,12 +199,8 @@ void draw_pixel(int x, int y, uint32_t color) {
     if (x < 0 || (uint64_t)x >= fb->width || y < 0 || (uint64_t)y >= fb->height) return;
 
     uint32_t* v_buf = get_virtual_buffer();
-    if (v_buf) {
-        v_buf[y * (fb->pitch / 4) + x] = color;
-    } else {
-        uint32_t* pixel = (uint32_t*)(fb->address + y * fb->pitch + x * 4);
-        *pixel = color;
-    }
+    uint32_t* fb_ptr = v_buf ? v_buf : (uint32_t*)fb->address;
+    fb_ptr[y * (fb->pitch / 4) + x] = color;
 }
 
 void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
@@ -215,6 +211,8 @@ void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
     if ((uint8_t)c >= 128) return;
 
     uint32_t* v_buf = get_virtual_buffer();
+    uint32_t* fb_ptr = v_buf ? v_buf : (uint32_t*)fb->address;
+    size_t pitch_div_4 = fb->pitch / 4;
 
     const uint8_t* glyph = font8x8_basic[(uint8_t)c];
     for (int i = 0; i < 8; i++) {
@@ -225,13 +223,7 @@ void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
                 for (int sx = 0; sx < SCALE; sx++) {
                     int px = (x * 8 * SCALE) + (j * SCALE) + sx;
                     int py = (y * 8 * SCALE) + (i * SCALE) + sy;
-
-                    if (v_buf) {
-                        v_buf[py * (fb->pitch / 4) + px] = color;
-                    } else {
-                        uint32_t* pixel = (uint32_t*)(fb->address + py * fb->pitch + px * 4);
-                        *pixel = color;
-                    }
+                    fb_ptr[py * pitch_div_4 + px] = color;
                 }
             }
         }
@@ -330,10 +322,11 @@ void telemetry_update(int task_id, const char* status) {
     /* Draw a separator line above telemetry */
     uint32_t sep_color = 0x555555;
     uint32_t* v_buf = get_virtual_buffer();
-    uint32_t* fb_ptr = v_buf ? v_buf : (uint32_t*)fb->address;
+    uint32_t* fb_ptr_telemetry = v_buf ? v_buf : (uint32_t*)fb->address;
+    size_t pitch_div_4 = fb->pitch / 4;
     int line_y = bottom_row * char_height - 2;
     for (uint64_t x = 0; x < fb->width; x++) {
-        fb_ptr[line_y * (fb->pitch / 4) + x] = sep_color;
+        fb_ptr_telemetry[line_y * pitch_div_4 + x] = sep_color;
     }
 
     /* Clear the telemetry row */

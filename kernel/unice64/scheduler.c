@@ -172,10 +172,23 @@ void telemetry_update(int task_id, const char* status);
 
 void flusher_delta_move(void);
 
+#include <include/config.h>
+
 void unice64_schedule(void) {
     if (!scheduler_active) return;
     vga_pulse_cursor();
-    flusher_delta_move();
+
+    /* 🧱 Clock-Based Display Refresh (e.g. 60Hz = ~16ms) */
+    static uint64_t last_flush = 0;
+    extern uint64_t get_system_ticks(void);
+    uint64_t now = get_system_ticks();
+    uint64_t interval = 1000 / CONFIG_REFRESH_RATE;
+
+    if (now - last_flush >= interval) {
+        last_flush = now;
+        flusher_delta_move();
+    }
+
     apic_timer_init(1000000);
     if (task_count < 2) return;
     int next_idx = (current_task_idx + 1) % task_count;
