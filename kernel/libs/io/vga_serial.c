@@ -61,6 +61,7 @@ void serial_write_str(const char* s) {
 
 uint64_t get_hhdm_offset(void);
 struct limine_framebuffer_response* get_framebuffer(void);
+uint32_t* get_virtual_buffer(void);
 
 /* Complete 8x8 Font (ASCII 0-127) */
 static const uint8_t font8x8_basic[128][8] = {
@@ -196,8 +197,14 @@ void draw_pixel(int x, int y, uint32_t color) {
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;
     if (x < 0 || (uint64_t)x >= fb->width || y < 0 || (uint64_t)y >= fb->height) return;
-    uint32_t* pixel = (uint32_t*)(fb->address + y * fb->pitch + x * 4);
-    *pixel = color;
+
+    uint32_t* v_buf = get_virtual_buffer();
+    if (v_buf) {
+        v_buf[y * (fb->pitch / 4) + x] = color;
+    } else {
+        uint32_t* pixel = (uint32_t*)(fb->address + y * fb->pitch + x * 4);
+        *pixel = color;
+    }
 }
 
 void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
@@ -207,6 +214,8 @@ void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
     /* Bounds check to prevent out-of-bounds font access */
     if ((uint8_t)c >= 128) return;
 
+    uint32_t* v_buf = get_virtual_buffer();
+
     const uint8_t* glyph = font8x8_basic[(uint8_t)c];
     for (int i = 0; i < 8; i++) {
         for (int j = 0; j < 8; j++) {
@@ -214,10 +223,15 @@ void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
             /* 2x scaling: draw 2x2 blocks */
             for (int sy = 0; sy < SCALE; sy++) {
                 for (int sx = 0; sx < SCALE; sx++) {
-                    uint32_t* pixel = (uint32_t*)(fb->address +
-                        ((y * 8 * SCALE) + (i * SCALE) + sy) * fb->pitch +
-                        ((x * 8 * SCALE) + (j * SCALE) + sx) * 4);
-                    *pixel = color;
+                    int px = (x * 8 * SCALE) + (j * SCALE) + sx;
+                    int py = (y * 8 * SCALE) + (i * SCALE) + sy;
+
+                    if (v_buf) {
+                        v_buf[py * (fb->pitch / 4) + px] = color;
+                    } else {
+                        uint32_t* pixel = (uint32_t*)(fb->address + py * fb->pitch + px * 4);
+                        *pixel = color;
+                    }
                 }
             }
         }
@@ -283,7 +297,8 @@ void vga_write_char(char c, uint8_t color_attr) {
 
     if (cursor_y >= max_rows) {
         /* Move all rows up by one char_height */
-        uint32_t* fb_ptr = (uint32_t*)fb->address;
+        uint32_t* v_buf = get_virtual_buffer();
+        uint32_t* fb_ptr = v_buf ? v_buf : (uint32_t*)fb->address;
         size_t row_pixels = fb->pitch / 4;
         size_t scroll_size = (max_rows - 1) * char_height * row_pixels;
         size_t offset = char_height * row_pixels;
@@ -314,7 +329,8 @@ void telemetry_update(int task_id, const char* status) {
 
     /* Draw a separator line above telemetry */
     uint32_t sep_color = 0x555555;
-    uint32_t* fb_ptr = (uint32_t*)fb->address;
+    uint32_t* v_buf = get_virtual_buffer();
+    uint32_t* fb_ptr = v_buf ? v_buf : (uint32_t*)fb->address;
     int line_y = bottom_row * char_height - 2;
     for (uint64_t x = 0; x < fb->width; x++) {
         fb_ptr[line_y * (fb->pitch / 4) + x] = sep_color;
@@ -352,8 +368,11 @@ void vga_clear(void) {
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;
 
+    uint32_t* v_buf = get_virtual_buffer();
+    uint32_t* fb_ptr = v_buf ? v_buf : (uint32_t*)fb->address;
+
     for (uint64_t i = 0; i < fb->height * fb->pitch / 4; i++) {
-        ((uint32_t*)fb->address)[i] = 0x000000;
+        fb_ptr[i] = 0x000000;
     }
     cursor_x = 0;
     cursor_y = 0;

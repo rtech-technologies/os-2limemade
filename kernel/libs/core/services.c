@@ -20,6 +20,7 @@ void dispatch_event(kernel_event_t event) {
         register_service(usb_xhci_service);
         register_service(ahci_service);
         register_service(vdisk_service);
+        register_service(rtc64_service);
 
         /* PCI Scan before VFS/Mount logic */
         void pci_scan_bus(void);

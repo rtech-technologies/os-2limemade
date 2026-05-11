@@ -170,9 +170,12 @@ void sys_yield(void) { __asm__ volatile ("int $0x81"); }
 
 void telemetry_update(int task_id, const char* status);
 
+void flusher_delta_move(void);
+
 void unice64_schedule(void) {
     if (!scheduler_active) return;
     vga_pulse_cursor();
+    flusher_delta_move();
     apic_timer_init(1000000);
     if (task_count < 2) return;
     int next_idx = (current_task_idx + 1) % task_count;
