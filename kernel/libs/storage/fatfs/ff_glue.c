@@ -1,5 +1,6 @@
 #include <include/vfs.h>
 #include <include/rsl.h>
+#include <include/string.h>
 #include <kernel/libs/storage/fatfs/ff.h>
 #include <stdint.h>
 #include <stddef.h>

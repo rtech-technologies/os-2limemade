@@ -99,10 +99,24 @@ void _start(void) {
     dispatch_event(EVENT_MAIN);
 
     tasking_init();
+
+    /* 🧱 Blocky Fix: Restore OOBE Flow */
+    /* If no Sovereign installation is found, automatically spawn Cargo (Module 2) */
+    bool is_installed = false;
+    void* s_inst = str_create("BOOT:/sys/.installed");
+    if (mount_success && vfs_exists(s_inst)) is_installed = true;
+    release(s_inst);
+
+    if (!is_installed) {
+        vga_print("[SNAP] Sovereign Installation not found. Engaging Cargo OOBE...\n");
+        void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid);
+        /* Module 1 is Cargo.bin in the current ISO layout */
+        tasking_spawn_module(1, 3, 0);
+    }
+
     apic_init();
     apic_timer_init(1000000);
 
-    /* SYSTEM User handling logic would go here, explicitly creating a SYSTEM task if needed */
     /* Handover */
     vga_print("[UNICE64] Kernel handover to Scheduler.\n");
     dispatch_event(EVENT_CLEANUP);
