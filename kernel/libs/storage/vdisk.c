@@ -133,7 +133,8 @@ static void vdisk_ls_root(void* path, void* priv) {
             buf[k++] = ')'; buf[k++] = ' ';
         }
 
-        FATFS tmp;
+        /* 🧱 Blocky Fix: Moved large FATFS struct from stack to static to prevent kernel stack overflow during LS */
+        static FATFS tmp;
         if (f_mount(&tmp, i) == FR_OK) {
             const char* tag = "[SOVEREIGN]";
             while(*tag) buf[k++] = *tag++;

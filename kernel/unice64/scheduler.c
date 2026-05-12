@@ -11,7 +11,7 @@ static task_t task_table[MAX_TASKS];
 static uint8_t task_stacks[MAX_TASKS][TASK_STACK_SIZE] __attribute__((aligned(4096)));
 static int task_count = 0;
 static int current_task_idx = 0;
-static bool scheduler_active = false;
+bool scheduler_active = false;
 
 void vga_print(const char* fmt, ...);
 void quartermaster_panic(const char* message, void* state);

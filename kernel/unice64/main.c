@@ -45,6 +45,7 @@ void _start(void) {
 
     __asm__ volatile ("sti");
 
+    /* 🧱 Blocky Fix: Moved large FATFS struct from stack to static BSS to prevent overflow during INITrd validation */
     static FATFS boot_fs;
     bool mount_success = false;
     int boot_drive = -1;

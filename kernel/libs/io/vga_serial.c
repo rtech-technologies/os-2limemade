@@ -230,12 +230,18 @@ void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
     }
 }
 
+void flusher_delta_move(void);
+
 void vga_write_char(char c, uint8_t color_attr) {
     serial_write_char(c);
 
     /* Mirror to kernel log buffer */
     kernel_log_buffer[log_ptr % LOG_BUFFER_SIZE] = c;
     log_ptr++;
+
+    /* Manual Flush during early boot or safe mode if scheduler not yet active */
+    extern bool scheduler_active;
+    if (!scheduler_active) flusher_delta_move();
 
     if (force_verbose) color_attr = 0x07; /* Force light gray on black */
 
