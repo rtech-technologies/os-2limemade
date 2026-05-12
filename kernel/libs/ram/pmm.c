@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 #include <limine.h>
 
 struct limine_memmap_response* get_memmap(void);
@@ -27,25 +28,46 @@ void pmm_init(void) {
     total_pages = highest_addr / PAGE_SIZE;
     bitmap_size = (total_pages / 8) + 1;
 
-    /* Find a spot for the bitmap */
+    /* 🧱 Sovereign Property Shield: Modules and Metadata Protection */
+    struct limine_module_response* get_modules(void);
+    struct limine_module_response* m_resp = get_modules();
+
+    /* Find a safe spot for the bitmap that doesn't vandalize modules */
     for (uint64_t i = 0; i < memmap->entry_count; i++) {
         struct limine_memmap_entry* entry = memmap->entries[i];
         if (entry->type == LIMINE_MEMMAP_USABLE && entry->length >= bitmap_size) {
-            bitmap = (uint8_t*)(hhdm + entry->base);
-            /* Mark bitmap area as used */
-            for (uint64_t j = 0; j < bitmap_size; j++) bitmap[j] = 0xFF;
-            entry->base += (bitmap_size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-            entry->length -= (bitmap_size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-            break;
+            uint64_t cand_base = entry->base;
+            uint64_t cand_end = cand_base + bitmap_size;
+            bool conflict = false;
+
+            if (m_resp) {
+                for (uint64_t m = 0; m < m_resp->module_count; m++) {
+                    uint64_t m_start = (uint64_t)m_resp->modules[m]->address - hhdm;
+                    uint64_t m_end = m_start + m_resp->modules[m]->size;
+                    if (!(cand_end <= m_start || cand_base >= m_end)) {
+                        conflict = true; break;
+                    }
+                }
+            }
+
+            if (!conflict) {
+                bitmap = (uint8_t*)(hhdm + cand_base);
+                for (uint64_t j = 0; j < bitmap_size; j++) bitmap[j] = 0xFF;
+                entry->base += (bitmap_size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+                entry->length -= (bitmap_size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+                break;
+            }
         }
     }
 
     /* Initialize all pages as used */
     for (uint64_t i = 0; i < bitmap_size; i++) bitmap[i] = 0xFF;
 
-    /* GOP Shield: Reserve Framebuffer range in the Bitmap */
+    /* 🧱 Sovereign Restoration: Reserve Framebuffer and Modules in the Bitmap */
     struct limine_framebuffer_response* get_framebuffer(void);
+    struct limine_module_response* get_modules(void);
     uint64_t vmm_get_phys(void* virt);
+
     struct limine_framebuffer_response* fb_resp = get_framebuffer();
     if (fb_resp && fb_resp->framebuffer_count > 0) {
         struct limine_framebuffer* fb = fb_resp->framebuffers[0];
@@ -55,6 +77,22 @@ void pmm_init(void) {
         for (uint64_t i = 0; i < fb_pages; i++) {
             if (start_page + i < total_pages) {
                 bitmap[(start_page + i) / 8] |= (1 << ((start_page + i) % 8));
+            }
+        }
+    }
+
+    struct limine_module_response* mod_resp = get_modules();
+    if (mod_resp) {
+        for (uint64_t i = 0; i < mod_resp->module_count; i++) {
+            struct limine_file* mod = mod_resp->modules[i];
+            if (!mod) continue;
+            uint64_t mod_phys = vmm_get_phys(mod->address);
+            uint64_t mod_pages = (mod->size + PAGE_SIZE - 1) / PAGE_SIZE;
+            uint64_t start_page = mod_phys / PAGE_SIZE;
+            for (uint64_t j = 0; j < mod_pages; j++) {
+                if (start_page + j < total_pages) {
+                    bitmap[(start_page + j) / 8] |= (1 << ((start_page + j) % 8));
+                }
             }
         }
     }

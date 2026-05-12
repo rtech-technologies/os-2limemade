@@ -67,6 +67,18 @@ size_t slab_get_usage(int id) {
     return 0;
 }
 
+bool is_slab_pointer(void* ptr) {
+    uintptr_t addr = (uintptr_t)ptr;
+    uint64_t hhdm = get_hhdm_offset();
+    for (int i = 0; i < slab_count; i++) {
+        uintptr_t start = slabs[i].base + hhdm;
+        uintptr_t end = start + SLAB_SIZE;
+        /* Sovereign Check: Pointer must be within slab and leave room for a header */
+        if (addr >= (start + 64) && addr < end) return true;
+    }
+    return false;
+}
+
 void* malloc(size_t size) {
     /* Use Slab 0 as Global System Heap with Recycling */
     int id = 0;
