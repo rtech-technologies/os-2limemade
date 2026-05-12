@@ -200,7 +200,8 @@ void draw_pixel(int x, int y, uint32_t color) {
 
     uint32_t* v_buf = get_virtual_buffer();
     uint32_t* fb_ptr = v_buf ? v_buf : (uint32_t*)fb->address;
-    fb_ptr[y * (fb->pitch / 4) + x] = color;
+    size_t pitch_div_4 = fb->pitch >> 2;
+    fb_ptr[y * pitch_div_4 + x] = color;
 }
 
 void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
@@ -212,18 +213,23 @@ void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
 
     uint32_t* v_buf = get_virtual_buffer();
     uint32_t* fb_ptr = v_buf ? v_buf : (uint32_t*)fb->address;
-    size_t pitch_div_4 = fb->pitch / 4;
+    size_t pitch_div_4 = fb->pitch >> 2;
 
     const uint8_t* glyph = font8x8_basic[(uint8_t)c];
+    int base_x = x * 8 * SCALE;
+    int base_y = y * 8 * SCALE;
+
     for (int i = 0; i < 8; i++) {
+        uint8_t row = glyph[i];
+        int py_start = base_y + (i * SCALE);
         for (int j = 0; j < 8; j++) {
-            uint32_t color = (glyph[i] & (1 << (7 - j))) ? fg : bg;
-            /* 2x scaling: draw 2x2 blocks */
+            uint32_t color = (row & (1 << (7 - j))) ? fg : bg;
+            int px_start = base_x + (j * SCALE);
+            /* 2x scaling optimized: resolve row pointers once */
             for (int sy = 0; sy < SCALE; sy++) {
+                uint32_t* line = &fb_ptr[(py_start + sy) * pitch_div_4];
                 for (int sx = 0; sx < SCALE; sx++) {
-                    int px = (x * 8 * SCALE) + (j * SCALE) + sx;
-                    int py = (y * 8 * SCALE) + (i * SCALE) + sy;
-                    fb_ptr[py * pitch_div_4 + px] = color;
+                    line[px_start + sx] = color;
                 }
             }
         }
@@ -239,9 +245,12 @@ void vga_write_char(char c, uint8_t color_attr) {
     kernel_log_buffer[log_ptr % LOG_BUFFER_SIZE] = c;
     log_ptr++;
 
-    /* Manual Flush during early boot or safe mode if scheduler not yet active */
+    /* 🧱 Blocky Fix: Manual Flush on newline while scheduler is inactive to ensure boot logs appear */
     extern bool scheduler_active;
-    if (!scheduler_active) flusher_delta_move();
+    if (!scheduler_active && c == '\n') {
+        void flusher_delta_move(void);
+        flusher_delta_move();
+    }
 
     if (force_verbose) color_attr = 0x07; /* Force light gray on black */
 

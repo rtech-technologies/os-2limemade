@@ -11,6 +11,7 @@ typedef struct slab_header {
     size_t size;
     bool is_used;
     struct slab_header* next;
+    uint64_t alignment_padding; /* Sovereign Fix: Ensure 32-byte header for 16-byte payload alignment */
 } slab_header_t;
 
 typedef struct {
