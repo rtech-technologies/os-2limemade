@@ -35,7 +35,7 @@ OSx2 Limemade memory is strictly managed using reference counting.
 Storage is managed through a Virtual Disk abstraction.
 
 - **VDISK Bridge (`kernel/libs/vdisk.c`):** The `/CONNECT` registry is an array of `vdisk_node_t` structures. Each node defines `sector_size`, `total_lba`, and function pointers for `read_lba` and `write_lba`.
-- **Sovereign Discovery:** Disks are recognized as Sovereign based on GPT structure and hardware status in the registry.
+- **Sovereign Handshake:** Implements `is_sovereign_disk(int disk_id)` in `vdisk.c`. It reads LBA 0 of a disk and verifies the presence of the `0x5056524E` signature.
 - **PCI XHCI Scanning (`kernel/libs/usb_xhci.c`):** Scans the PCI bus for XHCI controllers and implements the **BIOS Handover Protocol**. It ensures the OS takes control of the controller registers from the BIOS.
 - **SATA/AHCI Driver (`kernel/libs/ahci.c`):** Implements the **SATA Force Reset** protocol. It stops DMA engines, clears error registers, and performs a mechanical handshake (COMRESET) to establish a link (SSTS 0x03) before registering the device.
 - **VFS Layer (`kernel/libs/vfs.c`):** Provides a unified interface for file operations using **Prefix-Based Routing** (e.g., `BOOT:/`, `INITRD:/`, `SATA0:/`). It dispatches requests to the appropriate filesystem handler with specific volume context (`void* priv`).
@@ -63,7 +63,7 @@ If a fatal error occurs, the system triggers an **Autopsy**.
 ## 7. Build System & Tools
 - **Makefile:** Primary targets are `kernel`, `iso`, and `run`.
 - **`scripts/menuconfig.py`:** Configures `.config` parameters.
-- **`scripts/fat_tool.py`:** Generates FAT32 disk images with a primary GPT partition at LBA 2048.
+- **`scripts/fat_tool.py`:** Generates FAT32 disk images with the Sovereign Signature (0x5056524E) at LBA 0 and a primary partition at LBA 2048.
 
 ## 8. Verification & Execution
 To verify that the OSx2 Limemade OS is functioning correctly:

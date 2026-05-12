@@ -20,12 +20,14 @@ The shell maintains a Current Working Directory (`curdir`).
 - `ls`: List disks at root or files in the current directory.
 - `mount <drive_id>`: Attempt to mount a physical drive (e.g., `mount 0`). If successful, it maps to `SATAx:`.
 - `format <drive_id>`: Destructively format a drive to FAT32.
-- `stamp <drive_id>`: Perform a mechanical sync on the target drive.
+- `stamp <drive_id>`: Apply the OSx2 Sovereign Signature (0x5056524E) to LBA 0.
 
 ### File Operations
 - `cat <file>`: Print the contents of a file.
 - `write <file>`: Create a new file or overwrite an existing one. Pre-existing files must be on a Sovereign volume.
 - `mkdir <name>`: Create a new directory in the current context.
+- `copy <text>`: Copy text to the global system clipboard.
+- `paste`: Output the contents of the global system clipboard.
 - `rmdir <name>`: Delete a directory or file.
 
 ### System

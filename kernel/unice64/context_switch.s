@@ -3,8 +3,10 @@
 .extern get_current_task
 .extern unice64_schedule
 .extern forensic_panic
+.extern g_hhdm_offset
 
 # Static Offsets for task_t and cpu_context_t
+# task_t: id(4), state(4), context(168), slab_id(4), stack_top(8)
 .set task_t_context_OFFSET, 8
 
 # cpu_context_t layout (8 bytes each)
@@ -30,7 +32,8 @@
 .set ctx_ss,  152
 
 unice64_context_switch:
-    # 1. Save state of the task being switched OUT
+    # 1. Save Stage: Push all GPRs onto the current task's stack
+    # This matches the layout of cpu_context_t if interpreted from RSP
     push %rax
     push %rbx
     push %rcx
@@ -47,106 +50,74 @@ unice64_context_switch:
     push %r14
     push %r15
 
-    # Use %rax to store current %rsp for offset math
-    mov %rsp, %rax
-
-    # Get the current TCB
+    # 2. Anchorage: Save the current stack pointer into the TCB
     call get_current_task
-
-    # Forensic Check: Null TCB
     test %rax, %rax
     jz 1f
 
-    # Forensic Check: TCB Boundary Validation
-    # Kernel range: 0xffffffff80000000 - 0xffffffff80800000
+    # Validate TCB address
     mov %rax, %rdi
     mov $0xffffffff80000000, %rbx
     cmp %rbx, %rdi
     jb 2f
-    mov $0xffffffff80800000, %rbx
-    cmp %rbx, %rdi
-    jae 2f
 
-    # TCB is valid, save context
-    add $task_t_context_OFFSET, %rdi # %rdi = &current->context
+    # Store RSP in current->context.rsp (Offset 152 = 8 + 144)
+    mov %rsp, 152(%rax)
 
-    # Store general purpose registers from stack to TCB
-    mov 0(%rax), %rbx; mov %rbx, ctx_r15(%rdi)
-    mov 8(%rax), %rbx; mov %rbx, ctx_r14(%rdi)
-    mov 16(%rax), %rbx; mov %rbx, ctx_r13(%rdi)
-    mov 24(%rax), %rbx; mov %rbx, ctx_r12(%rdi)
-    mov 32(%rax), %rbx; mov %rbx, ctx_r11(%rdi)
-    mov 40(%rax), %rbx; mov %rbx, ctx_r10(%rdi)
-    mov 48(%rax), %rbx; mov %rbx, ctx_r9(%rdi)
-    mov 56(%rax), %rbx; mov %rbx, ctx_r8(%rdi)
-    mov 64(%rax), %rbx; mov %rbx, ctx_rbp(%rdi)
-    mov 72(%rax), %rbx; mov %rbx, ctx_rdi(%rdi)
-    mov 80(%rax), %rbx; mov %rbx, ctx_rsi(%rdi)
-    mov 88(%rax), %rbx; mov %rbx, ctx_rdx(%rdi)
-    mov 96(%rax), %rbx; mov %rbx, ctx_rcx(%rdi)
-    mov 104(%rax), %rbx; mov %rbx, ctx_rbx(%rdi)
-    mov 112(%rax), %rbx; mov %rbx, ctx_rax(%rdi)
-
-    # Save iretq frame (15 registers deep)
-    mov (15 * 8 + 0)(%rax), %rbx; mov %rbx, ctx_rip(%rdi)
-    mov (15 * 8 + 8)(%rax), %rbx; mov %rbx, ctx_cs(%rdi)
-    mov (15 * 8 + 16)(%rax), %rbx; mov %rbx, ctx_rflags(%rdi)
-    mov (15 * 8 + 24)(%rax), %rbx; mov %rbx, ctx_rsp(%rdi)
-    mov (15 * 8 + 32)(%rax), %rbx; mov %rbx, ctx_ss(%rdi)
-
-    # 2. ABI Alignment & Handover
+    # 3. Handover: Pick the next task to run
+    # Align stack for C call
     mov %rsp, %rbp
     and $-16, %rsp
     call unice64_schedule
     mov %rbp, %rsp
 
-    # 3. Load state of the task being switched IN
+    # 4. Restoration: Load the next task's stack pointer
     call get_current_task
     test %rax, %rax
     jz 1f
 
-    mov %rax, %rsi
-    add $task_t_context_OFFSET, %rsi # %rsi = &next->context
+    # Validate the new task's RSP before switching
+    mov 152(%rax), %rsi
 
-    # Forensic Check: RSP Boundary Validation
-    mov ctx_rsp(%rsi), %rax
+    # Forensic Check: RSP Validity (Kernel or HHDM)
+    mov %rsi, %rax
     mov $0xffffffff80000000, %rbx
     cmp %rbx, %rax
-    jb 3f
+    jb 4f
     mov $0xffffffff80800000, %rbx
     cmp %rbx, %rax
-    jae 3f
-
-    # Switch to target task stack
+    jb 5f # Valid Kernel RSP
+4:
+    mov g_hhdm_offset(%rip), %rbx
+    test %rbx, %rbx
+    jz 3f
+    cmp %rbx, %rax
+    jb 3f # Truly Out of Bounds
+5:
+    # Switch to the new task's stack
     mov %rax, %rsp
 
-    # Restore iretq frame
-    pushq ctx_ss(%rsi)
-    pushq ctx_rsp(%rsi)
-    pushq ctx_rflags(%rsi)
-    pushq ctx_cs(%rsi)
-    pushq ctx_rip(%rsi)
+    # 5. Recovery: Pop all GPRs and Return to task execution
+    pop %r15
+    pop %r14
+    pop %r13
+    pop %r12
+    pop %r11
+    pop %r10
+    pop %r9
+    pop %r8
+    pop %rbp
+    pop %rdi
+    pop %rsi
+    pop %rdx
+    pop %rcx
+    pop %rbx
+    pop %rax
 
-    # Restore general purpose registers
-    mov ctx_r15(%rsi), %r15
-    mov ctx_r14(%rsi), %r14
-    mov ctx_r13(%rsi), %r13
-    mov ctx_r12(%rsi), %r12
-    mov ctx_r11(%rsi), %r11
-    mov ctx_r10(%rsi), %r10
-    mov ctx_r9(%rsi),  %r9
-    mov ctx_r8(%rsi),  %r8
-    mov ctx_rbp(%rsi), %rbp
-    mov ctx_rdi(%rsi), %rdi
-    mov ctx_rdx(%rsi), %rdx
-    mov ctx_rcx(%rsi), %rcx
-    mov ctx_rbx(%rsi), %rbx
-    mov ctx_rax(%rsi), %rax
-    mov ctx_rsi(%rsi), %rsi # Restore RSI last
-
+    # Restore the CPU state and jump back to the task's instruction pointer
     iretq
 
-# Forensic Failure Handlers
+# Forensic Panic Points
 1:  # NULL TCB
     lea .msg_null_tcb(%rip), %rdi
     xor %rsi, %rsi

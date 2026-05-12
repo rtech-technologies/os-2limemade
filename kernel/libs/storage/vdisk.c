@@ -3,14 +3,15 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <limine.h>
+#include <include/ahci_hw.h>
 
 #include <kernel/libs/storage/vdisk.h>
 
 #define MAX_DISKS 16
 
 /* Physical Hardware Registry */
-static vdisk_node_t hw_registry[MAX_DISKS];
-static int hw_count = 0;
+vdisk_node_t hw_registry[MAX_DISKS];
+int hw_count = 0;
 
 /* Logical Connected Registry (/CONNECT) */
 static vdisk_node_t connect_registry[MAX_DISKS];
@@ -67,6 +68,22 @@ int vdisk_write(int disk_id, uint64_t lba, uint32_t count, void* buffer) {
 int get_hw_disk_count(void) { return hw_count; }
 int get_connect_disk_count(void) { return connect_count; }
 
+int is_sovereign_disk(int disk_id) {
+    if (disk_id < 0 || disk_id >= hw_count) return 0;
+    void* malloc(size_t size);
+    void free(void* ptr);
+    uint8_t* buf = malloc(512);
+    if (!buf) return 0;
+
+    int res = 0;
+    if (hw_registry[disk_id].read_lba(hw_registry[disk_id].private_data, 0, 1, buf) == 0) {
+        uint32_t sig = *(uint32_t*)buf;
+        if (sig == 0x5056524E) res = 1;
+    }
+    free(buf);
+    return res;
+}
+
 int vdisk_read_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer) {
     if (hw_id < 0 || hw_id >= hw_count) return -1;
     return hw_registry[hw_id].read_lba(hw_registry[hw_id].private_data, lba, count, buffer);
@@ -82,6 +99,20 @@ int vdisk_eject_hw(int hw_id) {
     if (hw_id < 0 || hw_id >= hw_count) return -1;
     if (!hw_registry[hw_id].eject) return -1;
     return hw_registry[hw_id].eject(hw_registry[hw_id].private_data);
+}
+
+bool vdisk_is_busy(int hw_id) {
+    if (hw_id < 0 || hw_id >= hw_count) return false;
+
+    /* Hardware Status Check: AHCI Port Busy bit (BSY = bit 7 of TFD) */
+    void* get_hba_base(void);
+    hba_mem_t* hba = (hba_mem_t*)get_hba_base();
+    if (hba && !hw_registry[hw_id].is_atapi) {
+        int port = (int)(uint64_t)hw_registry[hw_id].private_data;
+        if (port < 32 && (hba->ports[port].tfd & 0x80)) return true;
+    }
+
+    return false;
 }
 
 uint64_t vdisk_get_offset(int hw_id) {
@@ -109,8 +140,8 @@ static int ramdisk_read(void* priv, uint64_t lba, uint32_t count, void* buffer) 
     size_t size = count * 512;
     if (offset + size > ramdisk->size) return -1;
     uint8_t* src = base + offset;
-    uint8_t* dst = (uint8_t*)buffer;
-    for (size_t i = 0; i < size; i++) dst[i] = src[i];
+    void* memcpy(void* dest, const void* src, size_t n);
+    memcpy(buffer, src, size);
     return 0;
 }
 
@@ -175,10 +206,76 @@ void vdisk_service(kernel_event_t event) {
             serial_write_str("[INIT] Ramdisk registered as Physical Volume.\n");
         }
 
+        /* Register USE Dynamic Ramdisk */
+        int use_ramdisk_read(void* priv, uint64_t lba, uint32_t count, void* buffer);
+        int use_ramdisk_write(void* priv, uint64_t lba, uint32_t count, void* buffer);
+
+        vdisk_node_t use_disk = {
+            .name = "USE_RAM",
+            .sector_size = 512,
+            .total_lba = 32768, /* 16MB dynamic limit */
+            .partition_offset = 0,
+            .read_lba = use_ramdisk_read,
+            .write_lba = use_ramdisk_write,
+            .is_atapi = false
+        };
+        register_hardware_disk(use_disk);
+
         vfs_node_t root_node = {
             .name = "/",
             .ls = vdisk_ls_root
         };
         vfs_register_node(root_node);
     }
+}
+
+#define USE_MAX_PAGES 4096
+static void* use_pages[USE_MAX_PAGES];
+
+int use_ramdisk_read(void* priv, uint64_t lba, uint32_t count, void* buffer) {
+    (void)priv;
+    uint8_t* dest = (uint8_t*)buffer;
+    for (uint32_t i = 0; i < count; i++) {
+        uint64_t sector = lba + i;
+        uint64_t page_idx = (sector * 512) / 4096;
+        uint64_t offset = (sector * 512) % 4096;
+
+        if (page_idx < USE_MAX_PAGES && use_pages[page_idx]) {
+            uint8_t* src = (uint8_t*)use_pages[page_idx] + offset;
+            void* memcpy(void* dest, const void* src, size_t n);
+            memcpy(dest + (i * 512), src, 512);
+        } else {
+            void* memset(void* s, int c, size_t n);
+            memset(dest + (i * 512), 0, 512);
+        }
+    }
+    return 0;
+}
+
+int use_ramdisk_write(void* priv, uint64_t lba, uint32_t count, void* buffer) {
+    (void)priv;
+    uint8_t* src = (uint8_t*)buffer;
+    void* pmm_alloc(uint64_t count);
+    uint64_t get_hhdm_offset(void);
+
+    for (uint32_t i = 0; i < count; i++) {
+        uint64_t sector = lba + i;
+        uint64_t page_idx = (sector * 512) / 4096;
+        uint64_t offset = (sector * 512) % 4096;
+
+        if (page_idx >= USE_MAX_PAGES) return -1;
+
+        if (!use_pages[page_idx]) {
+            void* phys = pmm_alloc(1);
+            if (!phys) return -1;
+            use_pages[page_idx] = (void*)((uint64_t)phys + get_hhdm_offset());
+            void* memset(void* s, int c, size_t n);
+            memset(use_pages[page_idx], 0, 4096);
+        }
+
+        uint8_t* dest = (uint8_t*)use_pages[page_idx] + offset;
+        void* memcpy(void* dest, const void* src, size_t n);
+        memcpy(dest, src + (i * 512), 512);
+    }
+    return 0;
 }

@@ -33,13 +33,14 @@ void idt_set_descriptor(uint8_t vector, void* isr, uint8_t flags) {
 extern void irq_timer_handler(void);
 extern void exception_handler_stub(void);
 extern void unice64_context_switch(void);
+extern void rsl_syscall_handler(void);
 extern void idt_load(idt_ptr_t* idt_ptr);
 
 void idt_init(void) {
     idt_ptr.limit = (sizeof(idt_entry_t) * 256) - 1;
     idt_ptr.base  = (uint64_t)&idt;
 
-    /* Fill IDT with exception stubs (0x08 Kernel Code Segment) */
+    /* Fill IDT with exception stubs */
     for (int i = 0; i < 32; i++) {
         idt_set_descriptor(i, exception_handler_stub, 0x8E);
     }
@@ -49,6 +50,9 @@ void idt_init(void) {
 
     /* Register software interrupt for sys_yield (0x81) */
     idt_set_descriptor(0x81, unice64_context_switch, 0x8E);
+
+    /* Register RSL Syscall Interrupt (0x03) */
+    idt_set_descriptor(0x03, rsl_syscall_handler, 0xEE); /* 0xEE: DPL=3, Present, Interrupt Gate */
 
     idt_load(&idt_ptr);
 }

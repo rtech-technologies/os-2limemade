@@ -1,4 +1,6 @@
 #include <include/rsl.h>
+#include <include/mouse.h>
+#include <include/ahci_hw.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -12,6 +14,15 @@ static inline void outw(uint16_t port, uint16_t val) {
 }
 
 void rsl_shutdown(void) {
+    /* Final UI Update: Show final X,Y */
+    void rsl_draw_val(int x, int y, int64_t val);
+    mouse_state_t* get_mouse_state(void);
+    mouse_state_t* ms = get_mouse_state();
+    if (ms) {
+        rsl_draw_val(10, 10, ms->x);
+        rsl_draw_val(10, 30, ms->y);
+    }
+
     /* VGA Farewell */
     void vga_clear(void);
     void vga_set_cursor(int x, int y);
@@ -31,10 +42,25 @@ void rsl_shutdown(void) {
 
     serial_write_str("[OS] Powering off via ACPI...\n");
 
+    /* OSx2: Clean Shutdown - Flush all AHCI caches */
+    int ahci_flush_cache(int p);
+    extern hba_mem_t* get_hba_base(void);
+    hba_mem_t* hba = get_hba_base();
+    if (hba) {
+        for (int i = 0; i < 32; i++) {
+            if (hba->pi & (1 << i)) ahci_flush_cache(i);
+        }
+    }
+
     /* ACPI Shutdown (QEMU/VirtualBox compatible) */
     outw(0x604, 0x2000);
     /* Alternative if above fails */
     outw(0xB004, 0x2000);
+
+    set_color(LIGHT_GREEN, BLACK);
+    vga_set_cursor(14, 25);
+    print("you may now power off your pc");
+    serial_write_str("\nyou may now power off your pc\n");
 
     for (;;) { __asm__ volatile ("hlt"); }
 }

@@ -17,12 +17,31 @@ void arc_mem_service(kernel_event_t event) {
     }
 }
 
+void* malloc_ext(int id, size_t size);
+
+void* realloc(void* ptr, size_t size) {
+    if (!ptr) return malloc_ext(0, size);
+    /* Simplified realloc for OSx2: Free and Malloc (In-place resize not supported) */
+    /* This requires tracking size in slab, which we do in slab_header_t */
+    void* new_ptr = malloc_ext(0, size);
+    if (new_ptr) {
+        void* memcpy(void* dest, const void* src, size_t n);
+        /* We don't know the old size easily without more slab logic, so we copy up to 'size' for safety */
+        /* In a production kernel we would use the block header to get exact size */
+        memcpy(new_ptr, ptr, size);
+        void free(void* ptr);
+        free(ptr);
+    }
+    return new_ptr;
+}
+
 void* arc_alloc(size_t size) {
     size_t total_size = size + sizeof(arc_header_t);
     task_t* current = get_current_task();
     int slab_id = current ? current->slab_id : 0;
 
-    arc_header_t* header = (arc_header_t*)slab_alloc(slab_id, total_size);
+    /* Use Slab-specific recycling heap for ARC objects */
+    arc_header_t* header = (arc_header_t*)malloc_ext(slab_id, total_size);
     if (!header) return NULL;
 
     header->ref_count = 1; /* Initial reference count */
