@@ -41,17 +41,8 @@
 .set ctx_ss,  152
 
 unice64_context_switch:
-    # Quartermaster: Scheduler Readiness Shield
-    call get_current_task
-    test %rax, %rax
-    jnz 1f
-
-    # NULL current task -> fallback
-    call kernel_fallback_shell
-    iretq
-
-1:
-    # 1. Save state of the task being switched OUT
+    # 1. IMMEDIATE Register Preservation
+    # Save all GPRs before calling ANY C function to prevent register corruption.
     push %rax
     push %rbx
     push %rcx
@@ -70,6 +61,19 @@ unice64_context_switch:
 
     mov %rsp, %r12
 
+    # Quartermaster: Scheduler Readiness Shield
+    call get_current_task
+    test %rax, %rax
+    jnz 1f
+
+    # NULL current task -> fallback
+    # Clean stack before fallback
+    add $120, %rsp
+    call kernel_fallback_shell
+    iretq
+
+1:
+    # 2. Save state of the task being switched OUT
     call get_current_task
     mov %rax, %rdi
     add $task_t_context, %rdi

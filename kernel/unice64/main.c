@@ -9,6 +9,7 @@
 #include <kernel/libs/storage/fatfs/ff.h>
 
 void gdt_init(void);
+void stack_guard_init(void);
 void pmm_init(void);
 void idt_init(void);
 void apic_init(void);
@@ -32,6 +33,7 @@ void _start(void) {
     __asm__ volatile ("cli");
     _sse_init();
     gdt_init();
+    stack_guard_init();
     pmm_init();
     slab_init();
     unice64_scheduler_init();

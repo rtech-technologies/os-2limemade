@@ -1,7 +1,7 @@
 # OSx2 Limemade OS Makefile
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -msse -msse2 -fsanitize=undefined -I. -I./include -I./kernel/libs/usb/cherryusb/source/common -I./kernel/libs/usb/cherryusb/source/core -I./kernel/libs/usb/cherryusb/source/osal -I./kernel/libs/usb/ -I./kernel/libs/rtc64/ -I./kernel/libs/usb/cherryusb/source/class/hub
+CFLAGS = -Wall -Wextra -std=c11 -ffreestanding -fstack-protector-all -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -msse -msse2 -fsanitize=undefined -I. -I./include -I./kernel/libs/usb/cherryusb/source/common -I./kernel/libs/usb/cherryusb/source/core -I./kernel/libs/usb/cherryusb/source/osal -I./kernel/libs/usb/ -I./kernel/libs/rtc64/ -I./kernel/libs/usb/cherryusb/source/class/hub
 LDFLAGS = -Wl,-T,linker.ld -static -nostdlib -Wl,-z,max-page-size=0x1000
 
 KERNEL_SRC = $(wildcard kernel/unice64/*.c) \

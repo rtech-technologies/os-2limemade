@@ -47,7 +47,7 @@ irq_timer_handler:
 .extern rsl_syscall_handler
 rsl_syscall_entry:
     # Quartermaster: Deterministic Syscall Register Handover
-    # Save user state
+    # Save user state (Including callee-saved registers to prevent loop counter smash)
     pushq %rcx
     pushq %rdx
     pushq %rsi
@@ -58,6 +58,10 @@ rsl_syscall_entry:
     pushq %r11
     pushq %rbx
     pushq %rbp
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
 
     # ABI Requirement: rdi, rsi, rdx, rcx, r8
     # User Input: RAX (id), RBX (arg1), RCX (arg2), RDX (arg3), RSI (arg4)
@@ -80,6 +84,10 @@ rsl_syscall_entry:
     mov %r12, %rsp
 
     # Restore user state
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
     popq %rbp
     popq %rbx
     popq %r11

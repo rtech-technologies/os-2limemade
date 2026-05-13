@@ -62,7 +62,7 @@ void _start(void) {
             gui_draw_text(&fb, 20, 20, "DEBUG MODE ACTIVE", 0xFFFF00);
         }
 
-        char cmd_buf[16];
+        char cmd_buf[128]; /* Sovereign Fix: Use larger buffer to prevent legacy syscall overflow */
         rsl_input("Selection: ", cmd_buf);
         char c = cmd_buf[0];
 
@@ -93,8 +93,8 @@ void _start(void) {
             }
 
             if (partition_disk(target_disk) == 0 && format_disk(target_disk) == 0) {
-                int res;
-                __asm__ volatile ("int $3" : : "a"((uint64_t)301), "b"((uint64_t)target_disk), "c"((uint64_t)"DATA"), "d"((uint64_t)&res) : "memory");
+                int res = -1;
+                rsl_mount_vfs(target_disk, "DATA", &res);
                 mkdir("DATA:/sys");
                 mkdir("DATA:/users");
                 mkdir("DATA:/recovery");
