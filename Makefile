@@ -37,9 +37,9 @@ all:
 
 programs: $(PROGRAMS)
 
-bin/%.bin: programs/%.c programs/libc/libc.c kernel/libs/core/sanitizers.c
+bin/%.bin: programs/entry.s programs/%.c programs/libc/libc.c kernel/libs/core/sanitizers.c
 	@mkdir -p bin
-	$(CC) $(CFLAGS) -DUSERLAND_SANITIZER -nostdlib -static -Wl,-T,programs/linker.ld $^ -o $@
+	$(CC) $(CFLAGS) -fno-pic -fno-pie -DUSERLAND_SANITIZER -nostdlib -static -Wl,-T,programs/linker.ld $^ -o $@
 
 limine-setup:
 	@mkdir -p limine

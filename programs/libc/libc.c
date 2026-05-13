@@ -51,9 +51,9 @@ void set_color(color_t fg, color_t bg) {
 }
 
 void* input(const char* prompt) {
-    void* res = NULL;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)11), "b"((uint64_t)prompt), "c"((uint64_t)&res) : "memory");
-    return res;
+    uint64_t res = 0;
+    __asm__ volatile ("int $3" : "=a"(res) : "a"((uint64_t)11), "b"((uint64_t)prompt) : "memory");
+    return (void*)res;
 }
 
 void retain(void* ptr) {
@@ -65,15 +65,15 @@ void release(void* ptr) {
 }
 
 void* str_create(const char* cstr) {
-    void* res = NULL;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)30), "b"((uint64_t)cstr), "c"((uint64_t)&res) : "memory");
-    return res;
+    uint64_t res = 0;
+    __asm__ volatile ("int $3" : "=a"(res) : "a"((uint64_t)30), "b"((uint64_t)cstr) : "memory");
+    return (void*)res;
 }
 
 const char* str_to_cstr(void* str) {
-    const char* res = NULL;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)35), "b"((uint64_t)str), "c"((uint64_t)&res) : "memory");
-    return res;
+    uint64_t res = 0;
+    __asm__ volatile ("int $3" : "=a"(res) : "a"((uint64_t)35), "b"((uint64_t)str) : "memory");
+    return (const char*)res;
 }
 
 bool str_is_empty(void* str) {
@@ -83,47 +83,51 @@ bool str_is_empty(void* str) {
 }
 
 void* str_concat(void* s1, void* s2) {
-    void* res = NULL;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)31), "b"((uint64_t)s1), "c"((uint64_t)s2), "d"((uint64_t)&res) : "memory");
-    return res;
+    uint64_t res = 0;
+    __asm__ volatile ("int $3" : "=a"(res) : "a"((uint64_t)31), "b"((uint64_t)s1), "c"((uint64_t)s2) : "memory");
+    return (void*)res;
 }
 
 int rsl_get_fb(rsl_fb_t* fb) {
-    volatile int res = -1;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)202), "b"((uint64_t)fb), "c"((uint64_t)&res) : "memory");
-    return res;
+    uint64_t res = 0;
+    __asm__ volatile ("int $3" : "=a"(res) : "a"((uint64_t)202), "b"((uint64_t)fb) : "memory");
+    return (int)res;
 }
 
 void rsl_user_create(const char* name, const char* pass, int* out_res) {
-    __asm__ volatile ("int $3" : : "a"((uint64_t)112), "b"((uint64_t)name), "c"((uint64_t)pass), "d"((uint64_t)out_res) : "memory");
+    uint64_t res = 0;
+    __asm__ volatile ("int $3" : "=a"(res) : "a"((uint64_t)112), "b"((uint64_t)name), "c"((uint64_t)pass) : "memory");
+    if (out_res) *out_res = (int)res;
 }
 
 void rsl_mount_vfs(int disk_id, const char* name, int* out_res) {
-    __asm__ volatile ("int $3" : : "a"((uint64_t)301), "b"((uint64_t)disk_id), "c"((uint64_t)name), "d"((uint64_t)out_res) : "memory");
+    uint64_t res = 0;
+    __asm__ volatile ("int $3" : "=a"(res) : "a"((uint64_t)301), "b"((uint64_t)disk_id), "c"((uint64_t)name) : "memory");
+    if (out_res) *out_res = (int)res;
 }
 
 int rsl_list_disks(void) {
-    volatile int count = 0;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)101), "b"((uint64_t)&count) : "memory");
-    return count;
+    uint64_t count = 0;
+    __asm__ volatile ("int $3" : "=a"(count) : "a"((uint64_t)101) : "memory");
+    return (int)count;
 }
 
 int rsl_get_disk_info(int id, char* name, uint64_t* size) {
-    volatile int res = -1;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)103), "b"((uint64_t)id), "c"((uint64_t)name), "d"((uint64_t)size) : "memory");
-    return res;
+    uint64_t res = 0;
+    __asm__ volatile ("int $3" : "=a"(res) : "a"((uint64_t)103), "b"((uint64_t)id), "c"((uint64_t)name), "d"((uint64_t)size) : "memory");
+    return (int)res;
 }
 
 int rsl_partition_disk(int id) {
-    volatile int res = -1;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)105), "b"((uint64_t)id), "c"((uint64_t)&res) : "memory");
-    return res;
+    uint64_t res = 0;
+    __asm__ volatile ("int $3" : "=a"(res) : "a"((uint64_t)105), "b"((uint64_t)id) : "memory");
+    return (int)res;
 }
 
 int rsl_format_disk(int id) {
-    volatile int res = -1;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)104), "b"((uint64_t)id), "c"((uint64_t)&res) : "memory");
-    return res;
+    uint64_t res = 0;
+    __asm__ volatile ("int $3" : "=a"(res) : "a"((uint64_t)104), "b"((uint64_t)id) : "memory");
+    return (int)res;
 }
 
 void rsl_write(void* path, void* content) {
@@ -131,15 +135,15 @@ void rsl_write(void* path, void* content) {
 }
 
 vfs_handle_user_t rsl_open(void* path, const char* mode) {
-    vfs_handle_user_t h = NULL;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)122), "b"((uint64_t)path), "c"((uint64_t)mode), "d"((uint64_t)&h) : "memory");
-    return h;
+    uint64_t res = 0;
+    __asm__ volatile ("int $3" : "=a"(res) : "a"((uint64_t)122), "b"((uint64_t)path), "c"((uint64_t)mode) : "memory");
+    return (vfs_handle_user_t)res;
 }
 
 int rsl_read(vfs_handle_user_t handle, void* buf, int len) {
-    volatile int br = -1;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)123), "b"((uint64_t)handle), "c"((uint64_t)buf), "d"((uint64_t)&br), "S"((uint64_t)len) : "memory");
-    return br;
+    uint64_t res = 0;
+    __asm__ volatile ("int $3" : "=a"(res) : "a"((uint64_t)123), "b"((uint64_t)handle), "c"((uint64_t)buf), "S"((uint64_t)len) : "memory");
+    return (int)res;
 }
 
 void rsl_close(vfs_handle_user_t handle) {
@@ -152,15 +156,16 @@ void rsl_cd(void* path) { __asm__ volatile ("int $3" : : "a"((uint64_t)52), "b"(
 void rsl_mkdir(void* path) { __asm__ volatile ("int $3" : : "a"((uint64_t)53), "b"((uint64_t)path) : "memory"); }
 
 bool rsl_exists(void* path) {
-    volatile bool res = false;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)15), "b"((uint64_t)path), "c"((uint64_t)&res) : "memory");
-    return res;
+    uint64_t res = 0;
+    __asm__ volatile ("int $3" : "=a"(res) : "a"((uint64_t)15), "b"((uint64_t)path) : "memory");
+    return (bool)res;
 }
 
 void rsl_dispatch_command(char* line, void** curdir_ptr, bool* is_safe_ptr) {
     __asm__ volatile ("int $3" : : "a"((uint64_t)300), "b"((uint64_t)line), "c"((uint64_t)curdir_ptr), "d"((uint64_t)is_safe_ptr) : "memory");
 }
 
+void rsl_yield(void) { sys_yield(); }
 void sys_yield(void) {
     __asm__ volatile ("int $3" : : "a"((uint64_t)2) : "memory");
 }

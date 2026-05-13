@@ -78,6 +78,7 @@ typedef struct {
 int rsl_get_fb(rsl_fb_t* fb);
 void rsl_input(const char* prompt, char* buffer);
 void sys_yield(void);
+void rsl_yield(void);
 char* strstr(const char* haystack, const char* needle);
 
 /* GUI Helpers */

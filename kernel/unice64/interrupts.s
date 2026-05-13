@@ -70,7 +70,14 @@ rsl_syscall_entry:
     movq %rbx, %rsi  # arg1 -> RSI
     movq %rax, %rdi  # id   -> RDI
 
+    # 16-byte Alignment & Shadow Space for Kernel C call
+    mov %rsp, %r12
+    and $-16, %rsp
+    sub $32, %rsp
+
     call rsl_syscall_handler
+
+    mov %r12, %rsp
 
     # Restore user state
     popq %rbp

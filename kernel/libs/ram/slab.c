@@ -11,7 +11,7 @@ typedef struct slab_header {
     size_t size;
     bool is_used;
     struct slab_header* next;
-    uint64_t alignment_padding; /* Sovereign Fix: Ensure 32-byte header for 16-byte payload alignment */
+    uint64_t alignment_padding; /* Sovereign Fix: 32-byte header ensures 16-byte payload alignment */
 } slab_header_t;
 
 typedef struct {
@@ -73,8 +73,8 @@ bool is_slab_pointer(void* ptr) {
     for (int i = 0; i < slab_count; i++) {
         uintptr_t start = slabs[i].base + hhdm;
         uintptr_t end = start + SLAB_SIZE;
-        /* Sovereign Check: Pointer must be within slab and leave room for a header */
-        if (addr >= (start + 64) && addr < end) return true;
+        /* Sovereign Check: Pointer must be within slab and leave room for malloc/arc headers */
+        if (addr >= (start + 48) && addr < end) return true;
     }
     return false;
 }
@@ -106,7 +106,7 @@ void* malloc(size_t size) {
 }
 
 void free(void* ptr) {
-    if (!ptr) return;
+    if (!ptr || !is_slab_pointer(ptr)) return;
     slab_header_t* header = (slab_header_t*)((uint8_t*)ptr - sizeof(slab_header_t));
     header->is_used = false;
 }
