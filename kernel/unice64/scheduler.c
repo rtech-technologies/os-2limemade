@@ -73,13 +73,21 @@ void register_task(void (*entry_point)(void), uint32_t slab_id) {
             vga_print("[UNICE64] WARNING: Task %d RIP=%p is not a canonical high-half address!\n", idx, (void*)ep);
         }
 
-        task_table[idx].context.rip = ep;
-        task_table[idx].context.cs = 0x08;
-        task_table[idx].context.ss = 0x10;
-        task_table[idx].context.rflags = 0x202;
+        /* Sovereign Restoration: Pre-initialize the task stack for the context switcher */
+        uint64_t* stack = (uint64_t*)task_table[idx].kernel_stack_top;
 
-        /* Hard-Code a "Safe" Stack Offset (Breathing room for IRET frame and first pushes) */
-        task_table[idx].context.rsp = task_table[idx].kernel_stack_top - 32;
+        /* 1. IRET Frame */
+        *(--stack) = 0x10;  /* SS */
+        *(--stack) = task_table[idx].kernel_stack_top; /* RSP (Points to itself initially) */
+        *(--stack) = 0x202; /* RFLAGS (IF=1) */
+        *(--stack) = 0x08;  /* CS */
+        *(--stack) = ep;    /* RIP */
+
+        /* 2. GPR Frame (15 registers saved/restored by unice64_context_switch) */
+        /* Must match push/pop order in scheduler_asm.s: rax, rbx, rcx, rdx, rsi, rdi, rbp, r8..r15 */
+        for (int i = 0; i < 15; i++) *(--stack) = 0;
+
+        task_table[idx].context.rsp = (uint64_t)stack;
 
         task_count++;
         vga_print("[UNICE64] Task %d registered: entry_raw=%p final=%p stack_top=%p\n",

@@ -41,6 +41,14 @@
 .set ctx_ss,  152
 
 unice64_context_switch:
+    # 0. Scheduler Readiness Shield
+    # Check if scheduler_active is true. Use absolute high-half address.
+    movabsq $scheduler_active, %rax
+    cmpb $0, (%rax)
+    jne 1f
+    iretq
+
+1:
     # 1. IMMEDIATE Register Preservation
     # Save all GPRs before calling ANY C function to prevent register corruption.
     push %rax
@@ -59,48 +67,11 @@ unice64_context_switch:
     push %r14
     push %r15
 
+    # Save current RSP to TCB
     mov %rsp, %r12
-
-    # Quartermaster: Scheduler Readiness Shield
     call get_current_task
-    test %rax, %rax
-    jnz 1f
-
-    # NULL current task -> fallback
-    # Clean stack before fallback
-    add $120, %rsp
-    call kernel_fallback_shell
-    iretq
-
-1:
-    # 2. Save state of the task being switched OUT
-    call get_current_task
-    mov %rax, %rdi
-    add $task_t_context, %rdi
-
-    # Store GPRs
-    mov 0(%r12), %rbx;  mov %rbx, ctx_r15(%rdi)
-    mov 8(%r12), %rbx;  mov %rbx, ctx_r14(%rdi)
-    mov 16(%r12), %rbx; mov %rbx, ctx_r13(%rdi)
-    mov 24(%r12), %rbx; mov %rbx, ctx_r12(%rdi)
-    mov 32(%r12), %rbx; mov %rbx, ctx_r11(%rdi)
-    mov 40(%r12), %rbx; mov %rbx, ctx_r10(%rdi)
-    mov 48(%r12), %rbx; mov %rbx, ctx_r9(%rdi)
-    mov 56(%r12), %rbx; mov %rbx, ctx_r8(%rdi)
-    mov 64(%r12), %rbx; mov %rbx, ctx_rbp(%rdi)
-    mov 72(%r12), %rbx; mov %rbx, ctx_rdi(%rdi)
-    mov 80(%r12), %rbx; mov %rbx, ctx_rsi(%rdi)
-    mov 88(%r12), %rbx; mov %rbx, ctx_rdx(%rdi)
-    mov 96(%r12), %rbx; mov %rbx, ctx_rcx(%rdi)
-    mov 104(%r12), %rbx; mov %rbx, ctx_rbx(%rdi)
-    mov 112(%r12), %rbx; mov %rbx, ctx_rax(%rdi)
-
-    # Save iretq frame
-    mov (15 * 8 + 0)(%r12), %rbx; mov %rbx, ctx_rip(%rdi)
-    mov (15 * 8 + 8)(%r12), %rbx; mov %rbx, ctx_cs(%rdi)
-    mov (15 * 8 + 16)(%r12), %rbx; mov %rbx, ctx_rflags(%rdi)
-    mov (15 * 8 + 24)(%r12), %rbx; mov %rbx, ctx_rsp(%rdi)
-    mov (15 * 8 + 32)(%r12), %rbx; mov %rbx, ctx_ss(%rdi)
+    # Sovereign: task_t.context starts at +16, .rsp is at +144 relative to context
+    mov %r12, (task_t_context + ctx_rsp)(%rax)
 
     # 2. ABI Alignment & Handover
     mov %rsp, %rbp
@@ -109,13 +80,14 @@ unice64_context_switch:
     call unice64_schedule
     mov %rbp, %rsp
 
-    # 3. Load state of the task being switched IN
+    # 3. Switch to IN task context
     call get_current_task
-    mov %rax, %rsi
-    add $task_t_context, %rsi
+    # Sovereign: Restore RSP from next task TCB
+    mov (task_t_context + ctx_rsp)(%rax), %rsp
 
-    # RIP Safety Check
-    mov ctx_rip(%rsi), %rdx
+    # RIP Safety Check (Look at restored stack: IRET frame is at top+120)
+    # GPR frame is 15 * 8 = 120 bytes. RIP is the first element of IRET frame above GPRs.
+    mov 120(%rsp), %rdx # RIP in IRET frame
     test %rdx, %rdx
     jz .handle_invalid_rip
 
@@ -124,31 +96,22 @@ unice64_context_switch:
     test %rax, %rdx
     jz .handle_invalid_rip
 
-    # RIP is valid, restore
-    mov ctx_rsp(%rsi), %rax
-    mov %rax, %rsp
-
-    pushq ctx_ss(%rsi)
-    pushq ctx_rsp(%rsi)
-    pushq ctx_rflags(%rsi)
-    pushq ctx_cs(%rsi)
-    pushq ctx_rip(%rsi)
-
-    mov ctx_r15(%rsi), %r15
-    mov ctx_r14(%rsi), %r14
-    mov ctx_r13(%rsi), %r13
-    mov ctx_r12(%rsi), %r12
-    mov ctx_r11(%rsi), %r11
-    mov ctx_r10(%rsi), %r10
-    mov ctx_r9(%rsi),  %r9
-    mov ctx_r8(%rsi),  %r8
-    mov ctx_rbp(%rsi), %rbp
-    mov ctx_rdi(%rsi), %rdi
-    mov ctx_rdx(%rsi), %rdx
-    mov ctx_rcx(%rsi), %rcx
-    mov ctx_rbx(%rsi), %rbx
-    mov ctx_rax(%rsi), %rax
-    mov ctx_rsi(%rsi), %rsi
+    # 4. Restore GPRs
+    pop %r15
+    pop %r14
+    pop %r13
+    pop %r12
+    pop %r11
+    pop %r10
+    pop %r9
+    pop %r8
+    pop %rbp
+    pop %rdi
+    pop %rsi
+    pop %rdx
+    pop %rcx
+    pop %rbx
+    pop %rax
 
     iretq
 
@@ -156,7 +119,7 @@ unice64_context_switch:
     # Save parameters for C call (Arg 2: RIP, Arg 3: RSP)
     # At entry: %rsi = &next->context, %rdx = invalid RIP
     mov %rdx, %rax           # Save invalid RIP
-    mov 144(%rsi), %rdx      # Load next->context.rsp into %rdx (Arg 3)
+    mov ctx_rsp(%rsi), %rdx  # Load next->context.rsp into %rdx (Arg 3)
     mov %rax, %rsi           # Move invalid RIP into %rsi (Arg 2)
     lea .msg_bad_rip(%rip), %rdi # Arg 1: Message
 

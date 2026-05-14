@@ -48,6 +48,8 @@ irq_timer_handler:
 rsl_syscall_entry:
     # Quartermaster: Deterministic Syscall Register Handover
     # Save user state (Including callee-saved registers to prevent loop counter smash)
+    # We must also save RAX on the stack so we can update it with the return value
+    pushq %rax
     pushq %rcx
     pushq %rdx
     pushq %rsi
@@ -83,6 +85,9 @@ rsl_syscall_entry:
 
     mov %r12, %rsp
 
+    # Update saved RAX on stack with return value from C handler
+    movq %rax, 112(%rsp)
+
     # Restore user state
     popq %r15
     popq %r14
@@ -98,6 +103,7 @@ rsl_syscall_entry:
     popq %rsi
     popq %rdx
     popq %rcx
+    popq %rax
 
     iretq
 

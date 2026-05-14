@@ -37,7 +37,7 @@ all:
 
 programs: $(PROGRAMS)
 
-bin/%.bin: programs/entry.s programs/%.c programs/libc/libc.c kernel/libs/core/sanitizers.c
+bin/%.bin: programs/entry.s programs/%.c programs/libc/libc.c programs/libc/stack_guard.c kernel/libs/core/sanitizers.c kernel/libs/core/ubsan.c
 	@mkdir -p bin
 	$(CC) $(CFLAGS) -fno-pic -fno-pie -DUSERLAND_SANITIZER -nostdlib -static -Wl,-T,programs/linker.ld $^ -o $@
 
