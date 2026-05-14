@@ -112,14 +112,7 @@ void idle_task(void) {
 void kernel_fallback_shell(void);
 
 void task_shell(void) {
-    vga_print("[UNICE64] Shell Task Started.\n");
-    struct limine_module_response* resp = get_modules();
-    if (resp && resp->module_count >= 3) {
-        void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid);
-        tasking_spawn_module(2, 1, 100);
-    } else {
-        kernel_fallback_shell();
-    }
+    vga_print("[UNICE64] Background Services Active.\n");
     while (1) { sys_yield(); __asm__ volatile ("pause"); }
 }
 
