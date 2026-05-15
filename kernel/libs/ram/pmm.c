@@ -5,6 +5,7 @@
 
 struct limine_memmap_response* get_memmap(void);
 uint64_t get_hhdm_offset(void);
+uint64_t vmm_get_phys(void* virt);
 
 #define PAGE_SIZE 4096
 
@@ -89,7 +90,6 @@ void pmm_init(void) {
     }
 
     /* Phase 3: Final Reservation of Ownership */
-    uint64_t vmm_get_phys(void* virt);
     pmm_reserve_phys((uint64_t)bitmap - hhdm, bitmap_size);
 
     struct limine_framebuffer_response* get_framebuffer(void);

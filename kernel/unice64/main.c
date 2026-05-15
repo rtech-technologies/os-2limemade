@@ -115,12 +115,12 @@ void _start(void) {
     void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid);
     if (!is_installed) {
         vga_print("[SNAP] Sovereign Installation not found. Engaging Cargo OOBE...\n");
-        /* Module 2 is Cargo.bin (index 2) in the updated cfg */
-        tasking_spawn_module(2, 3, 0);
+        /* Module 1 is Cargo.bin (index 1) in the updated cfg */
+        tasking_spawn_module(1, 3, 0);
     } else {
         vga_print("[SNAP] Sovereign Installation detected. Launching Shell...\n");
-        /* Module 3 is Shell.bin (index 3) in the updated cfg */
-        tasking_spawn_module(3, 1, 100);
+        /* Module 2 is Shell.bin (index 2) in the updated cfg */
+        tasking_spawn_module(2, 1, 100);
     }
 
     apic_init();

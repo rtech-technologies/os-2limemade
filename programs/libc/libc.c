@@ -1,9 +1,9 @@
 #include <include/rsl.h>
 
 void* malloc(size_t size) {
-    void* ptr = NULL;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)140), "b"((uint64_t)size), "c"((uint64_t)&ptr) : "memory");
-    return ptr;
+    uint64_t res = 0;
+    __asm__ volatile ("int $3" : "=a"(res) : "a"((uint64_t)140), "b"((uint64_t)size) : "memory");
+    return (void*)res;
 }
 
 void free(void* ptr) {
@@ -77,9 +77,9 @@ const char* str_to_cstr(void* str) {
 }
 
 bool str_is_empty(void* str) {
-    volatile bool res = false;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)32), "b"((uint64_t)str), "c"((uint64_t)&res) : "memory");
-    return res;
+    uint64_t res = 0;
+    __asm__ volatile ("int $3" : "=a"(res) : "a"((uint64_t)32), "b"((uint64_t)str) : "memory");
+    return (bool)res;
 }
 
 void* str_concat(void* s1, void* s2) {
@@ -174,20 +174,6 @@ void rsl_input(const char* prompt, char* buffer) {
     __asm__ volatile ("int $3" : : "a"((uint64_t)1), "b"((uint64_t)prompt), "c"((uint64_t)buffer) : "memory");
 }
 
-void gui_draw_rect(rsl_fb_t* fb, int x, int y, int w, int h, uint32_t color) {
-    if (!fb || !fb->address) return;
-    for (int i = 0; i < h; i++) {
-        for (int j = 0; j < w; j++) {
-            int px = x + j;
-            int py = y + i;
-            if (px >= 0 && (uint64_t)px < fb->width && py >= 0 && (uint64_t)py < fb->height) {
-                uint32_t* pixel = (uint32_t*)(fb->address + py * fb->pitch + px * 4);
-                *pixel = color;
-            }
-        }
-    }
-}
-
 static const uint8_t font8x8_basic[128][8] = {
     [0x20] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
     [0x21] = { 0x18, 0x18, 0x18, 0x18, 0x00, 0x00, 0x18, 0x00 },
@@ -276,6 +262,20 @@ static const uint8_t font8x8_basic[128][8] = {
     [0x7A] = { 0x00, 0x00, 0x7E, 0x0C, 0x18, 0x30, 0x7E, 0x00 },
 };
 
+void gui_draw_rect(rsl_fb_t* fb, int x, int y, int w, int h, uint32_t color) {
+    if (!fb || !fb->address) return;
+    for (int i = 0; i < h; i++) {
+        for (int j = 0; j < w; j++) {
+            int px = x + j;
+            int py = y + i;
+            if (px >= 0 && (uint64_t)px < fb->width && py >= 0 && (uint64_t)py < fb->height) {
+                uint32_t* pixel = (uint32_t*)(fb->address + py * fb->pitch + px * 4);
+                *pixel = color;
+            }
+        }
+    }
+}
+
 void gui_draw_text(rsl_fb_t* fb, int x, int y, const char* text, uint32_t color) {
     if (!fb || !fb->address || !text) return;
     int cur_x = x;
@@ -310,4 +310,18 @@ char* strstr(const char* haystack, const char* needle) {
         }
     }
     return NULL;
+}
+
+void rsl_spawn(int module_idx, uint32_t slab_id, uint32_t uaid) {
+    __asm__ volatile ("int $3" : : "a"((uint64_t)150), "b"((uint64_t)module_idx), "c"((uint64_t)slab_id), "d"((uint64_t)uaid) : "memory");
+}
+
+void gui_draw_rect_ext(int x, int y, int w, int h, uint32_t color) {
+    __asm__ volatile ("int $3" : : "a"((uint64_t)203), "b"((uint64_t)x), "c"((uint64_t)y), "d"((uint64_t)w), "S"((uint64_t)h), "D"((uint64_t)color) : "memory");
+}
+
+char rsl_get_char_nonblock(void) {
+    uint64_t res = 0;
+    __asm__ volatile ("int $3" : "=a"(res) : "a"((uint64_t)205) : "memory");
+    return (char)res;
 }

@@ -16,7 +16,13 @@ void set_color(color_t fg, color_t bg);
 void* input(const char* prompt);
 size_t str_len(void* str);
 
-uint64_t rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx, uint64_t rsi) {
+static inline uint8_t inb(uint16_t port) {
+    uint8_t ret;
+    __asm__ volatile ("inb %1, %0" : "=a"(ret) : "Nd"(port));
+    return ret;
+}
+
+uint64_t rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx, uint64_t rsi, uint64_t rdi) {
     task_t* current = get_current_task();
     if (current) current->last_rax = rax;
     uint64_t ret = 0;
@@ -205,7 +211,6 @@ uint64_t rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t 
         }
         case 124: { // rsl_close(handle)
             vfs_close((vfs_handle_internal_t*)rbx);
-            release((void*)rbx);
             break;
         }
         case 130: { // rsl_hash(string, out_u64)
@@ -224,6 +229,11 @@ uint64_t rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t 
             release((void*)rbx);
             break;
         }
+        case 150: { // rsl_spawn(module_idx, slab_id, uaid)
+            void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid);
+            tasking_spawn_module((int)rbx, (uint32_t)rcx, (uint32_t)rdx);
+            return 0;
+        }
         case 202: { // rsl_get_fb
             struct limine_framebuffer_response* resp = get_framebuffer();
             if (resp && resp->framebuffer_count > 0) {
@@ -239,6 +249,32 @@ uint64_t rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t 
                 return (uint64_t)-1;
             }
         }
+        case 203: { // gui_draw_rect(x, y, w, h, color)
+            void rtc64_draw_rect(int x, int y, int w, int h, uint32_t color);
+            rtc64_draw_rect((int)rbx, (int)rcx, (int)rdx, (int)rsi, (uint32_t)rdi);
+            return 0;
+        }
+        case 204: { // gui_draw_pixel(x, y, color)
+            void rtc64_draw_pixel(int x, int y, uint32_t color);
+            rtc64_draw_pixel((int)rbx, (int)rcx, (uint32_t)rdx);
+            return 0;
+        }
+        case 205: { // rsl_get_char_nonblock
+            if (inb(0x64) & 1) {
+                uint8_t scancode = inb(0x60);
+                if (scancode & 0x80) return 0;
+                static char scancode_map_local[128] = {
+                    0,  27, '1', '2', '3', '4', '5', '6', '7', '8',
+                    '9', '0', '-', '=', '\b', '\t', 'q', 'w', 'e', 'r',
+                    't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n', 0,
+                    'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';',
+                    '\'', '`', 0, '\\', 'z', 'x', 'c', 'v', 'b', 'n',
+                    'm', ',', '.', '/', 0, '*', 0, ' '
+                };
+                if (scancode < 128) return (uint64_t)scancode_map_local[scancode];
+            }
+            return 0;
+        }
         case 300: { // rsl_dispatch_command(line, curdir_ptr, is_safe_ptr)
             void rsl_dispatch_command(char* line, void** curdir_ptr, bool* is_safe_ptr);
             rsl_dispatch_command((char*)rbx, (void**)rcx, (bool*)rdx);
@@ -253,6 +289,7 @@ uint64_t rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t 
             void* internal_fs_mkdir(void* path, void* priv);
             void* internal_fs_rmdir(void* path, void* priv);
             bool internal_fs_exists(void* path, void* priv);
+            vfs_handle_internal_t* internal_fs_open(void* path, const char* mode, void* priv);
 
             FATFS* fs = arc_alloc(sizeof(FATFS));
             if (f_mount(fs, drive) == FR_OK) {
@@ -263,7 +300,8 @@ uint64_t rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t 
                     .write = (void*)internal_fs_write,
                     .mkdir = (void*)internal_fs_mkdir,
                     .rmdir = (void*)internal_fs_rmdir,
-                    .exists = (void*)internal_fs_exists
+                    .exists = (void*)internal_fs_exists,
+                    .open = internal_fs_open
                 };
                 int k = 0; while(name[k] && k < 15) { node.name[k] = name[k]; k++; } node.name[k] = '\0';
                 vfs_register_node(node);

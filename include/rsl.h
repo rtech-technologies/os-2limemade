@@ -92,4 +92,8 @@ typedef struct {
     uint64_t reserved[2];
 } rtech_header_t;
 
+
+void rsl_spawn(int module_idx, uint32_t slab_id, uint32_t uaid);
+void gui_draw_rect_ext(int x, int y, int w, int h, uint32_t color);
+char rsl_get_char_nonblock(void);
 #endif /* RSL_H */

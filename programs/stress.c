@@ -31,8 +31,10 @@ void _start(void) {
     }
     print("[STRESS] All Phases PASSED.\n");
 
-    print("\n[ SUCCESS ] Device is STABLE. Press ENTER to exit.\n");
-    char dummy[16];
-    rsl_input("", dummy);
-    for (;;) __asm__ volatile ("int $0x81");
+    print("\n[ SUCCESS ] Device is STABLE. Press 'X' to exit.\n");
+    for (;;) {
+        char c = rsl_get_char_nonblock();
+        if (c == 'x' || c == 'X') break;
+        sys_yield();
+    }
 }
