@@ -1,3 +1,7 @@
-2024-05-11 - [Module Index Handover Fix]
-Learning: Spawning the wrong Limine module index (e.g., index 2 when only 0 and 1 are loaded) causes an immediate kernel exception or invalid task state, blocking the boot-to-installer flow.
-Action: Always verify module indices against the `limine.cfg` and use a safe `tasking_spawn_module` wrapper that checks bounds.
+2025-05-14 - [PMM Module Collision] Learning: Physical Memory Manager was placing allocation bitmap on top of Limine modules. Action: Implement module-aware collision detection in PMM_init and reserve all module property sectors.
+2025-05-14 - [ARC Property Protection] Learning: Reference counting non-managed memory (literals/modules) causes vandalism. Action: Use SOVRN magic numbers in ARC headers and range-check with is_slab_pointer before decrementing.
+2025-05-14 - [Big-LITTLE Stack Smash] Learning: Passing stack pointers to syscalls for return values is unsafe. Action: Return status/values via RAX register; ensure 16-byte stack alignment and shadow space at program entry.
+2025-05-14 - [VFB Performance] Learning: Resolved row-pointers and bitwise shifts in graphics loops are required for Sovereign efficiency. Action: Implement RAM-based preblitting and 60Hz clocked refresh.
+2025-05-14 - [Context Switch Integrity] Learning: C function calls in context switchers (like get_current_task) clobber registers before they are saved. Action: Always push all registers IMMEDIATELY upon entry to context switch and syscall interrupts.
+2025-05-14 - [Syscall Return Hijack] Learning: Interrupt handlers that pop RAX from the stack overwrite the return value of the C handler. Action: Explicitly update the saved RAX on the stack before popping to ensure kernel results reach userland.
+2025-05-14 - [Fragile Assembly Magic] Learning: Hardcoded offsets (e.g., 160(%rax)) in assembly break when structs change. Action: Use symbolic constants and alignment-verified math for structural stability.

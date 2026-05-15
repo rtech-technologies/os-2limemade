@@ -22,5 +22,6 @@ void ahci_service(kernel_event_t event);
 void ahci_hardware_audit(int p);
 void arc_mem_service(kernel_event_t event);
 void vdisk_service(kernel_event_t event);
+void rtc64_service(kernel_event_t event);
 
 #endif /* SERVICES_H */

@@ -16,9 +16,16 @@ void set_color(color_t fg, color_t bg);
 void* input(const char* prompt);
 size_t str_len(void* str);
 
-void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx, uint64_t rsi) {
+static inline uint8_t inb(uint16_t port) {
+    uint8_t ret;
+    __asm__ volatile ("inb %1, %0" : "=a"(ret) : "Nd"(port));
+    return ret;
+}
+
+uint64_t rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx, uint64_t rsi, uint64_t rdi) {
     task_t* current = get_current_task();
     if (current) current->last_rax = rax;
+    uint64_t ret = 0;
 
     /* Guest Isolation: UID 2000+ cannot write to FS */
     bool guest_lock = (current && current->uid >= 2000);
@@ -28,29 +35,28 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
         case 0: // print
             vga_print("%s", (const char*)rbx);
             sys_yield();
-            break;
+            return 0;
         case 1: { // rsl_input(prompt, buffer) - For legacy/buffer-based input
             void* res = input((const char*)rbx);
             if (res) {
                 const char* cstr = str_to_cstr(res);
                 char* out_buf = (char*)rcx;
                 int k = 0;
-                while (cstr[k]) { out_buf[k] = cstr[k]; k++; }
+                /* Sovereign Shield: Limit copy to 127 bytes to prevent stack smash */
+                while (cstr[k] && k < 127) { out_buf[k] = cstr[k]; k++; }
                 out_buf[k] = '\0';
                 release(res);
             }
-            break;
+            return 0;
         }
         case 2: // rsl_yield
             sys_yield();
-            break;
+            return 0;
         case 10: // set_color
             set_color((color_t)rbx, (color_t)rcx);
             break;
-        case 11: { // input(prompt, out_ptr)
-            void* res = input((const char*)rbx);
-            *(void**)rcx = res;
-            break;
+        case 11: { // input(prompt)
+            return (uint64_t)input((const char*)rbx);
         }
         case 20: // retain
             retain((void*)rbx);
@@ -58,25 +64,20 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
         case 21: // release
             release((void*)rbx);
             break;
-        case 30: { // str_create(cstr, out_ptr)
-            void* res = str_create((const char*)rbx);
-            *(void**)rcx = res;
-            break;
+        case 30: { // str_create(cstr)
+            return (uint64_t)str_create((const char*)rbx);
         }
-        case 31: { // str_concat(s1, s2, out_ptr)
+        case 31: { // str_concat(s1, s2)
             void* res = str_concat((void*)rbx, (void*)rcx);
-            *(void**)rdx = res;
             release((void*)rbx);
             release((void*)rcx);
-            break;
+            return (uint64_t)res;
         }
-        case 32: { // str_is_empty(str, out_bool_ptr)
-            *(bool*)rcx = str_is_empty((void*)rbx);
-            break;
+        case 32: { // str_is_empty(str)
+            return (uint64_t)str_is_empty((void*)rbx);
         }
-        case 35: { // str_to_cstr(str, out_ptr)
-            *(const char**)rcx = str_to_cstr((void*)rbx);
-            break;
+        case 35: { // str_to_cstr(str)
+            return (uint64_t)str_to_cstr((void*)rbx);
         }
         case 50: // rsl_ls
             vfs_ls((void*)rbx);
@@ -95,12 +96,11 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
             release((void*)rbx);
             break;
         case 15: // rsl_exists
-            *(bool*)rsi = vfs_exists((void*)rbx);
+            ret = vfs_exists((void*)rbx);
             release((void*)rbx);
-            break;
+            return ret;
         case 101: // rsl_list_disks
-            *(int*)rbx = get_hw_disk_count();
-            break;
+            return get_hw_disk_count();
         case 102: { // rsl_is_sovereign
             int drive = (int)rbx;
             uint8_t sector[512];
@@ -118,32 +118,29 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
         }
         case 103: { // rsl_get_disk_info(disk_id, name_ptr, size_ptr)
             get_hw_disk_info((int)rbx, (char*)rcx, (uint64_t*)rdx);
-            break;
+            return 0;
         }
         case 104: { // rsl_format(disk_id)
-            if (guest_lock) { *(int*)rcx = -1; break; }
+            if (guest_lock) return (uint64_t)-1;
             FRESULT f_mkfs(int drive);
-            *(int*)rcx = (f_mkfs((int)rbx) == FR_OK) ? 0 : -1;
-            break;
+            return (f_mkfs((int)rbx) == FR_OK) ? 0 : (uint64_t)-1;
         }
         case 105: { // rsl_fdisk(disk_id)
-            if (guest_lock) { *(int*)rcx = -1; break; }
+            if (guest_lock) return (uint64_t)-1;
             FRESULT f_fdisk(int drive);
-            *(int*)rcx = (f_fdisk((int)rbx) == FR_OK) ? 0 : -1;
-            break;
+            return (f_fdisk((int)rbx) == FR_OK) ? 0 : (uint64_t)-1;
         }
         case 110: { // rsl_set_uid(uid)
             if (current && current->uid <= 1) current->uid = (uint32_t)rbx;
             break;
         }
         case 111: { // rsl_get_uid()
-            if (current) *(uint32_t*)rbx = current->uid;
-            break;
+            return current ? current->uid : (uint64_t)-1;
         }
-        case 112: { // rsl_user_create(name, pass, out_res)
+        case 112: { // rsl_user_create(name, pass)
             const char* name = (const char*)rbx;
             const char* pass = (const char*)rcx;
-            int* out_res = (int*)rdx;
+            uint64_t status = 0;
 
             /* Check if name is 'guest' to assign guest UID */
             int uid = 1000;
@@ -181,11 +178,11 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
                 vfs_write(h, entry, k);
                 vfs_close(h);
                 release(h);
-                if (out_res) *out_res = 0;
+                status = 0;
             } else {
-                if (out_res) *out_res = -1;
+                status = (uint64_t)-1;
             }
-            break;
+            return status;
         }
         case 120: { // rsl_write(path, content)
             if (!guest_lock) vfs_write_dispatch((void*)rbx, (void*)rcx);
@@ -203,20 +200,17 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
             const char* m = (const char*)rcx;
             if (guest_lock && m[0] == 'w') {
                 release((void*)rbx);
-                *(vfs_handle_internal_t**)rdx = NULL;
-                break;
+                return 0;
             }
-            *(vfs_handle_internal_t**)rdx = vfs_open((void*)rbx, (const char*)rcx);
+            void* handle = vfs_open((void*)rbx, (const char*)rcx);
             release((void*)rbx);
-            break;
+            return (uint64_t)handle;
         }
         case 123: { // rsl_read(handle, buf, len)
-            *(int*)rdx = vfs_read((vfs_handle_internal_t*)rbx, (void*)rcx, (int)rsi);
-            break;
+            return (uint64_t)vfs_read((vfs_handle_internal_t*)rbx, (void*)rcx, (int)rsi);
         }
         case 124: { // rsl_close(handle)
             vfs_close((vfs_handle_internal_t*)rbx);
-            release((void*)rbx);
             break;
         }
         case 130: { // rsl_hash(string, out_u64)
@@ -228,14 +222,17 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
             break;
         }
         case 140: { // malloc
-            void** out_ptr = (void**)rcx;
-            *out_ptr = arc_alloc((size_t)rbx);
-            break;
+            return (uint64_t)arc_alloc((size_t)rbx);
         }
         case 141: { // free
             void release(void* ptr);
             release((void*)rbx);
             break;
+        }
+        case 150: { // rsl_spawn(module_idx, slab_id, uaid)
+            void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid);
+            tasking_spawn_module((int)rbx, (uint32_t)rcx, (uint32_t)rdx);
+            return 0;
         }
         case 202: { // rsl_get_fb
             struct limine_framebuffer_response* resp = get_framebuffer();
@@ -247,11 +244,36 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
                 ufb->height = fb->height;
                 ufb->pitch = fb->pitch;
                 ufb->bpp = fb->bpp;
-                *(int*)rcx = 0;
+                return 0;
             } else {
-                *(int*)rcx = -1;
+                return (uint64_t)-1;
             }
-            break;
+        }
+        case 203: { // gui_draw_rect(x, y, w, h, color)
+            void rtc64_draw_rect(int x, int y, int w, int h, uint32_t color);
+            rtc64_draw_rect((int)rbx, (int)rcx, (int)rdx, (int)rsi, (uint32_t)rdi);
+            return 0;
+        }
+        case 204: { // gui_draw_pixel(x, y, color)
+            void rtc64_draw_pixel(int x, int y, uint32_t color);
+            rtc64_draw_pixel((int)rbx, (int)rcx, (uint32_t)rdx);
+            return 0;
+        }
+        case 205: { // rsl_get_char_nonblock
+            if (inb(0x64) & 1) {
+                uint8_t scancode = inb(0x60);
+                if (scancode & 0x80) return 0;
+                static char scancode_map_local[128] = {
+                    0,  27, '1', '2', '3', '4', '5', '6', '7', '8',
+                    '9', '0', '-', '=', '\b', '\t', 'q', 'w', 'e', 'r',
+                    't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n', 0,
+                    'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';',
+                    '\'', '`', 0, '\\', 'z', 'x', 'c', 'v', 'b', 'n',
+                    'm', ',', '.', '/', 0, '*', 0, ' '
+                };
+                if (scancode < 128) return (uint64_t)scancode_map_local[scancode];
+            }
+            return 0;
         }
         case 300: { // rsl_dispatch_command(line, curdir_ptr, is_safe_ptr)
             void rsl_dispatch_command(char* line, void** curdir_ptr, bool* is_safe_ptr);
@@ -267,6 +289,7 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
             void* internal_fs_mkdir(void* path, void* priv);
             void* internal_fs_rmdir(void* path, void* priv);
             bool internal_fs_exists(void* path, void* priv);
+            vfs_handle_internal_t* internal_fs_open(void* path, const char* mode, void* priv);
 
             FATFS* fs = arc_alloc(sizeof(FATFS));
             if (f_mount(fs, drive) == FR_OK) {
@@ -277,17 +300,18 @@ void rsl_syscall_handler(uint64_t rax, uint64_t rbx, uint64_t rcx, uint64_t rdx,
                     .write = (void*)internal_fs_write,
                     .mkdir = (void*)internal_fs_mkdir,
                     .rmdir = (void*)internal_fs_rmdir,
-                    .exists = (void*)internal_fs_exists
+                    .exists = (void*)internal_fs_exists,
+                    .open = internal_fs_open
                 };
                 int k = 0; while(name[k] && k < 15) { node.name[k] = name[k]; k++; } node.name[k] = '\0';
                 vfs_register_node(node);
-                *(int*)rdx = 0;
+                return 0;
             } else {
                 void release(void* ptr);
                 release(fs);
-                *(int*)rdx = -1;
+                return (uint64_t)-1;
             }
-            break;
         }
     }
+    return ret;
 }

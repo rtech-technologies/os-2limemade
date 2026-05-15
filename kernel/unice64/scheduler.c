@@ -11,7 +11,7 @@ static task_t task_table[MAX_TASKS];
 static uint8_t task_stacks[MAX_TASKS][TASK_STACK_SIZE] __attribute__((aligned(4096)));
 static int task_count = 0;
 static int current_task_idx = 0;
-static bool scheduler_active = false;
+bool scheduler_active = false;
 
 void vga_print(const char* fmt, ...);
 void quartermaster_panic(const char* message, void* state);
@@ -73,13 +73,21 @@ void register_task(void (*entry_point)(void), uint32_t slab_id) {
             vga_print("[UNICE64] WARNING: Task %d RIP=%p is not a canonical high-half address!\n", idx, (void*)ep);
         }
 
-        task_table[idx].context.rip = ep;
-        task_table[idx].context.cs = 0x08;
-        task_table[idx].context.ss = 0x10;
-        task_table[idx].context.rflags = 0x202;
+        /* Sovereign Restoration: Pre-initialize the task stack for the context switcher */
+        uint64_t* stack = (uint64_t*)task_table[idx].kernel_stack_top;
 
-        /* Hard-Code a "Safe" Stack Offset (Breathing room for IRET frame and first pushes) */
-        task_table[idx].context.rsp = task_table[idx].kernel_stack_top - 32;
+        /* 1. IRET Frame */
+        *(--stack) = 0x10;  /* SS */
+        *(--stack) = task_table[idx].kernel_stack_top; /* RSP (Points to itself initially) */
+        *(--stack) = 0x202; /* RFLAGS (IF=1) */
+        *(--stack) = 0x08;  /* CS */
+        *(--stack) = ep;    /* RIP */
+
+        /* 2. GPR Frame (15 registers saved/restored by unice64_context_switch) */
+        /* Must match push/pop order in scheduler_asm.s: rax, rbx, rcx, rdx, rsi, rdi, rbp, r8..r15 */
+        for (int i = 0; i < 15; i++) *(--stack) = 0;
+
+        task_table[idx].context.rsp = (uint64_t)stack;
 
         task_count++;
         vga_print("[UNICE64] Task %d registered: entry_raw=%p final=%p stack_top=%p\n",
@@ -104,14 +112,7 @@ void idle_task(void) {
 void kernel_fallback_shell(void);
 
 void task_shell(void) {
-    vga_print("[UNICE64] Shell Task Started.\n");
-    struct limine_module_response* resp = get_modules();
-    if (resp && resp->module_count >= 3) {
-        void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid);
-        tasking_spawn_module(2, 1, 100);
-    } else {
-        kernel_fallback_shell();
-    }
+    vga_print("[UNICE64] Background Services Active.\n");
     while (1) { sys_yield(); __asm__ volatile ("pause"); }
 }
 
@@ -170,9 +171,25 @@ void sys_yield(void) { __asm__ volatile ("int $0x81"); }
 
 void telemetry_update(int task_id, const char* status);
 
+void flusher_delta_move(void);
+
+#include <include/config.h>
+
 void unice64_schedule(void) {
     if (!scheduler_active) return;
     vga_pulse_cursor();
+
+    /* 🧱 Clock-Based Display Refresh (e.g. 60Hz = ~16ms) */
+    static uint64_t last_flush = 0;
+    extern uint64_t get_system_ticks(void);
+    uint64_t now = get_system_ticks();
+    uint64_t interval = 1000 / CONFIG_REFRESH_RATE;
+
+    if (now - last_flush >= interval) {
+        last_flush = now;
+        flusher_delta_move();
+    }
+
     apic_timer_init(1000000);
     if (task_count < 2) return;
     int next_idx = (current_task_idx + 1) % task_count;

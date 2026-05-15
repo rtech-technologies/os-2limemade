@@ -133,7 +133,8 @@ static void vdisk_ls_root(void* path, void* priv) {
             buf[k++] = ')'; buf[k++] = ' ';
         }
 
-        FATFS tmp;
+        /* 🧱 Blocky Fix: Moved large FATFS struct from stack to static to prevent kernel stack overflow during LS */
+        static FATFS tmp;
         if (f_mount(&tmp, i) == FR_OK) {
             const char* tag = "[SOVEREIGN]";
             while(*tag) buf[k++] = *tag++;
@@ -161,9 +162,12 @@ void vdisk_service(kernel_event_t event) {
 
         /* Register INITRD if module present */
         struct limine_module_response* resp = get_modules();
-        if (resp && resp->module_count > 0) {
+        if (resp && resp->module_count > 0 && resp->modules != NULL) {
             for (uint64_t i = 0; i < resp->module_count; i++) {
+                /* 🧱 Blocky Fix: Added explicit NULL check for the module pointer to prevent CPU Exception */
+                if (resp->modules[i] == NULL) continue;
                 struct limine_file* mod = resp->modules[i];
+
                 /* Quartermaster: Module Integrity Validation */
                 if (mod->address != NULL && mod->size > 0) {
                     vga_print("[SNAP] CARGO MODULE %d VALIDATED: %d bytes @ 0x%x\n",

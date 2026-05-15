@@ -35,14 +35,19 @@ void _start(void) {
     gui_draw_text(&fb, tx + 20, ty + 80, "2. RSL: Sovereign Scripting", COLOR_TEXT);
     gui_draw_text(&fb, tx + 20, ty + 110, "3. Cargo: Installation Logistics", COLOR_TEXT);
 
-    gui_draw_text(&fb, tx + 100, ty + 160, "[ PRESS ANY KEY TO BEGIN ]", 0x00AAFF);
-
-    char dummy[16];
-    void rsl_input(const char* prompt, char* buffer);
-    rsl_input("", dummy);
+    gui_draw_text(&fb, tx + 100, ty + 160, "[ PRESS 'S' TO START SHELL ]", 0x00AAFF);
 
     for (;;) {
-        void sys_yield(void);
+        char c = rsl_get_char_nonblock();
+        if (c == 's' || c == 'S') {
+            void rsl_spawn(int module_idx, uint32_t slab_id, uint32_t uaid);
+            rsl_spawn(2, 1, 100); /* Spawn Shell */
+            break;
+        }
+        sys_yield();
+    }
+
+    for (;;) {
         sys_yield();
     }
 }

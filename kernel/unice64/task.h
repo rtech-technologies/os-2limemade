@@ -27,7 +27,8 @@ typedef struct {
     uint64_t slab_id;
     uint64_t kernel_stack_top;
     uint64_t last_rax; /* For syscall tracking */
-} task_t; /* 200 Bytes total, naturally aligned */
+    uint64_t alignment_pad; /* Sovereign Fix: Ensure 208-byte struct (16-byte aligned array access) */
+} __attribute__((aligned(16))) task_t;
 
 void unice64_schedule(void);
 void unice64_scheduler_init(void);

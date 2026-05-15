@@ -15,6 +15,7 @@ void register_service(service_func_t init_func) {
 void dispatch_event(kernel_event_t event) {
     if (event == EVENT_INIT) {
         /* Standard order for INIT */
+        register_service(rtc64_service);
         register_service(vga_serial_service);
         register_service(arc_mem_service);
         register_service(usb_xhci_service);

@@ -61,6 +61,7 @@ void serial_write_str(const char* s) {
 
 uint64_t get_hhdm_offset(void);
 struct limine_framebuffer_response* get_framebuffer(void);
+uint32_t* get_virtual_buffer(void);
 
 /* Complete 8x8 Font (ASCII 0-127) */
 static const uint8_t font8x8_basic[128][8] = {
@@ -196,8 +197,11 @@ void draw_pixel(int x, int y, uint32_t color) {
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;
     if (x < 0 || (uint64_t)x >= fb->width || y < 0 || (uint64_t)y >= fb->height) return;
-    uint32_t* pixel = (uint32_t*)(fb->address + y * fb->pitch + x * 4);
-    *pixel = color;
+
+    uint32_t* v_buf = get_virtual_buffer();
+    uint32_t* fb_ptr = v_buf ? v_buf : (uint32_t*)fb->address;
+    size_t pitch_div_4 = fb->pitch >> 2;
+    fb_ptr[y * pitch_div_4 + x] = color;
 }
 
 void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
@@ -207,22 +211,32 @@ void draw_char(char c, int x, int y, uint32_t fg, uint32_t bg) {
     /* Bounds check to prevent out-of-bounds font access */
     if ((uint8_t)c >= 128) return;
 
+    uint32_t* v_buf = get_virtual_buffer();
+    uint32_t* fb_ptr = v_buf ? v_buf : (uint32_t*)fb->address;
+    size_t pitch_div_4 = fb->pitch >> 2;
+
     const uint8_t* glyph = font8x8_basic[(uint8_t)c];
+    int base_x = x * 8 * SCALE;
+    int base_y = y * 8 * SCALE;
+
     for (int i = 0; i < 8; i++) {
+        uint8_t row = glyph[i];
+        int py_start = base_y + (i * SCALE);
         for (int j = 0; j < 8; j++) {
-            uint32_t color = (glyph[i] & (1 << (7 - j))) ? fg : bg;
-            /* 2x scaling: draw 2x2 blocks */
+            uint32_t color = (row & (1 << (7 - j))) ? fg : bg;
+            int px_start = base_x + (j * SCALE);
+            /* 2x scaling optimized: resolve row pointers once */
             for (int sy = 0; sy < SCALE; sy++) {
+                uint32_t* line = &fb_ptr[(py_start + sy) * pitch_div_4];
                 for (int sx = 0; sx < SCALE; sx++) {
-                    uint32_t* pixel = (uint32_t*)(fb->address +
-                        ((y * 8 * SCALE) + (i * SCALE) + sy) * fb->pitch +
-                        ((x * 8 * SCALE) + (j * SCALE) + sx) * 4);
-                    *pixel = color;
+                    line[px_start + sx] = color;
                 }
             }
         }
     }
 }
+
+void flusher_delta_move(void);
 
 void vga_write_char(char c, uint8_t color_attr) {
     serial_write_char(c);
@@ -230,6 +244,13 @@ void vga_write_char(char c, uint8_t color_attr) {
     /* Mirror to kernel log buffer */
     kernel_log_buffer[log_ptr % LOG_BUFFER_SIZE] = c;
     log_ptr++;
+
+    /* 🧱 Blocky Fix: Manual Flush on newline while scheduler is inactive to ensure boot logs appear */
+    extern bool scheduler_active;
+    if (!scheduler_active && c == '\n') {
+        void flusher_delta_move(void);
+        flusher_delta_move();
+    }
 
     if (force_verbose) color_attr = 0x07; /* Force light gray on black */
 
@@ -283,7 +304,8 @@ void vga_write_char(char c, uint8_t color_attr) {
 
     if (cursor_y >= max_rows) {
         /* Move all rows up by one char_height */
-        uint32_t* fb_ptr = (uint32_t*)fb->address;
+        uint32_t* v_buf = get_virtual_buffer();
+        uint32_t* fb_ptr = v_buf ? v_buf : (uint32_t*)fb->address;
         size_t row_pixels = fb->pitch / 4;
         size_t scroll_size = (max_rows - 1) * char_height * row_pixels;
         size_t offset = char_height * row_pixels;
@@ -314,10 +336,12 @@ void telemetry_update(int task_id, const char* status) {
 
     /* Draw a separator line above telemetry */
     uint32_t sep_color = 0x555555;
-    uint32_t* fb_ptr = (uint32_t*)fb->address;
+    uint32_t* v_buf = get_virtual_buffer();
+    uint32_t* fb_ptr_telemetry = v_buf ? v_buf : (uint32_t*)fb->address;
+    size_t pitch_div_4 = fb->pitch / 4;
     int line_y = bottom_row * char_height - 2;
     for (uint64_t x = 0; x < fb->width; x++) {
-        fb_ptr[line_y * (fb->pitch / 4) + x] = sep_color;
+        fb_ptr_telemetry[line_y * pitch_div_4 + x] = sep_color;
     }
 
     /* Clear the telemetry row */
@@ -352,8 +376,11 @@ void vga_clear(void) {
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;
 
+    uint32_t* v_buf = get_virtual_buffer();
+    uint32_t* fb_ptr = v_buf ? v_buf : (uint32_t*)fb->address;
+
     for (uint64_t i = 0; i < fb->height * fb->pitch / 4; i++) {
-        ((uint32_t*)fb->address)[i] = 0x000000;
+        fb_ptr[i] = 0x000000;
     }
     cursor_x = 0;
     cursor_y = 0;

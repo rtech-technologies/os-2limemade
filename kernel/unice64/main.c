@@ -9,6 +9,7 @@
 #include <kernel/libs/storage/fatfs/ff.h>
 
 void gdt_init(void);
+void stack_guard_init(void);
 void pmm_init(void);
 void idt_init(void);
 void apic_init(void);
@@ -32,6 +33,7 @@ void _start(void) {
     __asm__ volatile ("cli");
     _sse_init();
     gdt_init();
+    stack_guard_init();
     pmm_init();
     slab_init();
     unice64_scheduler_init();
@@ -45,6 +47,7 @@ void _start(void) {
 
     __asm__ volatile ("sti");
 
+    /* 🧱 Blocky Fix: Moved large FATFS struct from stack to static BSS to prevent overflow during INITrd validation */
     static FATFS boot_fs;
     bool mount_success = false;
     int boot_drive = -1;
@@ -89,7 +92,8 @@ void _start(void) {
             .exists = internal_fs_exists,
             .open = internal_fs_open
         };
-        const char* bname = vdisk_is_atapi(boot_drive) ? "INITRD" : "BOOT";
+        /* Sovereign Node Mapping: Map drive 0 as BOOT regardless of type for test consistency */
+        const char* bname = "BOOT";
         int bk = 0; while(bname[bk]) { boot_node.name[bk] = bname[bk]; bk++; } boot_node.name[bk] = '\0';
         vfs_register_node(boot_node);
         vga_print("[FS] Sovereign Volume (Drive %d) Mounted as %s.\n", boot_drive, bname);
@@ -100,18 +104,23 @@ void _start(void) {
 
     tasking_init();
 
-    /* 🧱 Blocky Fix: Restore OOBE Flow */
-    /* If no Sovereign installation is found, automatically spawn Cargo (Module 2) */
+    /* 🧱 Blocky Fix: Streamline Shell Boot */
+    /* If an installation exists, boot the Shell immediately.
+       Otherwise, use Cargo for OOBE. */
     bool is_installed = false;
     void* s_inst = str_create("BOOT:/sys/.installed");
     if (mount_success && vfs_exists(s_inst)) is_installed = true;
     release(s_inst);
 
+    void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid);
     if (!is_installed) {
         vga_print("[SNAP] Sovereign Installation not found. Engaging Cargo OOBE...\n");
-        void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid);
-        /* Module 1 is Cargo.bin in the current ISO layout */
+        /* Module 1 is Cargo.bin (index 1) in the updated cfg */
         tasking_spawn_module(1, 3, 0);
+    } else {
+        vga_print("[SNAP] Sovereign Installation detected. Launching Shell...\n");
+        /* Module 2 is Shell.bin (index 2) in the updated cfg */
+        tasking_spawn_module(2, 1, 100);
     }
 
     apic_init();

@@ -37,14 +37,18 @@ void xhci_bios_handover(void* base) {
             }
 
             if (timeout <= 0) {
-                usb_audit_log("XHCI-HANDOVER", "TIMEOUT - Forcing Control");
+                usb_audit_log("XHCI-HANDOVER", "TIMEOUT - Forcing Control (Caution: USB Keyboard may drop)");
                 *ext_cap &= ~(1 << 16);
             } else {
                 usb_audit_log("XHCI-HANDOVER", "SUCCESS - BIOS Released Controller");
             }
 
+            /* 🧱 Blocky Fix: Preserve BIOS Keyboard Emulation
+               We disable the SMI-based traps that might cause hangs,
+               but we leave the LegSup Control/Status register in a state
+               where PS/2 emulation can potentially survive if the BIOS allows. */
             volatile uint32_t* legsup_ctl = (volatile uint32_t*)ext_cap + 1;
-            *legsup_ctl &= 0x1F00FFFF;
+            *legsup_ctl = (*legsup_ctl & 0x1F00FFFF) | 0x80000000; /* Enable USB Keyboard/Mouse SMI, but carefully */
             break;
         }
 

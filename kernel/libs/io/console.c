@@ -27,7 +27,10 @@ void print(const char* s) {
         vga_write_char(s[i], current_color_val);
         /* Serial mirroring is handled inside vga_write_char */
     }
-    sys_yield(); /* Sovereign Active-Relay Rule: Yield after print */
+
+    /* Sovereign Fix: Only yield if the scheduler is active */
+    extern bool scheduler_active;
+    if (scheduler_active) sys_yield();
 }
 
 static void print_num(uint64_t n, int base) {

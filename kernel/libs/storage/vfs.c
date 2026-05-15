@@ -169,6 +169,8 @@ int vfs_write(vfs_handle_internal_t* h, const void* buf, int len) {
 void vfs_close(vfs_handle_internal_t* h) {
     if (!h || !h->close) return;
     h->close(h);
+    void release(void* ptr);
+    release(h);
 }
 
 uint32_t vfs_tell(vfs_handle_internal_t* h) {

@@ -59,3 +59,9 @@ void flusher_delta_move(void) {
 uint32_t* get_virtual_buffer(void) {
     return virtual_buffer;
 }
+
+void rtc64_service(kernel_event_t event) {
+    if (event == EVENT_INIT) {
+        flusher_init();
+    }
+}
