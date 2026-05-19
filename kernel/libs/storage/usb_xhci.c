@@ -8,6 +8,7 @@
 void serial_write_str(const char* s);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
 uint64_t get_hhdm_offset(void);
+void pit_wait_ms(uint32_t ms);
 
 static void* xhci_base = NULL;
 
@@ -28,20 +29,21 @@ void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
     while (ext_cap) {
         uint32_t cap_id = *ext_cap & 0xFF;
         if (cap_id == 1) { /* USB Legacy Support */
+            // Quartermaster Fix: [XHCI BIOS/OS Handover]
             serial_write_str("[XHCI] USB Legacy Support found. Requesting Handover...\n");
             *ext_cap |= (1 << 24); /* OS Owned Semaphore */
 
             int timeout = 1000;
             while ((*ext_cap & (1 << 16)) && timeout--) { /* BIOS Owned Semaphore */
                 /* Wait for BIOS to release */
-                for(volatile int i=0; i<10000; i++);
+                pit_wait_ms(1);
             }
 
             if (timeout <= 0) {
                 serial_write_str("[XHCI] Handover TIMEOUT. Forcing Control.\n");
                 *ext_cap &= ~(1 << 16);
             } else {
-                serial_write_str("[XHCI] Handover Successful.\n");
+                serial_write_str("[SNAP] XHCI BIOS/OS HANDOVER COMPLETE\n");
             }
 
             /* Disable Legacy SMIs to ensure exclusive OS ownership */

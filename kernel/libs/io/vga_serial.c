@@ -34,8 +34,14 @@ static int is_transmit_empty(void) {
 }
 
 void serial_write_char(char c) {
-    while (is_transmit_empty() == 0);
-    outb(SERIAL_PORT, c);
+    /* Quartermaster: Serial Transmit Timeout (approx 10ms) */
+    int timeout = 1000000;
+    while (is_transmit_empty() == 0 && timeout--) {
+        __asm__ volatile ("pause");
+    }
+    if (timeout > 0) {
+        outb(SERIAL_PORT, c);
+    }
 }
 
 int serial_received(void) {
@@ -205,7 +211,6 @@ void vga_write_char(char c, uint8_t color_attr) {
 
     /* Ignore non-printable gibberish except for key control codes */
     if ((uint8_t)c < 32 && c != '\n' && c != '\r' && c != '\b' && c != '\t') return;
-    if ((uint8_t)c >= 127) return;
 
     if (!global_fb) return;
     struct limine_framebuffer* fb = global_fb;
@@ -287,7 +292,7 @@ void telemetry_update(int task_id, const char* status) {
     uint32_t sep_color = 0x555555;
     uint32_t* fb_ptr = (uint32_t*)fb->address;
     int line_y = bottom_row * char_height - 2;
-    for (int x = 0; x < fb->width; x++) {
+    for (uint64_t x = 0; x < fb->width; x++) {
         fb_ptr[line_y * (fb->pitch / 4) + x] = sep_color;
     }
 
@@ -365,6 +370,8 @@ void serial_print_hex(const char* label, uint16_t val) {
     serial_write_char('\n');
 }
 
+void panic_cache_fb(void);
+
 void vga_serial_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
         serial_init();
@@ -372,7 +379,8 @@ void vga_serial_service(kernel_event_t event) {
         struct limine_framebuffer_response* fb_resp = get_framebuffer();
         if (fb_resp && fb_resp->framebuffer_count > 0) {
             global_fb = fb_resp->framebuffers[0];
-            serial_write_str("[INIT] GOP Framebuffer initialized.\n");
+            panic_cache_fb();
+            serial_write_str("[INIT] GOP Framebuffer initialized and cached.\n");
         } else {
             serial_write_str("[WARN] GOP Framebuffer not found, console output disabled.\n");
         }

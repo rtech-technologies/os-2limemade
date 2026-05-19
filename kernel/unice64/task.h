@@ -20,6 +20,8 @@ typedef struct {
 
 typedef struct {
     uint32_t id;
+    uint32_t uid;  /* Quartermaster: User Identity */
+    uint32_t uaid; /* Unique App ID */
     task_state_t state;
     cpu_context_t context;
     uint32_t slab_id;
@@ -31,5 +33,7 @@ void unice64_scheduler_init(void);
 void register_task(void (*entry_point)(void), uint32_t slab_id);
 void sys_yield(void);
 task_t* get_current_task(void);
+int get_task_count(void);
+void get_task_info(int idx, uint32_t* id, const char** state, uint32_t* slab);
 
 #endif

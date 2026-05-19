@@ -149,11 +149,7 @@ char get_char(void) {
         }
 
         /* Sovereign Active-Relay: Yield while waiting for input */
-        task_t* current = get_current_task();
-        if (current) current->state = TASK_WAITING;
         sys_yield();
-        if (current) current->state = TASK_RUNNING;
-
         __asm__ volatile ("pause");
     }
 }

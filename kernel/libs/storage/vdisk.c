@@ -162,17 +162,32 @@ void vdisk_service(kernel_event_t event) {
         /* Register INITRD if module present */
         struct limine_module_response* resp = get_modules();
         if (resp && resp->module_count > 0) {
-            vdisk_node_t initrd = {
-                .name = "RAMDISK",
-                .sector_size = 512,
-                .total_lba = resp->modules[0]->size / 512,
-                .partition_offset = 2048, /* Sovereign Partition Standard */
-                .read_lba = ramdisk_read,
-                .write_lba = NULL,
-                .is_atapi = false /* RAMDISK is virtual, not ATAPI */
-            };
-            register_hardware_disk(initrd);
-            serial_write_str("[INIT] Ramdisk registered as Physical Volume.\n");
+            for (uint64_t i = 0; i < resp->module_count; i++) {
+                struct limine_file* mod = resp->modules[i];
+                /* Quartermaster: Module Integrity Validation */
+                if (mod->address != NULL && mod->size > 0) {
+                    vga_print("[SNAP] CARGO MODULE %d VALIDATED: %d bytes @ 0x%x\n",
+                             (int)i, (int)mod->size, (uint64_t)mod->address);
+
+                    if (i == 0) { // First module is always RAMDISK
+                        vdisk_node_t initrd = {
+                            .name = "RAMDISK",
+                            .sector_size = 512,
+                            .total_lba = mod->size / 512,
+                            .partition_offset = 2048,
+                            .read_lba = ramdisk_read,
+                            .write_lba = NULL,
+                            .is_atapi = false
+                        };
+                        register_hardware_disk(initrd);
+                        vga_print("[SNAP] RAMDISK REGISTERED AS BOOT VOLUME\n");
+                    }
+                } else {
+                    vga_print("[!] CARGO MODULE %d CORRUPT OR MISSING\n", (int)i);
+                }
+            }
+        } else {
+            vga_print("[!] NO CARGO MODULES DETECTED. SYSTEM INCOMPLETE.\n");
         }
 
         vfs_node_t root_node = {
@@ -180,5 +195,14 @@ void vdisk_service(kernel_event_t event) {
             .ls = vdisk_ls_root
         };
         vfs_register_node(root_node);
+    }
+}
+
+void get_hw_disk_info(int id, char* name, uint64_t* size) {
+    if (id >= 0 && id < hw_count) {
+        int k = 0;
+        while(hw_registry[id].name[k]) { name[k] = hw_registry[id].name[k]; k++; }
+        name[k] = '\0';
+        *size = hw_registry[id].total_lba * hw_registry[id].sector_size;
     }
 }

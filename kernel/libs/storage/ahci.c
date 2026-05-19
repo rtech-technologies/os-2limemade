@@ -4,104 +4,12 @@
 #include <stdbool.h>
 #include <kernel/libs/storage/vdisk.h>
 #include <kernel/libs/core/pci.h>
+#include <include/ahci.h>
 
 void* malloc(size_t size);
 void free(void* ptr);
 
 void serial_write_str(const char* s);
-
-/* AHCI HBA Structures (Physical) */
-typedef struct {
-    uint8_t  fis_type;
-    uint8_t  pmport:4;
-    uint8_t  rsv0:3;
-    uint8_t  c:1;
-    uint8_t  command;
-    uint8_t  featurel;
-    uint8_t  lba0;
-    uint8_t  lba1;
-    uint8_t  lba2;
-    uint8_t  device;
-    uint8_t  lba3;
-    uint8_t  lba4;
-    uint8_t  lba5;
-    uint8_t  featureh;
-    uint8_t  countl;
-    uint8_t  counth;
-    uint8_t  icc;
-    uint8_t  control;
-    uint8_t  rsv1[4];
-} fis_reg_h2d_t;
-
-typedef struct {
-    uint32_t dba;
-    uint32_t dbau;
-    uint32_t rsv0;
-    uint32_t dbc:22;
-    uint32_t rsv1:9;
-    uint32_t i:1;
-} hba_prdt_entry_t;
-
-typedef struct {
-    uint8_t  cfis[64];
-    uint8_t  acmd[16];
-    uint8_t  rsv[48];
-    hba_prdt_entry_t prdt_entry[1];
-} hba_cmd_tbl_t;
-
-typedef struct {
-    uint8_t  cfl:5;
-    uint8_t  a:1;
-    uint8_t  w:1;
-    uint8_t  p:1;
-    uint8_t  r:1;
-    uint8_t  b:1;
-    uint8_t  c:1;
-    uint8_t  rsv0:1;
-    uint8_t  pmp:4;
-    uint16_t prdtl;
-    volatile uint32_t prdbc;
-    uint32_t ctba;
-    uint32_t ctbau;
-    uint32_t rsv1[4];
-} hba_cmd_header_t;
-
-typedef struct {
-    uint32_t clb;
-    uint32_t clbu;
-    uint32_t fb;
-    uint32_t fbu;
-    uint32_t is;
-    uint32_t ie;
-    uint32_t cmd;
-    uint32_t rsv0;
-    uint32_t tfd;
-    uint32_t sig;
-    uint32_t ssts;
-    uint32_t sctl;
-    uint32_t serr;
-    uint32_t sact;
-    uint32_t ci;
-    uint32_t sntf;
-    uint32_t fbs;
-    uint32_t devslp;
-    uint32_t rsv1[11]; /* (18 * 4) = 72 bytes. 128 - 72 = 56 bytes. 56 / 4 = 14. */
-    uint32_t rsv2[3]; /* More Padding */
-} hba_port_t;
-
-typedef struct {
-    uint32_t cap;
-    uint32_t ghc;
-    uint32_t is;
-    uint32_t pi;
-    uint32_t vs;
-    uint32_t bccc;
-    uint32_t bccd;
-    uint32_t cap2;
-    uint32_t bohc;
-    uint8_t  rsv[0x100 - 0x24]; /* Pad to 0x100 where ports start */
-    hba_port_t ports[32];
-} hba_mem_t;
 
 static hba_mem_t* hba_base = NULL;
 static void* port_clb_virt[32];
@@ -116,43 +24,58 @@ void serial_print_hex(const char* label, uint16_t val);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
 void* bump_alloc(size_t size);
 uint64_t vmm_get_phys(void* virt);
+void vga_print(const char* fmt, ...);
+int ahci_wait_status(volatile uint32_t* reg, uint32_t mask, uint32_t expected, uint32_t timeout_ms);
 
 void ahci_port_start(hba_port_t *port) {
-    while (port->cmd & (1 << 15));
-    port->cmd |= (1 << 4);
-    port->cmd |= (1 << 0);
-}
+    /* Quartermaster: Engine Handshake Shield */
+    if (port->cmd & (1 << 0)) return; /* Already running */
 
-void vga_print(const char* fmt, ...);
+    /* Wait for bit 15 (CR - Command list Running) to clear */
+    if (ahci_wait_status(&port->cmd, (1 << 15), 0, 500) != 0) {
+        vga_print("[!] AHCI: Port engine stop timeout (CR still set).\n");
+        return;
+    }
+
+    port->cmd |= (1 << 4); /* FRE: FIS Receive Enable */
+    port->cmd |= (1 << 0); /* ST: Start */
+}
 void pit_wait_ms(uint32_t ms);
 
+int ahci_wait_status(volatile uint32_t* reg, uint32_t mask, uint32_t expected, uint32_t timeout_ms) {
+    for (uint32_t i = 0; i <= timeout_ms; i++) {
+        if ((*reg & mask) == expected) return 0;
+        if (i < timeout_ms) pit_wait_ms(1);
+    }
+    return -1;
+}
+
 void ahci_force_port_reset(hba_port_t *port, int port_no) {
-    port->serr = 0xFFFFFFFF;
-    port->is = 0xFFFFFFFF;
-    port->cmd &= ~0x0001;
-    port->cmd &= ~0x0010;
+    /* Quartermaster: Deterministic Port Reset */
+    port->cmd &= ~0x0001; /* ST = 0 */
+    port->cmd &= ~0x0010; /* FRE = 0 */
 
-    int engine_timeout = 1000;
-    while ((port->cmd & 0x8000 || port->cmd & 0x4000) && engine_timeout--) {
-        pit_wait_ms(1);
-    }
+    /* Wait for engine to stop (bit 15 is CR, bit 14 is FR) */
+    ahci_wait_status(&port->cmd, 0xC000, 0, 500);
 
-    port->sctl = (port->sctl & ~0x0F) | 0x301;
-    pit_wait_ms(10);
-    port->sctl = (port->sctl & ~0x0F) | 0x300;
-    pit_wait_ms(50);
+    /* COMRESET Sequence */
+    // Quartermaster: Physical Link Handshake (COMRESET)
+    port->sctl = (port->sctl & ~0x0F) | 1; /* DET = 1 (Perform COMRESET) */
+    pit_wait_ms(1); /* 1ms is typically enough for COMRESET initiation */
+    port->sctl = (port->sctl & ~0x0F) | 0; /* DET = 0 (Resume normal operation) */
 
-    int timeout = 1000;
-    while ((port->ssts & 0x0F) != 0x03 && timeout--) {
-        pit_wait_ms(1);
-    }
+    /* Wait for communication established (DET = 3) */
+    if (ahci_wait_status(&port->ssts, 0x0F, 0x03, 1000) == 0) {
+        // Quartermaster Fix: [Hardware Handshake Reset]
+        port->serr = 0xFFFFFFFF; /* Clear errors */
+        /* Wait for TFD to be clear of BSY and DRQ */
+        ahci_wait_status(&port->tfd, 0x88, 0, 1000);
 
-    if ((port->ssts & 0x0F) == 0x03) {
-        vga_print("[AHCI] PORT %d: LINK ESTABLISHED\n", port_no);
-        port->cmd |= 0x0010;
-        port->cmd |= 0x0001;
+        port->cmd |= 0x0010; /* FRE = 1 */
+        port->cmd |= 0x0001; /* ST = 1 */
+        vga_print("[SNAP] AHCI PORT %d: LINK ESTABLISHED\n", port_no);
     } else {
-        vga_print("[AHCI] PORT %d: MECHANICAL FAILURE\n", port_no);
+        vga_print("[AHCI] PORT %d: LINK FAILURE\n", port_no);
     }
 }
 
@@ -417,11 +340,30 @@ void ahci_service(kernel_event_t event) {
                     uint64_t hhdm = get_hhdm_offset();
                     hba_base = (hba_mem_t*)(hhdm + (uint64_t)(bar5 & 0xFFFFFFF0));
 
-                    hba_base->ghc |= (1 << 31);
-                    hba_base->ghc |= (1 << 0);
-                    int ghc_timeout = 1000;
-                    while ((hba_base->ghc & (1 << 0)) && ghc_timeout--) pit_wait_ms(1);
-                    hba_base->ghc |= (1 << 31);
+                    /* Quartermaster: BIOS/OS Handoff */
+                    if (hba_base->cap2 & 0x1) {
+                        vga_print("[AHCI] BOHC Handoff initiated...\n");
+                        hba_base->bohc |= (1 << 1); /* OOS: OS Ownership */
+                        if (ahci_wait_status(&hba_base->bohc, (1 << 0), 0, 25) != 0) {
+                            /* BIOS didn't hand off in 25ms, wait for BIOS Busy (BB) to clear */
+                            ahci_wait_status(&hba_base->bohc, (1 << 4), 0, 2000);
+                        }
+                        vga_print("[SNAP] AHCI BIOS/OS HANDSHAKE COMPLETE\n");
+                    }
+
+                    /* Quartermaster: GHC Reset Sequence */
+                    // Quartermaster Fix: [HBA Reset Handshake]
+                    hba_base->ghc |= (1 << 31); /* AE: AHCI Enable */
+                    hba_base->ghc |= (1 << 0);  /* HR: HBA Reset */
+                    if (ahci_wait_status(&hba_base->ghc, (1 << 0), 0, 1000) != 0) {
+                        vga_print("[!] AHCI FATAL: HBA Reset Timeout.\n");
+                    }
+                    hba_base->ghc |= (1 << 31); /* Re-enable AHCI after reset */
+                    if (ahci_wait_status(&hba_base->ghc, (1 << 31), (1 << 31), 100) == 0) {
+                        vga_print("[SNAP] AHCI CONTROLLER RESET COMPLETE\n");
+                    } else {
+                        vga_print("[!] AHCI FATAL: GHC.AE failed to set after reset.\n");
+                    }
 
                     /* OSx2: Scan the first 9 ports on boot per Sovereign mandate */
                     void* slab_alloc_aligned(int id, size_t size, size_t align);

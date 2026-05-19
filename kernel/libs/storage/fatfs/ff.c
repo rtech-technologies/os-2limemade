@@ -1,6 +1,7 @@
 #include "ff.h"
 #include <include/rsl.h>
 #include <kernel/libs/storage/vdisk.h>
+#include <kernel/unice64/task.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -11,7 +12,8 @@ void serial_print_hex(const char* label, uint16_t val);
 typedef struct {
     uint8_t name[11];
     uint8_t attr;
-    uint8_t rsv[8];
+    uint8_t uid; /* Quartermaster: Property Owner UID */
+    uint8_t rsv[7];
     uint16_t first_cluster_high;
     uint16_t mod_time;
     uint16_t mod_date;
@@ -199,6 +201,14 @@ FRESULT f_open(FATFS* fs, FIL* fp, const TCHAR* path, BYTE mode) {
     uint64_t entry_lba;
     uint32_t entry_idx;
     uint32_t cluster = resolve_path_to_cluster(fs, path, &entry, &entry_lba, &entry_idx);
+
+    /* Quartermaster: Property Permissions Check */
+    if (cluster != 0 && (mode & FA_WRITE)) {
+        task_t* current = get_current_task();
+        if (current && current->uid != 0 && current->uid != entry.uid) {
+            return FR_DENIED;
+        }
+    }
     if (!cluster) {
         if (mode & (FA_CREATE_ALWAYS | FA_CREATE_NEW | FA_OPEN_ALWAYS)) {
             char dir_path[256]; int last_slash = -1;
@@ -222,6 +232,11 @@ FRESULT f_open(FATFS* fs, FIL* fp, const TCHAR* path, BYTE mode) {
             fat_dir_entry_t new_entry = {0};
             to_sfn(filename, new_entry.name);
             new_entry.attr = AM_ARC;
+
+            /* Quartermaster: Set Owner UID */
+            task_t* current = get_current_task();
+            new_entry.uid = current ? current->uid : 0;
+
             new_entry.first_cluster_low = new_cluster & 0xFFFF;
             new_entry.first_cluster_high = (new_cluster >> 16) & 0xFFFF;
             new_entry.size = 0;
@@ -423,10 +438,15 @@ FRESULT f_mkdir(FATFS* fs, const TCHAR* path) {
     for(int k=0; path[k]; k++) if(path[k] == '/') last_slash = k;
     uint32_t parent_cluster;
     const char* filename;
-    if (last_slash == -1) { parent_cluster = fs->root_cluster; filename = path; }
-    else {
+    if (last_slash == -1) {
+        parent_cluster = fs->root_cluster;
+        filename = path;
+    } else {
         int k;
-        for(k=0; k<last_slash; k++) dir_path[k] = path[k]; dir_path[k] = '\0';
+        for(k=0; k<last_slash; k++) {
+            dir_path[k] = path[k];
+        }
+        dir_path[k] = '\0';
         parent_cluster = resolve_path_to_cluster(fs, dir_path, NULL, NULL, NULL);
         filename = &path[last_slash+1];
     }
@@ -441,6 +461,11 @@ FRESULT f_mkdir(FATFS* fs, const TCHAR* path) {
     fat_dir_entry_t entry = {0};
     to_sfn(filename, entry.name);
     entry.attr = AM_DIR;
+
+    /* Quartermaster: Set Owner UID */
+    task_t* current = get_current_task();
+    entry.uid = current ? current->uid : 0;
+
     entry.first_cluster_low = new_cluster & 0xFFFF;
     entry.first_cluster_high = (new_cluster >> 16) & 0xFFFF;
 
@@ -470,6 +495,13 @@ FRESULT f_unlink(FATFS* fs, const TCHAR* path) {
     uint64_t entry_lba;
     uint32_t entry_idx;
     if (!resolve_path_to_cluster(fs, path, &entry, &entry_lba, &entry_idx)) return FR_NO_FILE;
+
+    /* Quartermaster: Property Permissions Check */
+    task_t* current = get_current_task();
+    if (current && current->uid != 0 && current->uid != entry.uid) {
+        return FR_DENIED;
+    }
+
     void* malloc(size_t size);
     void free(void* ptr);
     uint8_t* dir_buf = malloc(2048); if (!dir_buf) return FR_NOT_ENOUGH_CORE;

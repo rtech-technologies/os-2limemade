@@ -18,6 +18,7 @@ SECTIONS
 
     .rodata : ALIGN(0x1000) {
         *(.rodata .rodata.*)
+        *(.note.gnu.build-id)
     } :rodata
 
     .data : ALIGN(0x1000) {
@@ -32,6 +33,6 @@ SECTIONS
     } :data
 
     /DISCARD/ : {
-        *(.note .note.*)
+        *(.note.GNU-stack)
     }
 }

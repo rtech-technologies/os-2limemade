@@ -28,5 +28,6 @@ int vdisk_eject_hw(int hw_id);
 uint64_t vdisk_get_offset(int hw_id);
 bool vdisk_is_readonly(int hw_id);
 bool vdisk_is_atapi(int hw_id);
+void get_hw_disk_info(int id, char* name, uint64_t* size);
 
 #endif

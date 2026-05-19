@@ -3,6 +3,7 @@
 #include <kernel/libs/core/pci.h>
 #include <include/rsl.h>
 #include <include/vfs.h>
+#include <kernel/unice64/task.h>
 #include <limine.h>
 #include <stddef.h>
 
@@ -11,7 +12,7 @@ void serial_write_str(const char* s);
 void shell_main(void);
 
 #include <kernel/libs/storage/fatfs/ff.h>
-void forensic_panic(const char* message, void* state);
+void quartermaster_panic(const char* message, void* state);
 
 void gdt_init(void);
 void pmm_init(void);
@@ -98,20 +99,13 @@ void _start(void) {
     if (boot_drive == -1) {
         set_color(YELLOW, BLACK);
         print("\n[BOOT] NO SOVEREIGN DISK FOUND.\n");
-        void* choice = input("Search for non-FAT disks and install? (y/n): ");
-        if (choice && str_match(choice, "y")) {
-            for (int i = 0; i < hw_count; i++) {
-                if (vdisk_is_atapi(i)) continue;
-                vga_print("OSx2: Installing to Drive %d...\n", i);
-                if (f_mkfs(i) == FR_OK) {
-                    vga_print("OSx2: Installation Complete on Drive %d.\n", i);
-                    boot_drive = i;
-                    break;
-                }
-            }
-            release(choice);
-        } else if (choice) {
-            release(choice);
+        /* Quartermaster: Automating Cargo Installer Deployment */
+        if (hw_count > 0) {
+            vga_print("[SNAP] ENGAGING CARGO INSTALLER...\n");
+
+            /* Find and Execute Installer Payload as Standalone Binary */
+            void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid);
+            tasking_spawn_module(1, 3, 0); /* cargo.bin is typically module 1, Slab 3, UID 0 */
         }
     }
 
@@ -183,13 +177,24 @@ void _start(void) {
     apic_init();
     apic_timer_init(1000000);
 
+    /* Quartermaster Logistics: Cargo First */
+    if (mount_success) {
+        if (!vfs_exists(str_create("BOOT:/users/"))) {
+            vga_print("[SNAP] Sovereign Installation not found. Engaging Cargo...\n");
+            void tasking_spawn_module(int module_index, uint32_t slab_id, uint32_t uaid);
+            tasking_spawn_module(1, 3, 0); /* cargo.bin is typically module 1, Slab 3, UID 0 */
+        }
+    }
+
     /* Automated Sovereignty: Try to execute BOOT.RSL */
     void rsl_execute_stream(const char* path);
     if (mount_success) {
         const char* script_path = vdisk_is_atapi(boot_drive) ? "INITRD:/BOOT.RSL" : "BOOT:/BOOT.RSL";
-        serial_write_str("CHECKPOINT A: Executing stream...\n");
-        rsl_execute_stream(script_path);
-        serial_write_str("CHECKPOINT B: Stream finished.\n");
+        if (vfs_exists(str_create(script_path))) {
+            serial_write_str("CHECKPOINT A: Executing stream...\n");
+            rsl_execute_stream(script_path);
+            serial_write_str("CHECKPOINT B: Stream finished.\n");
+        }
     }
 
     /* The main thread becomes an observer or a task.
@@ -201,6 +206,7 @@ void _start(void) {
 
     /* Hang if we ever return */
     for (;;) {
-        __asm__ volatile ("hlt");
+        sys_yield();
+        __asm__ volatile ("pause");
     }
 }

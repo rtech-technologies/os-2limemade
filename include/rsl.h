@@ -47,4 +47,32 @@ void* rsl_paste(void);
 void rsl_settings(void);
 void rsl_debug_dump(void);
 
+/* Storage and Partitioning Syscalls */
+int rsl_list_disks(void);
+bool rsl_is_sovereign(int disk_id);
+int rsl_get_disk_info(int disk_id, char* name, uint64_t* size);
+
+void rsl_dispatch_command(char* line, void** curdir_ptr, bool* is_safe_ptr);
+
+/* Graphics Syscall */
+typedef struct {
+    uint64_t address;
+    uint64_t width;
+    uint64_t height;
+    uint64_t pitch;
+    uint16_t bpp;
+} rsl_fb_t;
+int rsl_get_fb(rsl_fb_t* fb);
+
+/* GUI Helpers */
+void gui_draw_rect(rsl_fb_t* fb, int x, int y, int w, int h, uint32_t color);
+void gui_draw_text(rsl_fb_t* fb, int x, int y, const char* text, uint32_t color);
+
+/* RTECH Binary Header */
+typedef struct {
+    char magic[8];      /* "RTECH01\0" */
+    uint64_t entry_offset;
+    uint64_t reserved[2];
+} rtech_header_t;
+
 #endif /* RSL_H */
