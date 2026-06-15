@@ -6,7 +6,7 @@
 int vdisk_read_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer);
 int vdisk_write_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer);
 bool vdisk_is_atapi(int hw_id);
-void serial_write_str(const char* s);
+void vga_print(const char* fmt, ...);
 
 int get_hw_disk_count(void);
 
@@ -28,7 +28,7 @@ void free(void* ptr);
 DRESULT disk_read(BYTE pdrv, BYTE* buff, DWORD sector, uint32_t count) {
     /* Hardware Guard: Verify drive index exists */
     if ((int)pdrv >= get_hw_disk_count()) {
-        serial_write_str("[GLUE] FATAL: Invalid Physical Drive Access Request.\n");
+        vga_print("[GLUE] FATAL: Invalid Physical Drive Access Request.\n");
         forensic_panic("DISK READ OUT OF BOUNDS", NULL);
         return RES_ERROR;
     }
@@ -58,7 +58,7 @@ DRESULT disk_read(BYTE pdrv, BYTE* buff, DWORD sector, uint32_t count) {
 DRESULT disk_write(BYTE pdrv, const BYTE* buff, DWORD sector, uint32_t count) {
     /* Hardware Guard: Verify drive index exists */
     if ((int)pdrv >= get_hw_disk_count()) {
-        serial_write_str("[GLUE] FATAL: Invalid Physical Drive Access Request.\n");
+        vga_print("[GLUE] FATAL: Invalid Physical Drive Access Request.\n");
         forensic_panic("DISK WRITE OUT OF BOUNDS", NULL);
         return RES_ERROR;
     }

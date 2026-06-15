@@ -12,12 +12,14 @@
 #include <include/config.h>
 #include <include/usb_queues.h>
 
-void serial_write_str(const char* s);
+#include <include/string.h>
+#include <include/stdlib.h>
+#include <include/timer.h>
+void vga_print(const char* fmt, ...);
 void serial_print(const char* fmt, ...);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
 uint64_t get_hhdm_offset(void);
 uint64_t vmm_get_phys(void* virt);
-void pit_wait_ms(uint32_t ms);
 
 static void* xhci_base = NULL;
 static uint32_t xhci_cap_len = 0;
@@ -109,7 +111,6 @@ uint64_t g_kbd_initial_delay = 500;
 uint64_t g_kbd_repeat_rate = 50;
 
 int xhci_transfer(int slot, int dci, xhci_trb_t* trb);
-uint64_t get_system_ticks(void);
 
 void xhci_handle_repeat(void) {
     if (repeat_key == 0) return;
@@ -249,7 +250,6 @@ int xhci_send_command(xhci_trb_t* trb) {
     while(timeout--) {
         xhci_handle_events();
         if (last_cmd_status != -1) return (last_cmd_status == XHCI_COMP_SUCCESS) ? 0 : (int)last_cmd_status;
-        void pit_wait_ms(uint32_t ms);
         pit_wait_ms(1);
     }
     return -1;
@@ -371,7 +371,7 @@ void xhci_setup_device(int port) {
     xhci_trb_t cmd = {0};
     cmd.control = (TRB_TYPE_ENABLE_SLOT << 10);
     if (xhci_send_command(&cmd) != 0) {
-        serial_write_str("[XHCI] Error: ENABLE_SLOT failed.\n");
+        vga_print("[XHCI] Error: ENABLE_SLOT failed.\n");
         return;
     }
 
@@ -464,14 +464,14 @@ void xhci_setup_device(int port) {
                             current_iface = iface->bInterfaceNumber;
                             if (iface->bInterfaceClass == 0x03) { /* HID */
                                 if (iface->bInterfaceProtocol == 1) {
-                                    serial_write_str("[USB] Identified KEYBOARD.\n");
+                                    vga_print("[USB] Identified KEYBOARD.\n");
                                     usb_devices[slot_id].type = USB_TYPE_KBD;
                                 } else if (iface->bInterfaceProtocol == 2) {
-                                    serial_write_str("[USB] Identified MOUSE.\n");
+                                    vga_print("[USB] Identified MOUSE.\n");
                                     usb_devices[slot_id].type = USB_TYPE_MOUSE;
                                 }
                             } else if (iface->bInterfaceClass == 0x08) { /* MSC */
-                                serial_write_str("[USB] Identified MASS STORAGE.\n");
+                                vga_print("[USB] Identified MASS STORAGE.\n");
                                 usb_devices[slot_id].type = USB_TYPE_MSC;
                             }
                         } else if (type == 0x21) { /* HID Descriptor */
@@ -632,7 +632,7 @@ void xhci_setup_device(int port) {
     }
 }
 
-void vga_print(const char* s);
+void vga_print(const char* fmt, ...);
 void vga_draw_mouse(int x, int y);
 
 void usb_keyboard_task(void) {
@@ -772,7 +772,6 @@ void usb_main_task(void) {
                     /* Wait for Port Reset Change (PRC) or PED bit */
                     int timeout = 50;
                     while (timeout--) {
-                        void pit_wait_ms(uint32_t ms);
                         pit_wait_ms(10);
                         portsc = xhci_op_read(port_reg);
                         if (portsc & (1 << 21)) break; /* PRC */
@@ -812,7 +811,7 @@ void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
     while (ext_cap) {
         uint32_t cap_id = *ext_cap & 0xFF;
         if (cap_id == 1) { /* USB Legacy Support */
-            serial_write_str("[XHCI] Requesting BIOS Handover...\n");
+            vga_print("[XHCI] Requesting BIOS Handover...\n");
             *ext_cap |= (1 << 24); /* OS Owned Semaphore */
 
             /* Wait for BIOS to release ownership (bit 16 drops to 0) */
@@ -821,7 +820,7 @@ void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
                 for(volatile int i=0; i<10000; i++);
             }
             if (timeout <= 0) {
-                serial_write_str("[XHCI] BIOS Handover Timeout. Forcing...\n");
+                vga_print("[XHCI] BIOS Handover Timeout. Forcing...\n");
                 *ext_cap &= ~(1 << 16);
             }
 
@@ -947,7 +946,7 @@ int xhci_msc_write(void* priv, uint64_t lba, uint32_t count, void* buffer) {
 void usb_xhci_service(kernel_event_t event) {
 #if !defined(CONFIG_INTERFACE_PS2)
     if (event == EVENT_INIT) {
-        serial_write_str("[INIT] Scanning for XHCI...\n");
+        vga_print("[INIT] Scanning for XHCI...\n");
         for (int bus = 0; bus < 256; bus++) {
             for (int slot = 0; slot < 32; slot++) {
                 for (int func = 0; func < 8; func++) {
@@ -963,7 +962,7 @@ void usb_xhci_service(kernel_event_t event) {
 
                             /* Hardware Presence Validation */
                             if (*(volatile uint32_t*)xhci_base == 0xFFFFFFFF) {
-                                serial_write_str("[XHCI] Error: Hardware reported 0xFFFFFFFF (Ghost Device). Aborting.\n");
+                                vga_print("[XHCI] Error: Hardware reported 0xFFFFFFFF (Ghost Device). Aborting.\n");
                                 xhci_base = NULL;
                                 continue;
                             }
@@ -972,7 +971,7 @@ void usb_xhci_service(kernel_event_t event) {
 
                             xhci_cap_len = *(volatile uint8_t*)xhci_base;
                             if (xhci_cap_len == 0xFF) {
-                                serial_write_str("[XHCI] Error: Invalid Capability Length. Aborting.\n");
+                                vga_print("[XHCI] Error: Invalid Capability Length. Aborting.\n");
                                 xhci_base = NULL;
                                 continue;
                             }
@@ -982,10 +981,20 @@ void usb_xhci_service(kernel_event_t event) {
                             xhci_op_write(XHCI_OP_USBCMD, xhci_op_read(XHCI_OP_USBCMD) & ~0x01);
                             int timeout = 1000;
                             while(!(xhci_op_read(XHCI_OP_USBSTS) & 0x01) && timeout--) pit_wait_ms(1);
+                            if (timeout <= 0) {
+                                vga_print("[XHCI] Error: Stop Timeout. Aborting.\n");
+                                xhci_base = NULL;
+                                continue;
+                            }
 
                             xhci_op_write(XHCI_OP_USBCMD, 0x02);
                             timeout = 1000;
                             while((xhci_op_read(XHCI_OP_USBCMD) & 0x02) && timeout--) pit_wait_ms(1);
+                            if (timeout <= 0) {
+                                vga_print("[XHCI] Error: Reset Timeout. Aborting.\n");
+                                xhci_base = NULL;
+                                continue;
+                            }
 
                             void* slab_alloc_aligned(int id, size_t size, size_t align);
                             cmd_ring = slab_alloc_aligned(0, 4096, 64);
@@ -1023,7 +1032,12 @@ void usb_xhci_service(kernel_event_t event) {
                             xhci_op_write(XHCI_OP_USBCMD, xhci_op_read(XHCI_OP_USBCMD) | 0x01);
                             timeout = 1000;
                             while((xhci_op_read(XHCI_OP_USBSTS) & 0x01) && timeout--) pit_wait_ms(1);
-                            serial_write_str("[XHCI] Online.\n");
+                            if (timeout <= 0) {
+                                vga_print("[XHCI] Error: Start Timeout. Aborting.\n");
+                                xhci_base = NULL;
+                                continue;
+                            }
+                            vga_print("[XHCI] Online.\n");
                             return;
                         }
                     }

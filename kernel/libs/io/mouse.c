@@ -2,7 +2,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-void serial_write_str(const char* s);
+void vga_print(const char* fmt, ...);
 
 static mouse_state_t global_mouse = {0, 0, false, false, false, false};
 
@@ -51,7 +51,7 @@ static uint8_t mouse_read(void) {
 }
 
 void mouse_init(void) {
-    serial_write_str("[MOUSE] Initializing PS/2 Mouse...\n");
+    vga_print("[MOUSE] Initializing PS/2 Mouse...\n");
 
     /* 1. Enable Auxiliary Device */
     mouse_wait(1);
@@ -59,7 +59,7 @@ void mouse_init(void) {
 
     /* 2. Check for existence: Reset command */
     if (mouse_write(0xFF) != 0) {
-        serial_write_str("[MOUSE] No PS/2 Mouse detected.\n");
+        vga_print("[MOUSE] No PS/2 Mouse detected.\n");
         global_mouse.active = false;
         return;
     }
@@ -85,7 +85,7 @@ void mouse_init(void) {
     mouse_write(0xF4);
 
     global_mouse.active = true;
-    serial_write_str("[MOUSE] PS/2 Mouse Online.\n");
+    vga_print("[MOUSE] PS/2 Mouse Online.\n");
 }
 
 void vga_draw_mouse(int x, int y);

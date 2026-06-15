@@ -1,6 +1,8 @@
 #include <kernel/libs/core/services.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <include/string.h>
+#include <include/stdlib.h>
 #include <stdbool.h>
 #include <limine.h>
 #include <include/ahci_hw.h>
@@ -17,7 +19,7 @@ static int hw_count = 0;
 static vdisk_node_t connect_registry[MAX_DISKS];
 static int connect_count = 0;
 
-void serial_write_str(const char* s);
+void vga_print(const char* fmt, ...);
 void vga_print(const char* fmt, ...);
 struct limine_module_response* get_modules(void);
 
@@ -50,7 +52,7 @@ void register_hardware_disk(vdisk_node_t node) {
 void vdisk_connect(int hw_id) {
     if (hw_id >= 0 && hw_id < hw_count && connect_count < MAX_DISKS) {
         connect_registry[connect_count++] = hw_registry[hw_id];
-        serial_write_str("[CONNECT] Disk volume linked.\n");
+        vga_print("[CONNECT] Disk volume linked.\n");
     }
 }
 
@@ -156,7 +158,7 @@ static int ramdisk_read(void* priv, uint64_t lba, uint32_t count, void* buffer) 
 #include <include/vfs.h>
 #include <kernel/libs/storage/fatfs/ff.h>
 
-static void vdisk_ls_root(void* path, void* priv) {
+void vdisk_ls_root(void* path, void* priv) {
     (void)path; (void)priv;
     int count = get_hw_disk_count();
     for (int i = 0; i < count; i++) {
@@ -195,7 +197,7 @@ static void vdisk_ls_root(void* path, void* priv) {
 
 void vdisk_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
-        serial_write_str("[INIT] VDISK Registry initialized.\n");
+        vga_print("[INIT] VDISK Registry initialized.\n");
         vfs_init();
 
         /* Register INITRD if module present */
@@ -211,7 +213,7 @@ void vdisk_service(kernel_event_t event) {
                 .is_atapi = false /* RAMDISK is virtual, not ATAPI */
             };
             register_hardware_disk(initrd);
-            serial_write_str("[INIT] Ramdisk registered as Physical Volume.\n");
+            vga_print("[INIT] Ramdisk registered as Physical Volume.\n");
         }
 
         vfs_node_t root_node = {

@@ -1,11 +1,12 @@
 #include <stdint.h>
+#include <stdbool.h>
 #include <stddef.h>
 
 #ifdef RSL_BINARY_MODE
 /* Userland Syscall Wrapper */
 static inline uint64_t rsl_syscall(uint64_t id, uint64_t a1, uint64_t a2, uint64_t a3) {
     uint64_t ret;
-    asm volatile ("int $0x03" : "=a"(ret) : "a"(id), "b"(a1), "c"(a2), "d"(a3) : "memory");
+    __asm__ volatile ("int $0x03" : "=a"(ret) : "a"(id), "b"(a1), "c"(a2), "d"(a3) : "memory");
     return ret;
 }
 
@@ -136,4 +137,66 @@ double cos(double x) {
     double x4 = x2 * x2;
     double x6 = x4 * x2;
     return 1.0 - (x2 / 2.0) + (x4 / 24.0) - (x6 / 720.0);
+}
+int atoi(const char* s) {
+    int res = 0;
+    while (*s >= '0' && *s <= '9') {
+        res = res * 10 + (*s - '0');
+        s++;
+    }
+    return res;
+}
+
+void reverse(char s[]) {
+    int i, j;
+    char c;
+    for (i = 0, j = strlen(s)-1; i<j; i++, j--) {
+        c = s[i];
+        s[i] = s[j];
+        s[j] = c;
+    }
+}
+
+void itoa(int n, char s[], int base) {
+    int i, sign;
+    if ((sign = n) < 0) n = -n;
+    i = 0;
+    do {
+        int d = n % base;
+        s[i++] = (d > 9) ? (d - 10) + 'a' : d + '0';
+    } while ((n /= base) > 0);
+    if (sign < 0) s[i++] = '-';
+    s[i] = '\0';
+    reverse(s);
+}
+
+char* strstr(const char* haystack, const char* needle) {
+    if (!*needle) return (char*)haystack;
+    for (; *haystack; haystack++) {
+        if (*haystack == *needle) {
+            const char *h, *n;
+            for (h = haystack, n = needle; *h && *n && *h == *n; h++, n++);
+            if (!*n) return (char*)haystack;
+        }
+    }
+    return NULL;
+}
+
+long strtol(const char* nptr, char** endptr, int base) {
+    long res = 0;
+    while (*nptr == ' ' || *nptr == '\t') nptr++;
+    bool neg = (*nptr == '-');
+    if (neg || *nptr == '+') nptr++;
+    while (*nptr) {
+        int v = 0;
+        if (*nptr >= '0' && *nptr <= '9') v = *nptr - '0';
+        else if (*nptr >= 'a' && *nptr <= 'z') v = *nptr - 'a' + 10;
+        else if (*nptr >= 'A' && *nptr <= 'Z') v = *nptr - 'A' + 10;
+        else break;
+        if (v >= base) break;
+        res = res * base + v;
+        nptr++;
+    }
+    if (endptr) *endptr = (char*)nptr;
+    return neg ? -res : res;
 }

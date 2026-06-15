@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-void serial_write_str(const char* s);
+void vga_print(const char* fmt, ...);
 
 #define MAX_VARS 64
 typedef struct {

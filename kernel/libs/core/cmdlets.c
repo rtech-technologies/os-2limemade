@@ -2,6 +2,7 @@
 #include <include/rsl.h>
 #include <include/vfs.h>
 #include <stddef.h>
+void vga_print(const char* fmt, ...);
 
 void rsl_execute_command(char* line);
 
@@ -15,6 +16,7 @@ static int var_count = 0;
 static int skip_block = 0;
 
 void cmdlets_init(void) {
+    vga_print("[INIT] CMD-LETS Scripting Engine active.\n");
     var_count = 0;
     skip_block = 0;
 }

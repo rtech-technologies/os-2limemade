@@ -65,9 +65,11 @@ typedef struct {
     volatile uint32_t vs;
     volatile uint32_t bccc;
     volatile uint32_t bccd;
+    volatile uint32_t akerr;
+    volatile uint32_t safs;
     volatile uint32_t cap2;
     volatile uint32_t bohc;
-    uint8_t  rsv[0x100 - 0x24];
+    uint8_t  rsv[0x100 - 0x2C];
     hba_port_t ports[32];
 } hba_mem_t;
 

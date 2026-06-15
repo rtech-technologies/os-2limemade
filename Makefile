@@ -28,22 +28,26 @@ KERNEL_OBJ = $(KERNEL_SRC:.c=.o) $(AS_SRC:.s=.o)
 KERNEL_ELF = kernel.elf
 
 # Standalone Programs (Flat RSL Binaries)
-PROGRAMS = wm.bin editor.bin jit.bin gui_test.bin
+PROGRAMS = wm.bin editor.bin jit.bin gui_test.bin install.bin cargo.bin
 NUKLEAR_PROGS = nk_demo.bin
 PROG_LDFLAGS = -Wl,-T,programs/linker.ld -static -nostdlib
 
 ISO_IMAGE = osx2.iso
+SYSTEM_ISO = os2_system.iso
+INSTALLER_ISO = os2_installer.iso
 SATA_DISK = sata_disk.img
 LIMINE_DIR = ./limine
 LIMINE_BIN = $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin $(LIMINE_DIR)/limine-uefi-cd.bin
 
-.PHONY: all menuconfig kernel programs iso run clean limine-setup
+.PHONY: all menuconfig kernel programs iso run clean limine-setup system-iso installer-iso
 
 all:
 	$(MAKE) limine-setup
 	$(MAKE) kernel
 	$(MAKE) programs
-	$(MAKE) iso
+	$(MAKE) system-iso
+	$(MAKE) installer-iso
+	@cp $(SYSTEM_ISO) $(ISO_IMAGE)
 	$(MAKE) $(SATA_DISK)
 
 limine-setup:
@@ -60,8 +64,8 @@ limine-setup:
 		$(MAKE) -C limine; \
 	fi
 
-run: iso $(SATA_DISK)
-	qemu-system-x86_64 -M q35 -m 1G -serial stdio -cdrom $(ISO_IMAGE) \
+run: installer-iso $(SATA_DISK)
+	qemu-system-x86_64 -M q35 -m 1G -serial stdio -cdrom $(INSTALLER_ISO) \
 		-drive file=$(SATA_DISK),if=none,id=d0,format=raw \
 		-device ich9-ahci,id=ahci \
 		-device ide-hd,drive=d0,bus=ahci.0 \
@@ -80,6 +84,9 @@ kernel: limine-setup $(KERNEL_OBJ)
 
 programs: $(PROGRAMS) $(NUKLEAR_PROGS)
 
+cargo.bin: programs/cargo.c programs/nuklear/nk_sovereign.h programs/libc/libc.c
+	$(CC) $(CFLAGS) -DRSL_BINARY_MODE $(PROG_LDFLAGS) -Iprograms/nuklear -I. $< programs/libc/libc.c -o $@
+
 nk_demo.bin: programs/nuklear/nk_demo.c programs/nuklear/nk_sovereign.h programs/libc/libc.c
 	$(CC) $(CFLAGS) -DRSL_BINARY_MODE $(PROG_LDFLAGS) -Iprograms/nuklear -I. $< programs/libc/libc.c -o $@
 
@@ -92,36 +99,66 @@ nk_demo.bin: programs/nuklear/nk_demo.c programs/nuklear/nk_sovereign.h programs
 %.o: %.s | limine-setup
 	$(CC) $(CFLAGS) -c $< -o $@
 
-iso: limine-setup kernel programs
+system-iso: limine-setup kernel programs
+	@rm -rf system_iso_root
+	@mkdir -p system_iso_root/boot
+	@mkdir -p system_iso_root/bin
+	@mkdir -p system_iso_root/sys
+	@cp $(KERNEL_ELF) system_iso_root/boot/
+	@cp $(PROGRAMS) $(NUKLEAR_PROGS) system_iso_root/bin/
+	@echo "echo Sovereign System Online." > system_iso_root/sys/boot.rsl
+	@cp boot/limine.cfg system_iso_root/boot/
 	@rm -rf iso_root
-	@mkdir -p iso_root/boot
-	@mkdir -p iso_root/bin
-	@mkdir -p iso_root/sys
-	@cp $(KERNEL_ELF) iso_root/boot/
-	@cp $(PROGRAMS) $(NUKLEAR_PROGS) iso_root/bin/
-	@echo "format 0" > iso_root/sys/install.rsl
-	@echo "mount 0" >> iso_root/sys/install.rsl
-	@echo "write BOOT:/sys/boot.rsl \"echo Sovereign Boot sequence initiated.\"" >> iso_root/sys/install.rsl
-	@echo "echo Sovereign System Online." > iso_root/sys/boot.rsl
-	@echo "echo Initializing Mechanical Truth..." >> iso_root/sys/boot.rsl
-	@cp boot/limine.cfg iso_root/boot/
+	@mkdir -p iso_root
+	@cp -r system_iso_root/* iso_root/
 	@python3 scripts/fat_tool.py ramdisk.img
-	@cp ramdisk.img iso_root/boot/
+	@cp ramdisk.img system_iso_root/boot/
 	@if command -v xorriso >/dev/null 2>&1; then \
-		cp $(LIMINE_BIN) iso_root/; \
+		cp $(LIMINE_BIN) system_iso_root/; \
 		xorriso -as mkisofs -b limine-bios-cd.bin \
 			-no-emul-boot -boot-load-size 4 -boot-info-table \
 			--efi-boot limine-uefi-cd.bin \
 			-efi-boot-part --efi-boot-image --protective-msdos-label \
-			iso_root -o $(ISO_IMAGE); \
-		$(LIMINE_DIR)/limine bios-install $(ISO_IMAGE); \
+			system_iso_root -o $(SYSTEM_ISO); \
+		$(LIMINE_DIR)/limine bios-install $(SYSTEM_ISO); \
 	else \
-		touch $(ISO_IMAGE); \
-		echo "Warning: xorriso not found, created empty $(ISO_IMAGE) for source compliance."; \
+		touch $(SYSTEM_ISO); \
+		echo "Warning: xorriso not found, created empty $(SYSTEM_ISO)."; \
 	fi
-	@echo "OSx2 Limemade ISO Created: $(ISO_IMAGE)"
+	@echo "OSx2 System ISO Created: $(SYSTEM_ISO)"
+
+installer-iso: limine-setup kernel programs system-iso
+	@rm -rf installer_iso_root
+	@mkdir -p installer_iso_root/boot
+	@mkdir -p installer_iso_root/bin
+	@mkdir -p installer_iso_root/CARGO
+	@cp $(KERNEL_ELF) installer_iso_root/boot/
+	@cp $(PROGRAMS) $(NUKLEAR_PROGS) installer_iso_root/bin/
+	@cp $(SYSTEM_ISO) installer_iso_root/CARGO/os2_system.iso
+	@cp installer_limine.cfg installer_iso_root/boot/limine.cfg
+	@rm -rf iso_root
+	@mkdir -p iso_root
+	@cp -r installer_iso_root/* iso_root/
+	@python3 scripts/fat_tool.py ramdisk.img
+	@cp ramdisk.img installer_iso_root/boot/
+	@if command -v xorriso >/dev/null 2>&1; then \
+		cp $(LIMINE_BIN) installer_iso_root/; \
+		xorriso -as mkisofs -b limine-bios-cd.bin \
+			-no-emul-boot -boot-load-size 4 -boot-info-table \
+			--efi-boot limine-uefi-cd.bin \
+			-efi-boot-part --efi-boot-image --protective-msdos-label \
+			installer_iso_root -o $(INSTALLER_ISO); \
+		$(LIMINE_DIR)/limine bios-install $(INSTALLER_ISO); \
+	else \
+		touch $(INSTALLER_ISO); \
+		echo "Warning: xorriso not found, created empty $(INSTALLER_ISO)."; \
+	fi
+	@echo "OSx2 Installer ISO Created: $(INSTALLER_ISO)"
+
+iso: system-iso installer-iso
+	@cp $(SYSTEM_ISO) $(ISO_IMAGE)
 
 clean:
-	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) $(SATA_DISK) ramdisk.img $(PROGRAMS) programs/*.o shell.bin text_editor.bin jit.bin
-	rm -rf iso_root
+	rm -f $(KERNEL_OBJ) $(KERNEL_ELF) $(ISO_IMAGE) $(SYSTEM_ISO) $(INSTALLER_ISO) $(SATA_DISK) ramdisk.img $(PROGRAMS) programs/*.o
+	rm -rf iso_root system_iso_root installer_iso_root
 	@if [ -d "limine" ]; then $(MAKE) -C limine clean || true; fi

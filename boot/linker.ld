@@ -1,4 +1,3 @@
-/* /boot/linker.ld - High-Half Sovereign Kernel */
 ENTRY(_start)
 
 PHDRS
@@ -10,12 +9,10 @@ PHDRS
 
 SECTIONS
 {
-    /* High-Half Kernel: Linked at -2GB */
     . = 0xffffffff80000000;
 
     .text : ALIGN(4K) {
         *(.text .text.*)
-        *(.programs)      /* Ensure the Shell is invited */
     } :text
 
     .rodata : ALIGN(4K) {
@@ -24,7 +21,8 @@ SECTIONS
 
     .data : ALIGN(4K) {
         . = ALIGN(8);
-        *(.limine_requests)
+        KEEP(*(.limine_requests))
+        KEEP(*(.limine_requests.*))
         *(.data .data.*)
     } :data
 

@@ -7,9 +7,10 @@
 #include <stddef.h>
 
 int is_sovereign_disk(int disk_id);
-void serial_write_str(const char* s);
+void vga_print(const char* fmt, ...);
 void shell_main(void);
 void vga_print(const char* fmt, ...);
+void sys_yield(void);
 
 #include <kernel/libs/storage/fatfs/ff.h>
 void forensic_panic(const char* message, void* state);
@@ -58,17 +59,24 @@ void _start(void) {
 
     g_hhdm_offset = get_hhdm_offset();
 
+    vga_print("[BOOT] HHDM Offset: 0x%x\n", g_hhdm_offset);
+
+    vga_print("[BOOT] Initializing GDT...\n");
     gdt_init();
+    vga_print("[BOOT] Initializing PMM...\n");
     pmm_init();
+    vga_print("[BOOT] Initializing Slab Allocator...\n");
     slab_init();
 
     void cmdlets_init(void);
     cmdlets_init();
 
     /* Pre-register IDT to catch early faults */
+    vga_print("[BOOT] Initializing IDT...\n");
     idt_init();
 
     /* SSE Initialization */
+    vga_print("[BOOT] Enabling SSE/SIMD...\n");
     uint64_t cr0;
     __asm__ volatile ("mov %%cr0, %0" : "=r"(cr0));
     cr0 &= ~(1 << 2); /* Clear EM bit */
@@ -82,8 +90,12 @@ void _start(void) {
     __asm__ volatile ("mov %0, %%cr4" : : "r"(cr4));
 
     /* Initialize Timer Hardware BEFORE device discovery */
+    vga_print("[BOOT] Initializing APIC and Timer...\n");
     apic_init();
     apic_timer_init(50000);
+
+    #include <kernel/libs/core/pci.h>
+    pci_scan_verbose();
 
     /*
      * Opaque Sheep Boot Flow:
@@ -97,6 +109,7 @@ void _start(void) {
     bool quiet_mode = false;
     if (kf_resp && kf_resp->kernel_file && kf_resp->kernel_file->cmdline) {
         const char* cmd = kf_resp->kernel_file->cmdline;
+        vga_print("[BOOT] Kernel Command Line: %s\n", cmd);
         /* Simple substring check for "quiet" */
         for (int i = 0; cmd[i]; i++) {
             if (cmd[i] == 'q' && cmd[i+1] == 'u' && cmd[i+2] == 'i' && cmd[i+3] == 'e' && cmd[i+4] == 't') {
@@ -122,14 +135,34 @@ void _start(void) {
     }
 
     /* Force serial logging for critical init regardless of VGA silence */
-    serial_write_str("[BOOT] Critical Init sequence started.\n");
+    vga_print("[BOOT] Critical Init sequence started.\n");
 
     /* Deliver INIT event to all services */
+    vga_print("[BOOT] Dispatching INIT event to kernel services...\n");
     dispatch_event(EVENT_INIT);
+
+    struct limine_framebuffer_response* fb_resp = (void*)0;
+    extern struct limine_framebuffer_response* get_framebuffer(void);
+    fb_resp = get_framebuffer();
+    if (fb_resp && fb_resp->framebuffer_count > 0) {
+        struct limine_framebuffer* fb = fb_resp->framebuffers[0];
+        vga_print("[BOOT] Framebuffer: %dx%d, Pitch:%d, Addr:0x%x\n",
+                  fb->width, fb->height, fb->pitch, fb->address);
+    }
+
+    struct limine_module_response* mod_resp = get_modules();
+    if (mod_resp && mod_resp->module_count > 0) {
+        for (uint64_t i = 0; i < mod_resp->module_count; i++) {
+            struct limine_file* mod = mod_resp->modules[i];
+            vga_print("[BOOT] Module %d: Path:%s, Addr:0x%x, Size:%d KB\n",
+                      i, mod->path, mod->address, mod->size / 1024);
+        }
+    }
+
     __asm__ volatile ("sti");
 
     /* Start the Shell and Main System Logic */
-    serial_write_str("[EVENT] Entering EVENT_MAIN...\n");
+    vga_print("[EVENT] Entering EVENT_MAIN...\n");
 
     bool mount_success = false;
     static FATFS boot_fs;
@@ -230,6 +263,7 @@ void _start(void) {
         vga_print("[AHCI] Booting in Degraded Mode...\n");
     }
 
+    vga_print("[BOOT] Dispatching MAIN event to kernel services...\n");
     dispatch_event(EVENT_MAIN);
 
     /*
@@ -240,6 +274,7 @@ void _start(void) {
 
     void tasking_create_kernel_thread(void (*entry)(void), const char* name);
     void task_shell(void);
+    void task_cargo(void);
     void ahci_scan_remaining(void);
 
     /* USB Stack */
@@ -248,8 +283,14 @@ void _start(void) {
     void usbh_primary_task(void* arg);
     tasking_create_kernel_thread((void(*)(void))usbh_primary_task, "usb_primary");
 
-    tasking_create_kernel_thread(task_shell, "shell");
+    if (quiet_mode) {
+        tasking_create_kernel_thread(task_cargo, "cargo");
+    } else {
+        tasking_create_kernel_thread(task_shell, "shell");
+    }
     tasking_create_kernel_thread(ahci_scan_remaining, "ahci_bg");
+    void system_sync_task(void);
+    tasking_create_kernel_thread(system_sync_task, "sys_sync");
     tasking_init();
 
     /* Release yield-lock before handover */
@@ -263,5 +304,13 @@ void _start(void) {
     /* Hang if we ever return */
     for (;;) {
         __asm__ volatile ("hlt");
+    }
+}
+
+void system_sync_task(void) {
+    while (1) {
+        void vga_sync_logs(void);
+        vga_sync_logs();
+        for (int i=0; i<5000; i++) sys_yield(); /* Sync every ~150s */
     }
 }

@@ -4,6 +4,8 @@
 #include <kernel/libs/storage/fatfs/ff.h>
 #include <kernel/libs/core/services.h>
 #include <include/cmdlets.h>
+#include <include/string.h>
+#include <include/stdlib.h>
 
 void vga_print(const char* fmt, ...);
 
@@ -60,8 +62,41 @@ void rsl_write(void* path, void* content) { vfs_write_dispatch(path, content); }
 void rsl_mkdir(void* path) { vfs_mkdir(path); }
 void rsl_rmdir(void* path) { vfs_rmdir(path); }
 bool rsl_exists(void* path) { return vfs_exists(path); }
-void rsl_mount(void* path) { (void)path; print("[RSL] Mount not implemented.\n"); }
-void rsl_format(void* path) { (void)path; print("[RSL] Format not implemented.\n"); }
+
+void rsl_mount(void* path) {
+    const char* ps = str_to_cstr(path);
+    int disk_id = atoi(ps);
+    static FATFS mount_fs[4];
+    if (disk_id >= 0 && disk_id < 4) {
+        if (f_mount(&mount_fs[disk_id], disk_id) == FR_OK) {
+            vfs_node_t node = {
+                .private_data = &mount_fs[disk_id],
+                .ls = internal_fs_ls, .cat = internal_fs_cat,
+                .write = internal_fs_write, .mkdir = internal_fs_mkdir,
+                .rmdir = internal_fs_rmdir, .exists = internal_fs_exists
+            };
+            node.name[0] = 'D'; node.name[1] = 'I'; node.name[2] = 'S'; node.name[3] = 'K';
+            node.name[4] = '0' + disk_id; node.name[5] = '\0';
+            vfs_register_node(node);
+            print("[RSL] Mounted Disk "); print(ps); print("\n");
+        } else {
+            print("[RSL] Mount Failed.\n");
+        }
+    }
+}
+
+void rsl_format(void* path) {
+    const char* ps = str_to_cstr(path);
+    int disk_id = atoi(ps);
+    if (disk_id >= 0 && disk_id < 4) {
+        if (f_mkfs(disk_id) == FR_OK) {
+            print("[RSL] Formatted Disk "); print(ps); print("\n");
+        } else {
+            print("[RSL] Format Failed.\n");
+        }
+    }
+}
+
 void rsl_stamp(void* path) { (void)path; print("[RSL] Stamp not implemented.\n"); }
 void rsl_scan(void) { print("[RSL] Hardware scan...\n"); }
 void rsl_eject(void* path) { (void)path; print("[RSL] Eject not implemented.\n"); }

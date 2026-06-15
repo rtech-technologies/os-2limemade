@@ -10,6 +10,8 @@ static vfs_node_t vfs_registry[MAX_VFS_NODES];
 static int vfs_node_count = 0;
 static bool safe_mode_active = true;
 
+void vga_print(const char* fmt, ...);
+
 void vfs_init(void) {
     vfs_node_count = 0;
     safe_mode_active = true;
@@ -21,6 +23,7 @@ void vfs_set_safe_mode(bool active) { safe_mode_active = active; }
 void vfs_register_node(vfs_node_t node) {
     if (vfs_node_count < MAX_VFS_NODES) {
         vfs_registry[vfs_node_count++] = node;
+        vga_print("[VFS] Registered Node %s:/ (Private Data: 0x%x)\n", node.name, (uint64_t)node.private_data);
     }
 }
 
@@ -244,8 +247,6 @@ bool vfs_exists(void* path) {
     return false;
 }
 
-void vga_print(const char* fmt, ...);
-
 int vfs_mount_auto(int drive_id, const char* mount_point) {
     uint8_t* sector = malloc(2048);
     if (!sector) return -1;
@@ -271,6 +272,7 @@ int vfs_mount_auto(int drive_id, const char* mount_point) {
 
             vfs_register_node(node);
             vga_print("[VFS] Mechanical Judge: ISO 9660 Registered at %s:/ (Drive %d)\n", node.name, drive_id);
+            free(sector);
             return 0;
         }
     }
@@ -279,10 +281,12 @@ int vfs_mount_auto(int drive_id, const char* mount_point) {
     if (vdisk_read_hw(drive_id, 0, 1, sector) == 0) {
         if (sector[82] == 'F' && sector[83] == 'A' && sector[84] == 'T' && sector[85] == '3' && sector[86] == '2') {
             vga_print("[VFS] Mechanical Judge: FAT32 Detected on Drive %d.\n", drive_id);
+            free(sector);
             return 0;
         }
     }
 
+    free(sector);
     return -1;
 }
 
@@ -335,8 +339,12 @@ vfs_handle_t* vfs_open(void* path, const char* mode) {
 
     if (!fs) return NULL;
     FIL fil;
-    BYTE m = (mode[0] == 'w') ? (FA_WRITE | FA_CREATE_ALWAYS) : FA_READ;
+    BYTE m = FA_READ;
+    if (mode[0] == 'w') m = (FA_WRITE | FA_CREATE_ALWAYS);
+    else if (mode[0] == 'a') m = (FA_WRITE | FA_OPEN_ALWAYS);
+
     if (f_open(fs, &fil, subpath_cstr, m) == FR_OK) {
+        if (mode[0] == 'a') fil.fptr = fil.fsize; /* Seek to end for append */
         vfs_handle_t* h = malloc(sizeof(vfs_handle_t));
         if (!h) return NULL;
         h->obj = fs;
@@ -426,4 +434,16 @@ void vfs_close(vfs_handle_t* h) {
     fil.entry_idx = h->entry_idx;
     f_close(&fil);
     /* release(h); // Handled by ARC if caller calls release */
+}
+
+void vfs_sync_boot_log(const char* s) {
+    if (!s) return;
+    void* path = str_create("BOOT:/sys/boot.log");
+    vfs_handle_t* h = vfs_open(path, "a"); /* Open for append */
+    if (h) {
+        int len = 0; while (s[len]) len++;
+        vfs_write(h, s, len);
+        vfs_close(h);
+    }
+    release(path);
 }

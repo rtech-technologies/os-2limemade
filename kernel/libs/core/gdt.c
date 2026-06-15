@@ -1,5 +1,7 @@
 #include <stdint.h>
 
+void vga_print(const char* fmt, ...);
+
 typedef struct {
     uint16_t limit_low;
     uint16_t base_low;
@@ -31,10 +33,15 @@ void gdt_init(void) {
     gdt_ptr.limit = (sizeof(gdt_entry_t) * 5) - 1;
     gdt_ptr.base  = (uint64_t)&gdt;
 
+    vga_print("[GDT] Initializing Global Descriptor Table at 0x%x\n", gdt_ptr.base);
     gdt_set_entry(0, 0, 0, 0, 0);                /* Null segment */
+    vga_print("[GDT] Entry 1: Kernel Code (64-bit)\n");
     gdt_set_entry(1, 0, 0xFFFFFFFF, 0x9A, 0xA0); /* Kernel code (64-bit) */
+    vga_print("[GDT] Entry 2: Kernel Data (64-bit)\n");
     gdt_set_entry(2, 0, 0xFFFFFFFF, 0x92, 0xA0); /* Kernel data (64-bit) */
+    vga_print("[GDT] Entry 3: User Code (64-bit)\n");
     gdt_set_entry(3, 0, 0xFFFFFFFF, 0xFA, 0xA0); /* User code (64-bit) */
+    vga_print("[GDT] Entry 4: User Data (64-bit)\n");
     gdt_set_entry(4, 0, 0xFFFFFFFF, 0xF2, 0xA0); /* User data (64-bit) */
 
     __asm__ volatile (

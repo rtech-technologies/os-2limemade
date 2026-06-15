@@ -4,8 +4,7 @@
 #include <stddef.h>
 
 void vga_write_char(char c, uint8_t color_val);
-void serial_write_char(char c);
-void serial_write_str(const char* s);
+void vga_print(const char* fmt, ...);
 char serial_read_char(void);
 int serial_received(void);
 
@@ -29,20 +28,14 @@ void set_color(color_t fg, color_t bg) {
 
 void print(const char* s) {
     if (!s) return;
-
-    /* Always output to Serial */
-    serial_write_str(s);
-
-    /* Output to VGA if not silenced */
-    if (!g_vga_silent) {
-        for (int i = 0; s[i] != '\0'; i++) {
-            vga_write_char(s[i], current_color_val);
-        }
+    /* Mirroring is handled by vga_write_char */
+    for (int i = 0; s[i] != '\0'; i++) {
+        vga_write_char(s[i], current_color_val);
     }
 }
 
-static void print_num(uint32_t n, int base) {
-    char buf[32];
+static void print_num(uint64_t n, int base) {
+    char buf[64];
     int i = 0;
     if (n == 0) {
         vga_write_char('0', current_color_val);
@@ -65,24 +58,33 @@ void vga_print(const char* fmt, ...) {
     for (int i = 0; fmt[i] != '\0'; i++) {
         if (fmt[i] == '%' && fmt[i+1] != '\0') {
             i++;
+            bool long_mode = false;
+            if (fmt[i] == 'l') {
+                long_mode = true;
+                i++;
+            }
+
             if (fmt[i] == 'd') {
-                int n = __builtin_va_arg(args, int);
-                serial_print_num(n, 10);
-                if (!g_vga_silent) print_num(n, 10);
-            } else if (fmt[i] == 'x') {
-                uint32_t n = __builtin_va_arg(args, uint32_t);
-                serial_print_num(n, 16);
-                if (!g_vga_silent) print_num(n, 16);
+                uint64_t n = long_mode ? __builtin_va_arg(args, uint64_t) : (uint64_t)__builtin_va_arg(args, int);
+                print_num(n, 10);
+            } else if (fmt[i] == 'x' || fmt[i] == 'p') {
+                uint64_t n = (long_mode || fmt[i] == 'p') ? __builtin_va_arg(args, uint64_t) : (uint64_t)__builtin_va_arg(args, uint32_t);
+                if (fmt[i] == 'p') {
+                    vga_write_char('0', current_color_val);
+                    vga_write_char('x', current_color_val);
+                }
+                print_num(n, 16);
             } else if (fmt[i] == 's') {
                 char* s = __builtin_va_arg(args, char*);
-                serial_write_str(s);
-                if (!g_vga_silent) {
+                if (s) {
                     for (int k = 0; s[k] != '\0'; k++) vga_write_char(s[k], current_color_val);
+                } else {
+                    const char* n = "(null)";
+                    for (int k = 0; n[k] != '\0'; k++) vga_write_char(n[k], current_color_val);
                 }
             }
         } else {
-            serial_write_char(fmt[i]);
-            if (!g_vga_silent) vga_write_char(fmt[i], current_color_val);
+            vga_write_char(fmt[i], current_color_val);
         }
     }
     __builtin_va_end(args);
@@ -92,7 +94,7 @@ void serial_print_num(uint32_t n, int base) {
     char buf[32];
     int i = 0;
     if (n == 0) {
-        serial_write_char('0');
+        vga_print("%c", '0');
         return;
     }
     const char* digits = "0123456789ABCDEF";
@@ -101,7 +103,7 @@ void serial_print_num(uint32_t n, int base) {
         n /= base;
     }
     while (i > 0) {
-        serial_write_char(buf[--i]);
+        vga_print("%c", buf[--i]);
     }
 }
 
@@ -120,10 +122,10 @@ void serial_print(const char* fmt, ...) {
                 serial_print_num(n, 16);
             } else if (fmt[i] == 's') {
                 char* s = __builtin_va_arg(args, char*);
-                serial_write_str(s);
+                vga_print(s);
             }
         } else {
-            serial_write_char(fmt[i]);
+            vga_print("%c", fmt[i]);
         }
     }
     __builtin_va_end(args);

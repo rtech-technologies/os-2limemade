@@ -11,6 +11,7 @@ int ahci_wait_status(hba_port_t* port, uint32_t mask, uint32_t expected, uint32_
 uint64_t vmm_get_phys(void* virt);
 void* get_port_clb(int p);
 void* get_port_ctba(int p);
+uint64_t get_port_ctba_phys(int p);
 hba_mem_t* get_hba_base(void);
 
 /* ATAPI Packet Builders (from atapi.c) */
@@ -29,7 +30,8 @@ int satapi_send_packet(int p, uint8_t* scsi_packet, void* buffer, uint32_t len, 
     cmdhdr->dw0 = 5 | (1 << 5) | (is_write ? (1 << 6) : 0) | (1 << 7) | (buffer ? (1 << 16) : 0);
     cmdhdr->prdbc = 0;
 
-    uint64_t ctba_phys = vmm_get_phys(get_port_ctba(p));
+    /* 🎯 Sentry Fix: Fix A - Explicit Physical Addressing */
+    uint64_t ctba_phys = get_port_ctba_phys(p);
     cmdhdr->ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
     cmdhdr->ctbau = (uint32_t)(ctba_phys >> 32);
 

@@ -12,17 +12,21 @@ def main():
     img_path = sys.argv[1]
     img_size = 64 * 1024 * 1024  # 64MB
     sector_size = 512
-    part_offset = 2048           # The Sovereign Offset
     total_sectors = img_size // sector_size
-    part_sectors = total_sectors - part_offset - 33
+
+    # 🎯 Sentry Fix: Real Partitioning (ESP + Sovereign Data)
+    esp_offset = 2048
+    esp_sectors = 32768 # 16MB
+    data_offset = esp_offset + esp_sectors
+    data_sectors = total_sectors - data_offset - 33
 
     cluster_size = 4096 # 8 sectors per cluster
     fat_size_sectors = 128
     reserved_sectors = 32
     root_cluster = 2
 
-    # Data region starts after BPB and 2 FATs
-    data_region_lba = part_offset + reserved_sectors + (2 * fat_size_sectors)
+    # Data region for Sovereign Partition
+    data_region_lba = data_offset + reserved_sectors + (2 * fat_size_sectors)
 
     with open(img_path, "wb") as f:
         f.seek(img_size - 1)
@@ -32,19 +36,32 @@ def main():
         # Protective MBR
         f.write(struct.pack("<I", 0xEFBEADDE))
         f.seek(446)
-        f.write(b'\x00\x00\x02\x00\xEE\xFF\xFF\xFF')
-        f.write(struct.pack("<I", 1))
-        f.write(struct.pack("<I", total_sectors - 1))
+        # Part 1: ESP
+        f.write(b'\x00\x00\x02\x00\xEF\xFF\xFF\xFF') # Type 0xEF for ESP
+        f.write(struct.pack("<I", esp_offset))
+        f.write(struct.pack("<I", esp_sectors))
+        # Part 2: Sovereign
+        f.write(b'\x80\x00\x02\x00\xEE\xFF\xFF\xFF') # Bootable, Type 0xEE for GPT
+        f.write(struct.pack("<I", data_offset))
+        f.write(struct.pack("<I", data_sectors))
         f.seek(510)
         f.write(b'\x55\xAA')
 
         # GPT Entries
         entries = bytearray(128 * 128)
-        entries[0:16] = uuid.UUID('EBD0A0A2-B9E5-4433-87C0-68B6B72699C7').bytes_le
+        # Entry 1: ESP
+        entries[0:16] = uuid.UUID('C12A7328-F81F-11D2-BA4B-00A0C93EC93B').bytes_le
         entries[16:32] = uuid.uuid4().bytes_le
-        entries[32:40] = struct.pack("<Q", part_offset)
-        entries[40:48] = struct.pack("<Q", part_offset + part_sectors - 1)
-        entries[56:128] = "Sovereign".encode('utf-16le')
+        entries[32:40] = struct.pack("<Q", esp_offset)
+        entries[40:48] = struct.pack("<Q", esp_offset + esp_sectors - 1)
+        entries[56:128] = "EFI System".encode('utf-16le')
+        # Entry 2: Sovereign
+        entries[128:144] = uuid.UUID('EBD0A0A2-B9E5-4433-87C0-68B6B72699C7').bytes_le
+        entries[144:160] = uuid.uuid4().bytes_le
+        entries[160:168] = struct.pack("<Q", data_offset)
+        entries[168:176] = struct.pack("<Q", data_offset + data_sectors - 1)
+        entries[184:256] = "Sovereign".encode('utf-16le')
+
         f.seek(2 * sector_size)
         f.write(entries)
 
@@ -66,26 +83,26 @@ def main():
         header[16:20] = struct.pack("<I", zlib.crc32(header) & 0xFFFFFFFF)
         f.write(header)
 
-        # BPB
-        f.seek(part_offset * sector_size)
+        # BPB for Sovereign Data Partition
+        f.seek(data_offset * sector_size)
         f.write(b'\xEB\x58\x90')
-        f.seek(part_offset * sector_size + 3)
+        f.seek(data_offset * sector_size + 3)
         f.write(b'OSX2.0  ')
-        f.seek(part_offset * sector_size + 11)
+        f.seek(data_offset * sector_size + 11)
         f.write(struct.pack("<H", sector_size))
         f.write(struct.pack("<B", cluster_size // sector_size))
         f.write(struct.pack("<H", reserved_sectors))
         f.write(struct.pack("<B", 2))
-        f.seek(part_offset * sector_size + 32)
-        f.write(struct.pack("<I", part_sectors))
+        f.seek(data_offset * sector_size + 32)
+        f.write(struct.pack("<I", data_sectors))
         f.write(struct.pack("<I", fat_size_sectors))
         f.write(struct.pack("<I", root_cluster))
-        f.seek(part_offset * sector_size + 510)
+        f.seek(data_offset * sector_size + 510)
         f.write(b'\x55\xAA')
 
         # Init FAT
         for i in range(2):
-            f.seek((part_offset + reserved_sectors + (i * fat_size_sectors)) * sector_size)
+            f.seek((data_offset + reserved_sectors + (i * fat_size_sectors)) * sector_size)
             f.write(struct.pack("<I", 0x0FFFFFF8))
             f.write(struct.pack("<I", 0xFFFFFFFF))
             f.write(struct.pack("<I", 0x0FFFFFFF))
@@ -101,7 +118,7 @@ def main():
 
         def update_fat(cluster, val):
             for i in range(2):
-                fat_lba = part_offset + reserved_sectors + (i * fat_size_sectors)
+                fat_lba = data_offset + reserved_sectors + (i * fat_size_sectors)
                 f.seek(fat_lba * sector_size + cluster * 4)
                 f.write(struct.pack("<I", val))
 
@@ -168,9 +185,8 @@ def main():
             # Write root dir to cluster 2
             f.seek(data_region_lba * sector_size)
             f.write(dir_entries)
-            # FAT cluster 2 is already marked as EOF in init
 
-    print(f"OSX2: 64MB GPT Sovereign Disk Created at {img_path} with recursive injection.")
+    print(f"OSX2: 64MB Dual-Partition GPT Disk Created at {img_path}")
 
 if __name__ == "__main__":
     main()
