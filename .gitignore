@@ -6,3 +6,5 @@ sata_disk.img
 ramdisk.img
 iso_root/
 os.iso
+bin/
+osx2.iso

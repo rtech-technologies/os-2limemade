@@ -1,8 +1,10 @@
 #include <include/rsl.h>
 
-/* Standalone Shell doesn't have access to kernel-internal vfs_handle_t directly,
-   but we use the RSL syscalls via libc wrappers. */
-typedef void* vfs_handle_t;
+#define open_file(p, m) rsl_open(str_create(p), m)
+#define read_file rsl_read
+#define close_file rsl_close
+
+typedef vfs_handle_user_t vfs_handle_user_t;
 
 static bool cstr_match(const char* s1, const char* s2) {
     int i = 0;
@@ -17,22 +19,6 @@ uint64_t hash_password(const char* pass) {
     volatile uint64_t h = 0;
     __asm__ volatile ("int $3" : : "a"((uint64_t)130), "b"((uint64_t)pass), "c"((uint64_t)&h) : "memory");
     return h;
-}
-
-vfs_handle_t open_file(const char* path, const char* mode) {
-    vfs_handle_t h = NULL;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)122), "b"((uint64_t)path), "c"((uint64_t)mode), "d"((uint64_t)&h) : "memory");
-    return h;
-}
-
-int read_file(vfs_handle_t h, void* buf, int len) {
-    volatile int br = -1;
-    __asm__ volatile ("int $3" : : "a"((uint64_t)123), "b"((uint64_t)h), "c"((uint64_t)buf), "d"((uint64_t)&br), "S"((uint64_t)len) : "memory");
-    return br;
-}
-
-void close_file(vfs_handle_t h) {
-    __asm__ volatile ("int $3" : : "a"((uint64_t)124), "b"((uint64_t)h) : "memory");
 }
 
 void set_uid(uint32_t uid) {
@@ -88,12 +74,74 @@ void _start(void) {
              break;
         }
 
-        char inf_path[128] = "BOOT:/users/";
+        /* Real OS Login Handshake: JSONL Audit */
+        char jsonl_path[128] = "BOOT:/sys/users.jsonl";
+        void* s_jpath = str_create(jsonl_path);
+        if (rsl_exists(s_jpath)) {
+            void* pass_input = input("Password: ");
+            if (pass_input) {
+                const char* pass = str_to_cstr(pass_input);
+                vfs_handle_user_t h = open_file(jsonl_path, "r");
+                if (h) {
+                    char buffer[4096];
+                    int br = read_file(h, buffer, 4095);
+                    buffer[br] = '\0';
+                    close_file(h);
+
+                    /* Robust JSONL scan: Ensure "user":"uname" followed by "," or "}" */
+                    char user_key[128] = "\"user\":\"";
+                    int uk = 8; int rk = 0;
+                    while(uname[rk] && uk < 126) user_key[uk++] = uname[rk++];
+                    user_key[uk++] = '\"'; user_key[uk] = '\0';
+
+                    char pass_key[128] = "\"pass\":\"";
+                    int pk = 8; rk = 0;
+                    while(pass[rk] && pk < 126) pass_key[pk++] = pass[rk++];
+                    pass_key[pk++] = '\"'; pass_key[pk] = '\0';
+
+                    bool found = false;
+                    char* line = buffer;
+                    while (line && *line) {
+                        char* next_line = strstr(line, "\n");
+                        if (next_line) *next_line = '\0';
+
+                        if (strstr(line, user_key) && strstr(line, pass_key)) {
+                            /* Basic delimiter check to prevent substring user match */
+                            char* p = strstr(line, user_key);
+                            if (p && (p[uk] == ',' || p[uk] == '}')) {
+                                found = true;
+                                break;
+                            }
+                        }
+
+                        if (!next_line) break;
+                        line = next_line + 1;
+                    }
+
+                    if (found) {
+                        set_color(GREEN, BLACK);
+                        print("Access Granted. Welcome, "); print(uname); print(".\n");
+                        set_uid(1000);
+                        release(pass_input);
+                        release(user_input);
+                        break;
+                    }
+                }
+                set_color(RED, BLACK);
+                print("Mechanical Error: Credentials rejected.\n");
+                set_color(CYAN, BLACK);
+                release(pass_input);
+                release(user_input);
+                continue;
+            }
+        }
+
+        char inf_path[256] = "BOOT:/users/";
         int uk = 12; int rk = 0;
-        while(uname[rk]) inf_path[uk++] = uname[rk++];
+        while(uname[rk] && uk < 200) inf_path[uk++] = uname[rk++];
         inf_path[uk] = '\0';
         const char* inf_suffix = "/user.inf";
-        rk = 0; while(inf_suffix[rk]) inf_path[uk++] = inf_suffix[rk++];
+        rk = 0; while(inf_suffix[rk] && uk < 250) inf_path[uk++] = inf_suffix[rk++];
         inf_path[uk] = '\0';
 
         if (rsl_exists(str_create(inf_path))) {
@@ -101,7 +149,7 @@ void _start(void) {
             if (pass_input) {
                 uint64_t entered_hash = hash_password(str_to_cstr(pass_input));
 
-                vfs_handle_t h = open_file(inf_path, "r");
+                vfs_handle_user_t h = open_file(inf_path, "r");
                 if (h) {
                     char file_data[256];
                     int br = read_file(h, file_data, 255);
@@ -127,6 +175,7 @@ void _start(void) {
                             set_uid(1000);
                             release(pass_input);
                             release(user_input);
+                            release(s_jpath);
                             break;
                         }
                     }
@@ -141,6 +190,7 @@ void _start(void) {
             print("Mechanical Error: Property owner not found.\n");
             set_color(CYAN, BLACK);
         }
+        release(s_jpath);
         release(user_input);
     }
 

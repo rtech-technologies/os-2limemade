@@ -1,68 +1,115 @@
-#include "ff.h"
+#include <include/vfs.h>
 #include <include/rsl.h>
+#include <include/string.h>
+#include <kernel/libs/storage/fatfs/ff.h>
 #include <stdint.h>
 #include <stddef.h>
 
-int vdisk_read_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer);
-int vdisk_write_hw(int hw_id, uint64_t lba, uint32_t count, void* buffer);
-bool vdisk_is_atapi(int hw_id);
-void serial_write_str(const char* s);
+void* arc_alloc(size_t size);
+void release(void* ptr);
 
-int get_hw_disk_count(void);
-
-DSTATUS disk_status(BYTE pdrv) {
-    if ((int)pdrv >= get_hw_disk_count()) return 1; /* STA_NOINIT */
-    return 0;
-}
-
-DSTATUS disk_initialize(BYTE pdrv) {
-    if ((int)pdrv >= get_hw_disk_count()) return 1; /* STA_NOINIT */
-    return 0;
-}
-
-void quartermaster_panic(const char* message, void* state);
-
-void* malloc(size_t size);
-void free(void* ptr);
-
-DRESULT disk_read(BYTE pdrv, BYTE* buff, DWORD sector, uint32_t count) {
-    /* Hardware Guard: Verify drive index exists */
-    if ((int)pdrv >= get_hw_disk_count()) {
-        serial_write_str("[GLUE] FATAL: Invalid Physical Drive Access Request.\n");
-        quartermaster_panic("DISK READ OUT OF BOUNDS", NULL);
-        return RES_ERROR;
+int fatfs_read(vfs_handle_internal_t* h, void* buf, int len) {
+    FIL* fil = (FIL*)h->obj;
+    uint32_t br;
+    if (f_read(fil, buf, (uint32_t)len, &br) == FR_OK) {
+        h->pos = fil->fptr;
+        return (int)br;
     }
+    return -1;
+}
 
-    /* ATAPI Translation: 1 Physical Block (2048) = 4 Logical Sectors (512) */
-    if (vdisk_is_atapi((int)pdrv)) {
-        uint8_t* temp_block = malloc(2048);
-        if (!temp_block) return RES_ERROR;
-        for (uint32_t i = 0; i < count; i++) {
-            uint64_t logical_sector = (uint64_t)sector + i;
-            uint64_t physical_lba = logical_sector / 4;
-            uint32_t offset = (logical_sector % 4) * 512;
+int fatfs_write(vfs_handle_internal_t* h, const void* buf, int len) {
+    FIL* fil = (FIL*)h->obj;
+    uint32_t bw;
+    if (f_write(fil, buf, (uint32_t)len, &bw) == FR_OK) {
+        h->pos = fil->fptr;
+        h->size = fil->fsize;
+        return (int)bw;
+    }
+    return -1;
+}
 
-            if (vdisk_read_hw((int)pdrv, physical_lba, 1, temp_block) != 0) return RES_ERROR;
+void fatfs_close(vfs_handle_internal_t* h) {
+    FIL* fil = (FIL*)h->obj;
+    f_close(fil);
+    release(fil);
+}
 
-            uint8_t* dst = &buff[i * 512];
-            for (int j = 0; j < 512; j++) dst[j] = temp_block[offset + j];
+vfs_handle_internal_t* internal_fs_open(void* path, const char* mode, void* priv) {
+    FATFS* fs = (FATFS*)priv;
+    const char* p = str_to_cstr(path);
+    FIL* fil = arc_alloc(sizeof(FIL));
+    uint8_t m = (mode[0] == 'w') ? (FA_WRITE | FA_CREATE_ALWAYS) : FA_READ;
+
+    if (f_open(fs, fil, p, m) == FR_OK) {
+        vfs_handle_internal_t* h = arc_alloc(sizeof(vfs_handle_internal_t));
+        h->obj = fil;
+        h->read = fatfs_read;
+        h->write = fatfs_write;
+        h->close = fatfs_close;
+        h->pos = fil->fptr;
+        h->size = fil->fsize;
+        return h;
+    }
+    release(fil);
+    return NULL;
+}
+
+void internal_fs_ls(void* path, void* priv) {
+    FATFS* fs = (FATFS*)priv;
+    const char* p = str_to_cstr(path);
+    DIR dir;
+    FILINFO fno;
+    if (f_opendir(fs, &dir, p) == FR_OK) {
+        while (f_readdir(&dir, &fno) == FR_OK && fno.fname[0]) {
+            extern void vga_print(const char* fmt, ...);
+            vga_print(" %s %s\n", (fno.fattrib & AM_DIR) ? "<DIR>" : "     ", fno.fname);
         }
-        free(temp_block);
-        return RES_OK;
     }
-
-    if (vdisk_read_hw((int)pdrv, (uint64_t)sector, count, (void*)buff) == 0) return RES_OK;
-    return RES_ERROR;
 }
 
-DRESULT disk_write(BYTE pdrv, const BYTE* buff, DWORD sector, uint32_t count) {
-    /* Hardware Guard: Verify drive index exists */
-    if ((int)pdrv >= get_hw_disk_count()) {
-        serial_write_str("[GLUE] FATAL: Invalid Physical Drive Access Request.\n");
-        quartermaster_panic("DISK WRITE OUT OF BOUNDS", NULL);
-        return RES_ERROR;
+void internal_fs_cat(void* path, void* priv) {
+    FATFS* fs = (FATFS*)priv;
+    const char* p = str_to_cstr(path);
+    FIL fil;
+    if (f_open(fs, &fil, p, FA_READ) == FR_OK) {
+        char buf[512];
+        uint32_t br;
+        while (f_read(&fil, buf, 511, &br) == FR_OK && br > 0) {
+            buf[br] = '\0';
+            print(buf);
+        }
+        f_close(&fil);
     }
+}
 
-    if (vdisk_write_hw((int)pdrv, (uint64_t)sector, count, (void*)buff) == 0) return RES_OK;
-    return RES_ERROR;
+bool internal_fs_exists(void* path, void* priv) {
+    FATFS* fs = (FATFS*)priv;
+    const char* p = str_to_cstr(path);
+    FILINFO fno;
+    return f_stat(fs, p, &fno) == FR_OK;
+}
+
+void internal_fs_write(void* path, void* content, void* priv) {
+    FATFS* fs = (FATFS*)priv;
+    const char* p = str_to_cstr(path);
+    const char* c = str_to_cstr(content);
+    FIL fil;
+    if (f_open(fs, &fil, p, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK) {
+        uint32_t bw;
+        f_write(&fil, c, (uint32_t)strlen(c), &bw);
+        f_close(&fil);
+    }
+}
+
+void internal_fs_mkdir(void* path, void* priv) {
+    FATFS* fs = (FATFS*)priv;
+    const char* p = str_to_cstr(path);
+    f_mkdir(fs, p);
+}
+
+void internal_fs_rmdir(void* path, void* priv) {
+    FATFS* fs = (FATFS*)priv;
+    const char* p = str_to_cstr(path);
+    f_unlink(fs, p);
 }

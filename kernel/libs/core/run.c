@@ -41,7 +41,7 @@ int64_t rsl_get_var(const char* name) {
 
 void rsl_execute_stream(const char* path) {
     void* pstr = str_create(path);
-    vfs_handle_t* h = vfs_open(pstr, "r");
+    vfs_handle_internal_t* h = vfs_open(pstr, "r");
     if (!h) {
         print("Error: Could not open RSL script.\n");
         release(pstr);

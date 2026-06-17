@@ -9,6 +9,7 @@ void serial_write_str(const char* s);
 void pci_enable_master(uint8_t bus, uint8_t slot, uint8_t func);
 uint64_t get_hhdm_offset(void);
 void pit_wait_ms(uint32_t ms);
+void usb_audit_log(const char* event, const char* details);
 
 static void* xhci_base = NULL;
 
@@ -16,9 +17,7 @@ void* get_xhci_base(void) {
     return xhci_base;
 }
 
-void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
-    uint64_t hhdm = get_hhdm_offset();
-    uint32_t cap_length = *(volatile uint8_t*)base;
+void xhci_bios_handover(void* base) {
     uint32_t hccparams1 = *(volatile uint32_t*)((uint8_t*)base + 0x10);
     uint32_t xecp = (hccparams1 >> 16) & 0xFFFF;
 
@@ -26,29 +25,26 @@ void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
 
     volatile uint32_t* ext_cap = (volatile uint32_t*)((uint8_t*)base + (xecp << 2));
 
-    while (ext_cap) {
+    while (1) {
         uint32_t cap_id = *ext_cap & 0xFF;
         if (cap_id == 1) { /* USB Legacy Support */
-            // Quartermaster Fix: [XHCI BIOS/OS Handover]
-            serial_write_str("[XHCI] USB Legacy Support found. Requesting Handover...\n");
+            usb_audit_log("XHCI-HANDOVER", "Requesting Legacy Support Handover");
             *ext_cap |= (1 << 24); /* OS Owned Semaphore */
 
             int timeout = 1000;
             while ((*ext_cap & (1 << 16)) && timeout--) { /* BIOS Owned Semaphore */
-                /* Wait for BIOS to release */
                 pit_wait_ms(1);
             }
 
             if (timeout <= 0) {
-                serial_write_str("[XHCI] Handover TIMEOUT. Forcing Control.\n");
+                usb_audit_log("XHCI-HANDOVER", "TIMEOUT - Forcing Control");
                 *ext_cap &= ~(1 << 16);
             } else {
-                serial_write_str("[SNAP] XHCI BIOS/OS HANDOVER COMPLETE\n");
+                usb_audit_log("XHCI-HANDOVER", "SUCCESS - BIOS Released Controller");
             }
 
-            /* Disable Legacy SMIs to ensure exclusive OS ownership */
-            volatile uint32_t* legsup_ctl = ext_cap + 1;
-            *legsup_ctl &= 0x1F00FFFF; /* Mask out SMI enable bits */
+            volatile uint32_t* legsup_ctl = (volatile uint32_t*)ext_cap + 1;
+            *legsup_ctl &= 0x1F00FFFF;
             break;
         }
 
@@ -58,34 +54,33 @@ void xhci_bios_handover(uint8_t bus, uint8_t slot, uint8_t func, void* base) {
     }
 }
 
+void xhci_init(uint8_t bus, uint8_t slot, uint8_t func) {
+    usb_audit_log("XHCI-INIT", "Found Controller");
+    pci_enable_master(bus, slot, func);
+
+    uint32_t bar0 = pci_config_read(bus, slot, func, 0x10);
+    uint32_t bar1 = pci_config_read(bus, slot, func, 0x14);
+    uint64_t phys_base = ((uint64_t)bar1 << 32) | (bar0 & 0xFFFFFFF0);
+    xhci_base = (void*)(get_hhdm_offset() + phys_base);
+
+    xhci_bios_handover(xhci_base);
+
+    uint32_t cap_len = *(volatile uint8_t*)xhci_base;
+    volatile uint32_t* usbcmd = (volatile uint32_t*)((uint8_t*)xhci_base + cap_len);
+    *usbcmd |= (1 << 1); /* HCRST */
+    int timeout = 1000;
+    while ((*usbcmd & (1 << 1)) && timeout--) pit_wait_ms(1);
+
+    usb_audit_log("XHCI-RESET", "Controller Reset Complete");
+}
+
 void usb_xhci_service(kernel_event_t event) {
     if (event == EVENT_INIT) {
-        serial_write_str("[INIT] Scanning PCI bus for XHCI controllers...\n");
-
-        for (int bus = 0; bus < 256; bus++) {
-            for (int slot = 0; slot < 32; slot++) {
-                for (int func = 0; func < 8; func++) {
-                    uint32_t vendor_device = pci_config_read(bus, slot, func, 0);
-                    if ((vendor_device & 0xFFFF) == 0xFFFF) continue;
-
-                    uint32_t class_info = pci_config_read(bus, slot, func, 0x08);
-                    uint8_t base_class = (class_info >> 24) & 0xFF;
-                    uint8_t sub_class = (class_info >> 16) & 0xFF;
-                    uint8_t prog_if = (class_info >> 8) & 0xFF;
-
-                    if (base_class == 0x0C && sub_class == 0x03 && prog_if == 0x30) {
-                        serial_write_str("[INIT] Found XHCI Controller.\n");
-                        pci_enable_master(bus, slot, func);
-
-                        uint32_t bar0 = pci_config_read(bus, slot, func, 0x10);
-                        uint64_t hhdm = get_hhdm_offset();
-                        xhci_base = (void*)(hhdm + (uint64_t)(bar0 & 0xFFFFFFF0));
-
-                        xhci_bios_handover(bus, slot, func, xhci_base);
-                    }
-                    if (func == 0 && !(pci_config_read(bus, slot, 0, 0x0C) & 0x800000)) break;
-                }
-            }
-        }
+        pci_driver_t xhci_driver = {
+            .vendor_id = 0xFFFF, .device_id = 0xFFFF,
+            .class_code = 0x0C, .subclass_code = 0x03, .prog_if = 0x30,
+            .init = xhci_init
+        };
+        pci_register_driver(xhci_driver);
     }
 }

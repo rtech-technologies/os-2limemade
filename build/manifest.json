@@ -1,0 +1,15 @@
+{
+  "edition": "Update, Upgrade and Install",
+  "build": "2024-05-23",
+  "hash": "ffffffff8000d398-RELEASE-STABLE",
+  "imports": {
+    "nuklear": {
+      "version": "1.0",
+      "hash": "4a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b"
+    },
+    "cherryusb": {
+      "version": "1.0",
+      "hash": "5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e"
+    }
+  }
+}

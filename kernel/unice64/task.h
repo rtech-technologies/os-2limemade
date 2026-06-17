@@ -24,9 +24,10 @@ typedef struct {
     uint32_t uaid; /* Unique App ID */
     task_state_t state;
     cpu_context_t context;
-    uint32_t slab_id;
+    uint64_t slab_id;
     uint64_t kernel_stack_top;
-} task_t;
+    uint64_t last_rax; /* For syscall tracking */
+} task_t; /* 200 Bytes total, naturally aligned */
 
 void unice64_schedule(void);
 void unice64_scheduler_init(void);
@@ -35,5 +36,6 @@ void sys_yield(void);
 task_t* get_current_task(void);
 int get_task_count(void);
 void get_task_info(int idx, uint32_t* id, const char** state, uint32_t* slab);
+task_t* get_task_by_idx(int idx);
 
 #endif

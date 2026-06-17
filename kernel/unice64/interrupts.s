@@ -139,6 +139,7 @@ exception_forensic_autopsy:
     # Stack at this point: [SS, RSP, RFLAGS, CS, RIP, ERR, NUM]
     # We need to push RAX, RBX, RCX, RDX, RSI, RDI, RBP, R8..R15
 
+    cli
     pushq %rax
     pushq %rbx
     pushq %rcx
@@ -162,6 +163,7 @@ exception_forensic_autopsy:
     # Quartermaster: ABI Alignment for Panic
     # Align stack to 16-bytes for C call
     movq %rsp, %rbp
+    subq $32, %rsp           # Shadow space for ABI
     andq $-16, %rsp
     call quartermaster_panic
 

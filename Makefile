@@ -1,15 +1,19 @@
 # OSx2 Limemade OS Makefile
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -I. -I./include
-LDFLAGS = -Wl,-T,boot/linker.ld -static -nostdlib -Wl,-z,max-page-size=0x1000
+CFLAGS = -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -fno-pic -m64 -march=x86-64 -mcmodel=kernel -mno-red-zone -mno-mmx -msse -msse2 -fsanitize=undefined -I. -I./include -I./kernel/libs/usb/cherryusb/source/common -I./kernel/libs/usb/cherryusb/source/core -I./kernel/libs/usb/cherryusb/source/osal -I./kernel/libs/usb/ -I./kernel/libs/rtc64/ -I./kernel/libs/usb/cherryusb/source/class/hub
+LDFLAGS = -Wl,-T,linker.ld -static -nostdlib -Wl,-z,max-page-size=0x1000
 
 KERNEL_SRC = $(wildcard kernel/unice64/*.c) \
              $(wildcard kernel/libs/io/*.c) \
              $(wildcard kernel/libs/ram/*.c) \
              $(wildcard kernel/libs/storage/*.c) \
              $(wildcard kernel/libs/storage/fatfs/*.c) \
-             $(wildcard kernel/libs/core/*.c)
+             $(wildcard kernel/libs/rtc64/*.c) \
+             $(wildcard kernel/libs/rtc64/nuklear/*.c) \
+             $(filter-out kernel/libs/core/malloc.c,$(wildcard kernel/libs/core/*.c)) \
+             $(wildcard kernel/libs/usb/*.c)
+
 AS_SRC = $(wildcard kernel/unice64/*.s)
 KERNEL_OBJ = $(KERNEL_SRC:.c=.o) $(AS_SRC:.s=.o)
 KERNEL_ELF = kernel.elf
@@ -20,9 +24,9 @@ LIMINE_DIR = ./limine
 LIMINE_BIN = $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin $(LIMINE_DIR)/limine-uefi-cd.bin
 
 # Standalone RSL Programs
-PROGRAMS = bin/cargo.bin bin/shell.bin
+PROGRAMS = bin/cargo.bin bin/shell.bin bin/desktop.bin bin/stress.bin
 
-.PHONY: all menuconfig kernel iso run clean limine-setup cargo shell
+.PHONY: all menuconfig kernel iso run clean limine-setup programs
 
 all:
 	$(MAKE) limine-setup
@@ -33,9 +37,9 @@ all:
 
 programs: $(PROGRAMS)
 
-bin/%.bin: programs/%.c programs/libc/libc.c
+bin/%.bin: programs/%.c programs/libc/libc.c kernel/libs/core/sanitizers.c
 	@mkdir -p bin
-	$(CC) $(CFLAGS) -nostdlib -static -Wl,-T,programs/linker.ld $^ -o $@
+	$(CC) $(CFLAGS) -DUSERLAND_SANITIZER -nostdlib -static -Wl,-T,programs/linker.ld $^ -o $@
 
 limine-setup:
 	@mkdir -p limine
@@ -82,6 +86,8 @@ iso: limine-setup kernel programs
 	@cp $(KERNEL_ELF) iso_root/boot/
 	@cp bin/cargo.bin iso_root/bin/
 	@cp bin/shell.bin iso_root/bin/
+	@cp bin/desktop.bin iso_root/bin/
+	@cp bin/stress.bin iso_root/bin/
 	@cp boot/installer_limine.cfg iso_root/limine.cfg
 	@cp $(LIMINE_DIR)/limine-uefi-cd.bin iso_root/EFI/BOOT/BOOTX64.EFI
 	@python3 scripts/fat_tool.py ramdisk.img

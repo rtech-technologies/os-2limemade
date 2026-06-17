@@ -1,13 +1,24 @@
 .code64
+.section .scheduler
 .global unice64_context_switch
 .extern get_current_task
 .extern unice64_schedule
-.extern quartermaster_panic
+.extern quartermaster_panic_regs
+.extern kernel_fallback_shell
+.extern __text_start
+.extern __text_end
 
-# Static Offsets for task_t and cpu_context_t
-.set task_t_context_OFFSET, 8
+# task_t layout offsets (Based on C struct task_t in task.h)
+.set task_t_id, 0
+.set task_t_uid, 4
+.set task_t_uaid, 8
+.set task_t_state, 12
+.set task_t_context, 16
+.set task_t_slab_id, 176
+.set task_t_kernel_stack_top, 184
+.set task_t_last_rax, 192
 
-# cpu_context_t layout (8 bytes each)
+# cpu_context_t layout (8 bytes each, starting at task_t_context)
 .set ctx_r15, 0
 .set ctx_r14, 8
 .set ctx_r13, 16
@@ -31,13 +42,15 @@
 
 unice64_context_switch:
     # Quartermaster: Scheduler Readiness Shield
-    # Check if we have a current task before attempting save
     call get_current_task
     test %rax, %rax
-    jnz 2f
+    jnz 1f
+
+    # NULL current task -> fallback
+    call kernel_fallback_shell
     iretq
 
-2:
+1:
     # 1. Save state of the task being switched OUT
     push %rax
     push %rbx
@@ -55,22 +68,13 @@ unice64_context_switch:
     push %r14
     push %r15
 
-    # Quartermaster: Mechanical State Preservation
-    # CALLEE-SAVED Register R12 will hold our stack reference across the C call
     mov %rsp, %r12
 
-    # Get the current TCB
     call get_current_task
-
-    # Forensic Check: Null TCB
-    test %rax, %rax
-    jz 1f
-
-    # TCB is valid, save context
     mov %rax, %rdi
-    add $task_t_context_OFFSET, %rdi # %rdi = &current->context
+    add $task_t_context, %rdi
 
-    # Store general purpose registers from saved stack pointer (R12) to TCB
+    # Store GPRs
     mov 0(%r12), %rbx;  mov %rbx, ctx_r15(%rdi)
     mov 8(%r12), %rbx;  mov %rbx, ctx_r14(%rdi)
     mov 16(%r12), %rbx; mov %rbx, ctx_r13(%rdi)
@@ -87,7 +91,7 @@ unice64_context_switch:
     mov 104(%r12), %rbx; mov %rbx, ctx_rbx(%rdi)
     mov 112(%r12), %rbx; mov %rbx, ctx_rax(%rdi)
 
-    # Save iretq frame (15 registers deep from R12)
+    # Save iretq frame
     mov (15 * 8 + 0)(%r12), %rbx; mov %rbx, ctx_rip(%rdi)
     mov (15 * 8 + 8)(%r12), %rbx; mov %rbx, ctx_cs(%rdi)
     mov (15 * 8 + 16)(%r12), %rbx; mov %rbx, ctx_rflags(%rdi)
@@ -96,30 +100,36 @@ unice64_context_switch:
 
     # 2. ABI Alignment & Handover
     mov %rsp, %rbp
+    subq $32, %rsp
     and $-16, %rsp
     call unice64_schedule
     mov %rbp, %rsp
 
     # 3. Load state of the task being switched IN
     call get_current_task
-    test %rax, %rax
-    jz 1f
-
     mov %rax, %rsi
-    add $task_t_context_OFFSET, %rsi # %rsi = &next->context
+    add $task_t_context, %rsi
 
-    # Switch to target task stack
+    # RIP Safety Check
+    mov ctx_rip(%rsi), %rdx
+    test %rdx, %rdx
+    jz .handle_invalid_rip
+
+    # Boundary Check (Canonical Higher-Half: Bit 63 must be set)
+    movabsq $0x8000000000000000, %rax
+    test %rax, %rdx
+    jz .handle_invalid_rip
+
+    # RIP is valid, restore
     mov ctx_rsp(%rsi), %rax
     mov %rax, %rsp
 
-    # Restore iretq frame
     pushq ctx_ss(%rsi)
     pushq ctx_rsp(%rsi)
     pushq ctx_rflags(%rsi)
     pushq ctx_cs(%rsi)
     pushq ctx_rip(%rsi)
 
-    # Restore general purpose registers
     mov ctx_r15(%rsi), %r15
     mov ctx_r14(%rsi), %r14
     mov ctx_r13(%rsi), %r13
@@ -134,15 +144,36 @@ unice64_context_switch:
     mov ctx_rcx(%rsi), %rcx
     mov ctx_rbx(%rsi), %rbx
     mov ctx_rax(%rsi), %rax
-    mov ctx_rsi(%rsi), %rsi # Restore RSI last
+    mov ctx_rsi(%rsi), %rsi
 
     iretq
 
-# Forensic Failure Handlers
-1:  # NULL TCB
-    lea .msg_null_tcb(%rip), %rdi
-    xor %rsi, %rsi
-    call quartermaster_panic
+.handle_invalid_rip:
+    # Save parameters for C call (Arg 2: RIP, Arg 3: RSP)
+    # At entry: %rsi = &next->context, %rdx = invalid RIP
+    mov %rdx, %rax           # Save invalid RIP
+    mov 144(%rsi), %rdx      # Load next->context.rsp into %rdx (Arg 3)
+    mov %rax, %rsi           # Move invalid RIP into %rsi (Arg 2)
+    lea .msg_bad_rip(%rip), %rdi # Arg 1: Message
 
-.msg_null_tcb: .asciz "UNICE64: CONTEXT SWITCH NULL TCB"
+    /* Quartermaster: Mechanical Truth Lock */
+    cli
+
+    # Quartermaster: ABI alignment for diagnostic call
+    mov %rsp, %rbp
+    subq $32, %rsp
+    and $-16, %rsp
+
+    # Mirror state to serial before panic
+    # Using %r13 to save registers temporarily for serial_write_str
+    # Note: We need a buffer for hex conversion, but we can call quartermaster_panic_regs
+    # which is already updated in panic.c to do full mirror.
+
+    call quartermaster_panic_regs
+    call kernel_fallback_shell
+    mov %rbp, %rsp
+    iretq
+
+.section .rodata
+.msg_bad_rip: .asciz "UNICE64: INVALID SCHEDULER RIP"
 .section .note.GNU-stack,"",@progbits

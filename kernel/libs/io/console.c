@@ -30,8 +30,8 @@ void print(const char* s) {
     sys_yield(); /* Sovereign Active-Relay Rule: Yield after print */
 }
 
-static void print_num(uint32_t n, int base) {
-    char buf[32];
+static void print_num(uint64_t n, int base) {
+    char buf[64];
     int i = 0;
     if (n == 0) {
         vga_write_char('0', current_color_val);
@@ -54,15 +54,37 @@ void vga_print(const char* fmt, ...) {
     for (int i = 0; fmt[i] != '\0'; i++) {
         if (fmt[i] == '%' && fmt[i+1] != '\0') {
             i++;
+            bool is_long = false;
+            bool is_long_long = false;
+
+            if (fmt[i] == 'l') {
+                is_long = true;
+                i++;
+                if (fmt[i] == 'l') {
+                    is_long_long = true;
+                    i++;
+                }
+            }
+
             if (fmt[i] == 'd') {
-                int n = __builtin_va_arg(args, int);
-                print_num(n, 10);
+                if (is_long_long) print_num(__builtin_va_arg(args, long long), 10);
+                else if (is_long) print_num(__builtin_va_arg(args, long), 10);
+                else print_num((uint64_t)__builtin_va_arg(args, int), 10);
             } else if (fmt[i] == 'x') {
-                uint32_t n = __builtin_va_arg(args, uint32_t);
-                print_num(n, 16);
+                if (is_long_long) print_num(__builtin_va_arg(args, unsigned long long), 16);
+                else if (is_long) print_num(__builtin_va_arg(args, unsigned long), 16);
+                else print_num((uint64_t)__builtin_va_arg(args, unsigned int), 16);
+            } else if (fmt[i] == 'p') {
+                vga_write_char('0', current_color_val);
+                vga_write_char('x', current_color_val);
+                print_num((uint64_t)__builtin_va_arg(args, void*), 16);
             } else if (fmt[i] == 's') {
                 char* s = __builtin_va_arg(args, char*);
-                print(s);
+                if (s) print(s);
+                else print("(null)");
+            } else {
+                vga_write_char('%', current_color_val);
+                vga_write_char(fmt[i], current_color_val);
             }
         } else {
             vga_write_char(fmt[i], current_color_val);

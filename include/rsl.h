@@ -36,6 +36,12 @@ void rsl_mkdir(void* path);
 void rsl_rmdir(void* path);
 bool rsl_exists(void* path);
 void rsl_mount(void* path);
+
+typedef void* vfs_handle_user_t;
+vfs_handle_user_t rsl_open(void* path, const char* mode);
+int rsl_read(vfs_handle_user_t handle, void* buf, int len);
+void rsl_close(vfs_handle_user_t handle);
+
 void rsl_format(void* path);
 void rsl_stamp(void* path);
 bool rsl_safe_mode(void);
@@ -46,11 +52,18 @@ void rsl_copy(void* str);
 void* rsl_paste(void);
 void rsl_settings(void);
 void rsl_debug_dump(void);
+void rsl_update(void);
+void rsl_upgrade(void);
 
 /* Storage and Partitioning Syscalls */
 int rsl_list_disks(void);
 bool rsl_is_sovereign(int disk_id);
 int rsl_get_disk_info(int disk_id, char* name, uint64_t* size);
+int rsl_partition_disk(int id);
+int rsl_format_disk(int id);
+
+void rsl_user_create(const char* name, const char* pass, int* out_res);
+void rsl_mount_vfs(int disk_id, const char* name, int* out_res);
 
 void rsl_dispatch_command(char* line, void** curdir_ptr, bool* is_safe_ptr);
 
@@ -63,6 +76,9 @@ typedef struct {
     uint16_t bpp;
 } rsl_fb_t;
 int rsl_get_fb(rsl_fb_t* fb);
+void rsl_input(const char* prompt, char* buffer);
+void sys_yield(void);
+char* strstr(const char* haystack, const char* needle);
 
 /* GUI Helpers */
 void gui_draw_rect(rsl_fb_t* fb, int x, int y, int w, int h, uint32_t color);
